@@ -160,7 +160,13 @@
     "terminal": "終端操作",
     "terminalDescription": "在工作區內直接執行命令",
     "commands": "Hermes指令",
-    "commandsDescription": "查看 Hermes 指令手冊"
+    "commandsDescription": "查看 Hermes 指令手冊",
+    "sidebar": {
+      "group": {
+        "ai": "AI",
+        "business": "企業數據"
+      }
+    }
   },
   "chat": {
     "historicalSummary": "先前的對話已整理為摘要。",

@@ -2,6 +2,21 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { stream } from 'hono/streaming'
 import { HTTPException } from 'hono/http-exception'
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import {
+  listContacts, getContact, createContact, updateContact, deleteContact,
+  listTransactions, createTransaction, updateTransaction, deleteTransaction,
+  getMonthlyRevenue, listProjects, createProject, updateProject, deleteProject,
+  listTasks, createTask, updateTask, deleteTask, moveTask,
+  getContactStats, getFinanceStats, getProjectStats, getHermesSessionStats,
+} from './services/crazor-db'
+import * as docs from './services/crazor-docs'
+import * as docTree from './services/crazor-doc-tree'
+import * as skillCatalog from './services/skill-catalog'
+import { seedVault } from './services/seed-vault'
+import { handleSSEConnect, handleSSEMessage } from './services/crazor-mcp'
+import { CRAZOR_SKILLS_DIR } from './services/crazor-config'
 
 const app = new Hono()
 
@@ -72,6 +87,16 @@ app.use('*', cors({
 
 // --- Health ---
 app.get('/api/health', (c) => c.json({ status: 'ok', service: 'crazor-api' }))
+
+// --- MCP SSE endpoint ---
+app.get('/mcp/sse', (c) => handleSSEConnect())
+app.post('/mcp/sse', async (c) => {
+  const body = await c.req.json()
+  const sessionIdParam = c.req.query('sessionId')
+  const response = handleSSEMessage(body, sessionIdParam)
+  if (response === null) return c.json({})
+  return c.json(response)
+})
 
 // --- Hermes Gateway Proxy (port 8642) ---
 // Chat completions with SSE streaming
@@ -848,10 +873,301 @@ app.onError((err, c) => {
   return c.json({ error: 'Internal server error' }, 500)
 })
 
+// ==========================================================================
+// Crazor business data routes (SQLite + local files, no Dashboard dependency)
+// ==========================================================================
+
+// --- Contacts ---
+app.get('/api/crazor/contacts', (c) => {
+  const status = c.req.query('status')
+  const q = c.req.query('q')
+  return c.json(listContacts({ status: status || undefined, q: q || undefined }))
+})
+
+app.get('/api/crazor/contacts/:id', (c) => {
+  const contact = getContact(c.req.param('id'))
+  if (!contact) return c.json({ error: 'not found' }, 404)
+  return c.json(contact)
+})
+
+app.post('/api/crazor/contacts', async (c) => {
+  const body = await c.req.json()
+  if (!body.name) return c.json({ error: 'name is required' }, 400)
+  const contact = createContact(body)
+  // Auto-create a folder in knowledge tree for this contact
+  docTree.ensureContactFolder(contact.id, contact.name)
+  return c.json(contact, 201)
+})
+
+app.patch('/api/crazor/contacts/:id', async (c) => {
+  const body = await c.req.json()
+  const updated = updateContact(c.req.param('id'), body)
+  if (!updated) return c.json({ error: 'not found' }, 404)
+  return c.json(updated)
+})
+
+app.delete('/api/crazor/contacts/:id', (c) => {
+  deleteContact(c.req.param('id'))
+  return c.json({ ok: true })
+})
+
+// --- Contact docs (Markdown) ---
+app.get('/api/crazor/contacts/:id/docs', (c) => {
+  return c.json(docs.listContactDocs(c.req.param('id')))
+})
+
+app.post('/api/crazor/contacts/:id/docs', async (c) => {
+  const body = await c.req.json()
+  if (!body.filename) return c.json({ error: 'filename is required' }, 400)
+  const contactId = c.req.param('id')
+  // Ensure knowledge tree has a folder for this contact
+  docTree.ensureContactFolder(contactId, body.contactName || contactId)
+  // Create the doc in tree + filesystem
+  const note = docTree.createContactNote(contactId, body.filename, body.content || '')
+  return c.json(note || docs.createContactDoc(contactId, body.filename, body.content || ''), 201)
+})
+
+// Legacy file read/write (used by contact docs)
+app.get('/api/crazor/doc-files/*', (c) => {
+  const docPath = c.req.path.replace('/api/crazor/doc-files/', '')
+  const content = docs.readDoc(docPath)
+  if (content === null) return c.json({ error: 'not found' }, 404)
+  return c.json({ path: docPath, content })
+})
+
+app.patch('/api/crazor/doc-files/*', async (c) => {
+  const docPath = c.req.path.replace('/api/crazor/doc-files/', '')
+  const body = await c.req.json()
+  docs.updateDoc(docPath, body.content || '')
+  return c.json({ ok: true })
+})
+
+// --- Document tree (notebook + knowledge) ---
+
+app.get('/api/crazor/docs/:scope/tree', (c) => {
+  const scope = c.req.param('scope')
+  if (scope !== 'notebook' && scope !== 'knowledge') return c.json({ error: 'invalid scope' }, 400)
+  return c.json(docTree.listTree(scope))
+})
+
+app.post('/api/crazor/docs/:scope/folders', async (c) => {
+  const scope = c.req.param('scope')
+  const body = await c.req.json()
+  return c.json(docTree.createFolder(scope, body.parentId || null, body.name || '未命名'), 201)
+})
+
+app.patch('/api/crazor/docs/folders/:id', async (c) => {
+  const body = await c.req.json()
+  docTree.renameFolder(c.req.param('id'), body.name)
+  return c.json({ ok: true })
+})
+
+app.delete('/api/crazor/docs/folders/:id', (c) => {
+  try {
+    docTree.deleteFolder(c.req.param('id'))
+    return c.json({ ok: true })
+  } catch (e: any) {
+    return c.json({ error: e.message }, 400)
+  }
+})
+
+app.post('/api/crazor/docs/:scope/notes', async (c) => {
+  const scope = c.req.param('scope')
+  const body = await c.req.json()
+  return c.json(docTree.createNote(scope, body.folderId || null, body.title || '未命名笔记'), 201)
+})
+
+app.get('/api/crazor/docs/notes/:id', (c) => {
+  const note = docTree.getNote(c.req.param('id'))
+  if (!note) return c.json({ error: 'not found' }, 404)
+  return c.json(note)
+})
+
+app.patch('/api/crazor/docs/notes/:id', async (c) => {
+  const body = await c.req.json()
+  docTree.updateNote(c.req.param('id'), body.title || '', body.content || '')
+  return c.json({ ok: true })
+})
+
+app.delete('/api/crazor/docs/notes/:id', (c) => {
+  docTree.deleteNote(c.req.param('id'))
+  return c.json({ ok: true })
+})
+
+app.get('/api/crazor/docs/:scope/search', (c) => {
+  const scope = c.req.param('scope')
+  const q = c.req.query('q') || ''
+  return c.json(docTree.searchNotes(scope, q))
+})
+
+app.patch('/api/crazor/docs/folders/:id/move', async (c) => {
+  const body = await c.req.json()
+  docTree.moveFolder(c.req.param('id'), body.parentId || null, body.targetFolderId || null, body.position || null)
+  return c.json({ ok: true })
+})
+
+app.patch('/api/crazor/docs/notes/:id/move', async (c) => {
+  const body = await c.req.json()
+  docTree.moveNote(c.req.param('id'), body.folderId || null, body.targetNoteId || null, body.position || null)
+  return c.json({ ok: true })
+})
+
+// --- Transactions ---
+app.get('/api/crazor/transactions', (c) => {
+  const type = c.req.query('type')
+  const month = c.req.query('month')
+  const category = c.req.query('category')
+  return c.json(listTransactions({ type: type || undefined, month: month || undefined, category: category || undefined }))
+})
+
+app.post('/api/crazor/transactions', async (c) => {
+  const body = await c.req.json()
+  if (!body.type || body.amount === undefined) return c.json({ error: 'type and amount are required' }, 400)
+  return c.json(createTransaction(body), 201)
+})
+
+app.patch('/api/crazor/transactions/:id', async (c) => {
+  const body = await c.req.json()
+  const updated = updateTransaction(c.req.param('id'), body)
+  if (!updated) return c.json({ error: 'not found' }, 404)
+  return c.json(updated)
+})
+
+app.delete('/api/crazor/transactions/:id', (c) => {
+  deleteTransaction(c.req.param('id'))
+  return c.json({ ok: true })
+})
+
+// --- Projects ---
+app.get('/api/crazor/projects', (c) => {
+  const status = c.req.query('status')
+  return c.json(listProjects(status || undefined))
+})
+
+app.post('/api/crazor/projects', async (c) => {
+  const body = await c.req.json()
+  if (!body.name) return c.json({ error: 'name is required' }, 400)
+  return c.json(createProject(body), 201)
+})
+
+app.patch('/api/crazor/projects/:id', async (c) => {
+  const body = await c.req.json()
+  const updated = updateProject(c.req.param('id'), body)
+  if (!updated) return c.json({ error: 'not found' }, 404)
+  return c.json(updated)
+})
+
+app.delete('/api/crazor/projects/:id', (c) => {
+  deleteProject(c.req.param('id'))
+  return c.json({ ok: true })
+})
+
+// --- Tasks ---
+app.get('/api/crazor/tasks', (c) => {
+  const project = c.req.query('project')
+  return c.json(listTasks(project || undefined))
+})
+
+app.post('/api/crazor/tasks', async (c) => {
+  const body = await c.req.json()
+  if (!body.project_id || !body.title) return c.json({ error: 'project_id and title are required' }, 400)
+  return c.json(createTask(body), 201)
+})
+
+app.patch('/api/crazor/tasks/:id', async (c) => {
+  const body = await c.req.json()
+  const updated = updateTask(c.req.param('id'), body)
+  if (!updated) return c.json({ error: 'not found' }, 404)
+  return c.json(updated)
+})
+
+app.delete('/api/crazor/tasks/:id', (c) => {
+  deleteTask(c.req.param('id'))
+  return c.json({ ok: true })
+})
+
+app.patch('/api/crazor/tasks/:id/move', async (c) => {
+  const body = await c.req.json()
+  if (!body.status) return c.json({ error: 'status is required' }, 400)
+  const updated = moveTask(c.req.param('id'), body.status, body.sort_order)
+  return c.json(updated)
+})
+
+// --- Analytics ---
+app.get('/api/crazor/analytics/overview', (c) => {
+  return c.json({
+    contacts: getContactStats(),
+    finance: getFinanceStats(),
+    projects: getProjectStats(),
+    hermes: getHermesSessionStats(),
+  })
+})
+
+app.get('/api/crazor/analytics/revenue', (c) => {
+  return c.json(getMonthlyRevenue(6))
+})
+
+// --- Crazor Skill Catalog & Installation ---
+
+app.get('/api/crazor/skills/catalog', (c) => {
+  return c.json(skillCatalog.getCatalog())
+})
+
+app.get('/api/crazor/skills/meta', (c) => {
+  return c.json(skillCatalog.getAllSkillMeta())
+})
+
+app.get('/api/crazor/skills/meta/:id', (c) => {
+  const meta = skillCatalog.getSkillMeta(c.req.param('id'))
+  if (!meta) return c.json({ error: 'Not found' }, 404)
+  return c.json(meta)
+})
+
+app.get('/api/crazor/skills/installed', (c) => {
+  if (!existsSync(CRAZOR_SKILLS_DIR)) return c.json([])
+  const ids = readdirSync(CRAZOR_SKILLS_DIR).filter((d) => {
+    const p = join(CRAZOR_SKILLS_DIR, d)
+    return statSync(p).isDirectory() && existsSync(join(p, 'SKILL.md'))
+  })
+  return c.json(ids)
+})
+
+app.post('/api/crazor/skills/install', async (c) => {
+  const { id } = await c.req.json()
+  if (!id) return c.json({ error: 'Missing skill id' }, 400)
+
+  // Look up the skill in the catalog
+  const entry = skillCatalog.getCatalogEntry(id)
+  if (!entry) return c.json({ error: 'Skill not found in catalog' }, 404)
+
+  // Read the full .md content
+  const content = skillCatalog.getSkillContent(id)
+  if (!content) return c.json({ error: 'Skill file not found' }, 404)
+
+  // Write to CRAZOR_SKILLS_DIR/{id}/SKILL.md
+  const skillDir = join(CRAZOR_SKILLS_DIR, id)
+  mkdirSync(skillDir, { recursive: true })
+  writeFileSync(join(skillDir, 'SKILL.md'), content)
+  return c.json({ success: true })
+})
+
+app.delete('/api/crazor/skills/:id', async (c) => {
+  const { id } = c.req.param()
+  const skillDir = join(CRAZOR_SKILLS_DIR, id)
+  if (!existsSync(skillDir)) return c.json({ error: 'Not found' }, 404)
+  const { rmSync } = await import('node:fs')
+  rmSync(skillDir, { recursive: true, force: true })
+  return c.json({ success: true })
+})
+
 // --- Start ---
+const seedResult = seedVault()
 console.log(`🚀 Crazor API Server starting on port ${PORT}`)
 console.log(`   Hermes Gateway: ${HERMES_GATEWAY_URL}`)
 console.log(`   Hermes Dashboard: ${HERMES_DASHBOARD_URL}`)
+if (seedResult.folders > 0 || seedResult.notes > 0) {
+  console.log(`   📦 Seeded vault: ${seedResult.folders} folders, ${seedResult.notes} notes`)
+}
 
 export default {
   port: PORT,

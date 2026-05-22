@@ -56,13 +56,6 @@ export const SIDEBAR_MENU_ITEMS = [
     mainView: "prompt-market",
   },
   {
-    id: "office",
-    labelKey: "nav.office",
-    icon: GlobeIcon,
-    mainView: "office",
-    badge: "3D",
-  },
-  {
     id: "contacts",
     labelKey: "nav.contacts",
     icon: UsersIcon,

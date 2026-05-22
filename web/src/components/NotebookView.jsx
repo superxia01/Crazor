@@ -6,6 +6,7 @@ export default function NotebookView(props) {
   return (
     <NotebookEditorPage
       {...props}
+      scope="notebook"
     />
   )
 }

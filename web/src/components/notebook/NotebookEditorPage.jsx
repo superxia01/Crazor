@@ -46,9 +46,11 @@ export function NotebookEditorPage({
   onTitleChange,
   onContentChange,
   onCreateNote,
+  scope = "notebook",
 }) {
   const { t } = useI18n()
   const { resolvedTheme } = useTheme()
+  const i18n = (key) => t(`${scope}.${key}`) || t(`notebook.${key}`)
   const notebookAppearance = getNotebookAppearanceValues({}, resolvedTheme === "dark")
   const editorRef = useRef(null)
   const { markdown: previewContent } = splitNotebookTableLayouts(draftContent)
@@ -254,18 +256,18 @@ export function NotebookEditorPage({
     return (
       <ViewFrame
         icon={BookIcon}
-        badge={t("notebook.badge")}
-        title={t("notebook.title")}
-        description={t("notebook.emptyTitle")}
+        badge={i18n("badge")}
+        title={i18n("title")}
+        description={i18n("emptyTitle")}
       >
         <div className="flex h-full min-h-0 items-center justify-center px-6">
           <div className="text-center">
             <BookIcon className="mx-auto size-8 opacity-40" />
-            <p className="mt-3 text-sm font-medium text-foreground">{t("notebook.emptyTitle")}</p>
-            <p className="mt-1 text-[13px] text-muted-foreground">{t("notebook.emptyDescription")}</p>
+            <p className="mt-3 text-sm font-medium text-foreground">{i18n("emptyTitle")}</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">{i18n("emptyDescription")}</p>
             <Button size="sm" className="mt-4 rounded-[10px]" onClick={() => onCreateNote(null)}>
               <PlusIcon className="size-4" />
-              {t("notebook.newNote")}
+              {i18n("newNote")}
             </Button>
           </div>
         </div>
@@ -346,7 +348,7 @@ export function NotebookEditorPage({
                     value={draftTitle}
                     onChange={(event) => onTitleChange(event.target.value)}
                     onKeyDown={handleTitleKeyDown}
-                    placeholder={t("notebook.titlePlaceholder")}
+                    placeholder={i18n("titlePlaceholder")}
                     className="h-14 w-full border-0 bg-transparent font-semibold leading-none tracking-normal outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
                     style={{
                       fontFamily: notebookAppearance.fontFamily,
@@ -373,7 +375,7 @@ export function NotebookEditorPage({
                       value={draftTitle}
                       onChange={(event) => onTitleChange(event.target.value)}
                       onKeyDown={handleTitleKeyDown}
-                      placeholder={t("notebook.titlePlaceholder")}
+                      placeholder={i18n("titlePlaceholder")}
                       className="h-12 w-full border-0 bg-transparent font-semibold leading-none tracking-normal outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
                       style={{
                         fontFamily: notebookAppearance.fontFamily,
@@ -412,7 +414,7 @@ export function NotebookEditorPage({
 
             <div className="mt-3 flex items-center justify-between px-1 text-[10.5px] text-muted-foreground">
               <div className="rounded-full bg-slate-50/95 px-2.5 py-0.5 shadow-[0_1px_2px_rgba(15,23,42,0.02)] dark:bg-slate-800/85 dark:text-slate-300">{draftContent.length} 字</div>
-              <div>{saveStatus === "saving" ? t("notebook.saveSaving") : saveStatus === "saved" ? t("notebook.saveSaved") : t("notebook.saveUnsaved")}</div>
+              <div>{saveStatus === "saving" ? i18n("saveSaving") : saveStatus === "saved" ? i18n("saveSaved") : i18n("saveUnsaved")}</div>
             </div>
           </div>
 

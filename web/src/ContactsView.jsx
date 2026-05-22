@@ -1,11 +1,11 @@
 // Copyright (c) 2026 MeeJoy
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Building2Icon,
   CalendarIcon,
   DollarSignIcon,
-  PhoneIcon,
+  PlusIcon,
   SearchIcon,
   TrendingUpIcon,
   UsersIcon,
@@ -24,35 +24,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-
-// ── Mock data ──────────────────────────────────────────────
-
-const MOCK_CONTACTS = [
-  { id: 1, name: "张明远", company: "深圳星河科技", role: "采购总监", status: "active", deal: 128000, phone: "138****6721", lastContact: "2026-05-18" },
-  { id: 2, name: "李雪琳", company: "杭州云创网络", role: "创始人", status: "active", deal: 86000, phone: "159****3342", lastContact: "2026-05-17" },
-  { id: 3, name: "王建国", company: "北京数联智造", role: "CTO", status: "potential", deal: 256000, phone: "186****9087", lastContact: "2026-05-10" },
-  { id: 4, name: "陈思怡", company: "上海优选电商", role: "运营经理", status: "active", deal: 45000, phone: "177****4456", lastContact: "2026-05-16" },
-  { id: 5, name: "赵德胜", company: "广州新贸通", role: "CEO", status: "silent", deal: 0, phone: "135****1128", lastContact: "2026-04-20" },
-  { id: 6, name: "刘雨桐", company: "成都智汇教育", role: "产品总监", status: "potential", deal: 92000, phone: "182****7789", lastContact: "2026-05-12" },
-  { id: 7, name: "黄志强", company: "东莞鑫达制造", role: "总经理", status: "silent", deal: 0, phone: "139****5543", lastContact: "2026-03-28" },
-  { id: 8, name: "林小燕", company: "厦门跨境优选", role: "市场总监", status: "active", deal: 67000, phone: "158****2264", lastContact: "2026-05-15" },
-]
-
-const MOCK_FOLLOWUPS = {
-  1: [
-    { date: "2026-05-18", note: "电话沟通采购需求，客户对 AI 客服方案感兴趣" },
-    { date: "2026-05-10", note: "发送产品方案 PDF" },
-    { date: "2026-04-28", note: "首次接触，参加深圳科技展交换名片" },
-  ],
-  2: [
-    { date: "2026-05-17", note: "线上 Demo 演示，客户反馈良好" },
-    { date: "2026-05-08", note: "微信沟通，了解客户痛点" },
-  ],
-  3: [
-    { date: "2026-05-10", note: "发送技术架构文档" },
-    { date: "2026-04-22", note: "技术交流会结识" },
-  ],
-}
 
 const AVATAR_COLORS = [
   "bg-blue-500/15 text-blue-600",
@@ -83,39 +54,43 @@ function formatCurrency(n) {
   return `¥${n.toLocaleString()}`
 }
 
-// ── Component ──────────────────────────────────────────────
-
 export default function ContactsView() {
+  const [contacts, setContacts] = useState([])
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [selectedId, setSelectedId] = useState(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [createForm, setCreateForm] = useState({ name: "", company: "", role: "", phone: "", status: "potential" })
 
-  const selected = useMemo(
-    () => MOCK_CONTACTS.find((c) => c.id === selectedId),
-    [selectedId],
-  )
+  const loadContacts = useCallback(async () => {
+    const params = new URLSearchParams()
+    if (statusFilter !== "all") params.set("status", statusFilter)
+    if (search) params.set("q", search)
+    const resp = await fetch(`/api/crazor/contacts?${params}`)
+    if (resp.ok) setContacts(await resp.json())
+  }, [statusFilter, search])
 
-  const filtered = useMemo(() => {
-    return MOCK_CONTACTS.filter((c) => {
-      if (statusFilter !== "all" && c.status !== statusFilter) return false
-      if (search) {
-        const q = search.toLowerCase()
-        return (
-          c.name.toLowerCase().includes(q) ||
-          c.company.toLowerCase().includes(q) ||
-          c.role.toLowerCase().includes(q)
-        )
-      }
-      return true
-    })
-  }, [search, statusFilter])
+  useEffect(() => { void loadContacts() }, [loadContacts])
+
+  const selected = useMemo(() => contacts.find((c) => c.id === selectedId), [contacts, selectedId])
 
   const stats = useMemo(() => ({
-    total: MOCK_CONTACTS.length,
-    active: MOCK_CONTACTS.filter((c) => c.status === "active").length,
-    newThisMonth: 3,
-    followups: MOCK_CONTACTS.filter((c) => c.status === "potential").length,
-  }), [])
+    total: contacts.length,
+    active: contacts.filter((c) => c.status === "active").length,
+    potential: contacts.filter((c) => c.status === "potential").length,
+  }), [contacts])
+
+  const handleCreate = useCallback(async () => {
+    if (!createForm.name.trim()) return
+    await fetch("/api/crazor/contacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(createForm),
+    })
+    setShowCreate(false)
+    setCreateForm({ name: "", company: "", role: "", phone: "", status: "potential" })
+    await loadContacts()
+  }, [createForm, loadContacts])
 
   return (
     <ViewFrame
@@ -127,61 +102,60 @@ export default function ContactsView() {
         <div className="flex w-full items-center gap-2">
           <div className="relative flex-1">
             <SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="搜索客户..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-8 pl-8 text-[12px]"
-            />
+            <Input placeholder="搜索客户..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 pl-8 text-[12px]" />
           </div>
+          <Button size="sm" onClick={() => setShowCreate(true)} className="h-8 px-2.5 text-[12px]">
+            <PlusIcon className="size-3.5" />
+            新增
+          </Button>
         </div>
       }
     >
       <div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
         {/* Stats strip */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
           <StatCard icon={UsersIcon} label="总客户" value={stats.total} />
           <StatCard icon={TrendingUpIcon} label="活跃客户" value={stats.active} color="text-emerald-600" />
-          <StatCard icon={TrendingUpIcon} label="本月新增" value={stats.newThisMonth} color="text-blue-600" />
-          <StatCard icon={CalendarIcon} label="待跟进" value={stats.followups} color="text-amber-600" />
+          <StatCard icon={CalendarIcon} label="潜在客户" value={stats.potential} color="text-blue-600" />
         </div>
 
-        {/* Status filter tabs */}
+        {/* Status filter */}
         <div className="flex gap-1.5">
           {STATUS_TABS.map((tab) => (
-            <Button
-              key={tab.id}
-              variant="ghost"
-              size="sm"
-              onClick={() => setStatusFilter(tab.id)}
-              className={cn(
-                "h-7 rounded-full px-3 text-[12px]",
-                statusFilter === tab.id
-                  ? "bg-primary/10 text-primary hover:bg-primary/15"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
+            <Button key={tab.id} variant="ghost" size="sm" onClick={() => setStatusFilter(tab.id)}
+              className={cn("h-7 rounded-full px-3 text-[12px]", statusFilter === tab.id ? "bg-primary/10 text-primary hover:bg-primary/15" : "text-muted-foreground hover:text-foreground")}>
               {tab.label}
             </Button>
           ))}
         </div>
 
-        {/* Contact cards grid */}
+        {/* Contact cards */}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {filtered.map((contact) => (
-            <ContactCard
-              key={contact.id}
-              contact={contact}
-              onClick={() => setSelectedId(contact.id)}
-            />
+          {contacts.map((contact) => (
+            <ContactCard key={contact.id} contact={contact} onClick={() => setSelectedId(contact.id)} />
           ))}
-          {filtered.length === 0 && (
-            <div className="col-span-2 py-12 text-center text-sm text-muted-foreground">
-              没有匹配的客户
-            </div>
+          {contacts.length === 0 && (
+            <div className="col-span-2 py-12 text-center text-sm text-muted-foreground">暂无客户，点击"新增"添加</div>
           )}
         </div>
       </div>
+
+      {/* Create dialog */}
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>新增客户</DialogTitle>
+            <DialogDescription>填写客户基本信息</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <Input placeholder="姓名 *" value={createForm.name} onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} />
+            <Input placeholder="公司" value={createForm.company} onChange={(e) => setCreateForm((f) => ({ ...f, company: e.target.value }))} />
+            <Input placeholder="职位" value={createForm.role} onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value }))} />
+            <Input placeholder="电话" value={createForm.phone} onChange={(e) => setCreateForm((f) => ({ ...f, phone: e.target.value }))} />
+            <Button onClick={handleCreate} disabled={!createForm.name.trim()}>保存</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Detail dialog */}
       {selected && (
@@ -189,54 +163,32 @@ export default function ContactsView() {
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-3">
-                <Avatar className={cn("size-10", AVATAR_COLORS[selected.id % AVATAR_COLORS.length])}>
-                  <AvatarFallback className={cn("text-sm font-medium", AVATAR_COLORS[selected.id % AVATAR_COLORS.length])}>
+                <Avatar className={cn("size-10", AVATAR_COLORS[selected.id.charCodeAt(0) % AVATAR_COLORS.length])}>
+                  <AvatarFallback className={cn("text-sm font-medium", AVATAR_COLORS[selected.id.charCodeAt(0) % AVATAR_COLORS.length])}>
                     {selected.name.slice(0, 1)}
                   </AvatarFallback>
                 </Avatar>
                 <div>
                   <div>{selected.name}</div>
-                  <DialogDescription className="text-[12px]">
-                    {selected.company} · {selected.role}
-                  </DialogDescription>
+                  <DialogDescription className="text-[12px]">{selected.company} · {selected.role}</DialogDescription>
                 </div>
               </DialogTitle>
             </DialogHeader>
-
-            <div className="flex flex-col gap-4">
-              {/* Info row */}
+            <div className="flex flex-col gap-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-                  <PhoneIcon className="size-3.5" />
-                  {selected.phone}
-                </div>
-                <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-                  <CalendarIcon className="size-3.5" />
-                  最近联系：{selected.lastContact}
+                  <span>电话：{selected.phone || "-"}</span>
                 </div>
                 <div className="flex items-center gap-2 text-[12px]">
                   <DollarSignIcon className="size-3.5" />
                   <span className="font-medium">{formatCurrency(selected.deal)}</span>
-                  <span className="text-muted-foreground">商机金额</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-medium", STATUS_MAP[selected.status].variant)}>
-                    {STATUS_MAP[selected.status].label}
-                  </span>
+                  <span className="text-muted-foreground">商机</span>
                 </div>
               </div>
-
-              {/* Follow-up timeline */}
-              <div className="border-t border-border pt-3">
-                <h4 className="mb-2 text-[12px] font-medium text-muted-foreground">跟进记录</h4>
-                <div className="flex flex-col gap-2.5">
-                  {(MOCK_FOLLOWUPS[selected.id] || []).map((item, i) => (
-                    <div key={i} className="flex gap-3 text-[12px]">
-                      <div className="flex w-16 shrink-0 text-muted-foreground">{item.date.slice(5)}</div>
-                      <div className="flex-1">{item.note}</div>
-                    </div>
-                  ))}
-                </div>
+              <div className="flex items-center gap-2">
+                <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-medium", STATUS_MAP[selected.status]?.variant)}>
+                  {STATUS_MAP[selected.status]?.label}
+                </span>
               </div>
             </div>
           </DialogContent>
@@ -245,8 +197,6 @@ export default function ContactsView() {
     </ViewFrame>
   )
 }
-
-// ── Sub-components ─────────────────────────────────────────
 
 function StatCard({ icon: Icon, label, value, color }) {
   return (
@@ -265,19 +215,14 @@ function StatCard({ icon: Icon, label, value, color }) {
 }
 
 function ContactCard({ contact, onClick }) {
-  const colorClass = AVATAR_COLORS[contact.id % AVATAR_COLORS.length]
-  const statusInfo = STATUS_MAP[contact.status]
+  const colorClass = AVATAR_COLORS[contact.name.charCodeAt(0) % AVATAR_COLORS.length]
+  const statusInfo = STATUS_MAP[contact.status] || STATUS_MAP.potential
 
   return (
-    <Card
-      className="cursor-pointer transition-shadow hover:shadow-md"
-      onClick={onClick}
-    >
+    <Card className="cursor-pointer transition-shadow hover:shadow-md" onClick={onClick}>
       <CardContent className="flex items-start gap-3 p-3.5">
         <Avatar className={cn("size-10 shrink-0", colorClass)}>
-          <AvatarFallback className={cn("text-sm font-medium", colorClass)}>
-            {contact.name.slice(0, 1)}
-          </AvatarFallback>
+          <AvatarFallback className={cn("text-sm font-medium", colorClass)}>{contact.name.slice(0, 1)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
@@ -288,18 +233,11 @@ function ContactCard({ contact, onClick }) {
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-muted-foreground">
             <Building2Icon className="size-3" />
-            {contact.company} · {contact.role}
+            {contact.company || "未填写公司"}{contact.role ? ` · ${contact.role}` : ""}
           </div>
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-[11px] text-muted-foreground">
-              最近联系：{contact.lastContact.slice(5)}
-            </span>
-            {contact.deal > 0 && (
-              <span className="text-[12px] font-medium text-primary">
-                {formatCurrency(contact.deal)}
-              </span>
-            )}
-          </div>
+          {contact.deal > 0 && (
+            <div className="mt-1.5 text-[12px] font-medium text-primary">{formatCurrency(contact.deal)}</div>
+          )}
         </div>
       </CardContent>
     </Card>

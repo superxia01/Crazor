@@ -35,24 +35,8 @@ const UI_STATE = {
   knowledge: { selectedNoteId: null, expandedFolderIds: new Set(), searchQuery: "", editorMode: "edit" },
 }
 
-function getApi(scope) {
-  if (scope === "knowledge") {
-    return {
-      listTree: listKnowledgeTree,
-      createFolder: createKnowledgeFolder,
-      renameFolder: renameKnowledgeFolder,
-      deleteFolder: deleteKnowledgeFolder,
-      createNote: createKnowledgeNote,
-      renameNote: renameKnowledgeNote,
-      deleteNote: deleteKnowledgeNote,
-      getNote: getKnowledgeNote,
-      updateNote: updateKnowledgeNote,
-      searchNotes: searchKnowledgeNotes,
-      moveFolder: moveKnowledgeFolder,
-      moveNote: moveKnowledgeNote,
-    }
-  }
-  return {
+const API_MAP = {
+  notebook: {
     listTree: listNotebookTree,
     createFolder: createNotebookFolder,
     renameFolder: renameNotebookFolder,
@@ -65,11 +49,25 @@ function getApi(scope) {
     searchNotes: searchNotebookNotes,
     moveFolder: moveNotebookFolder,
     moveNote: moveNotebookNote,
-  }
+  },
+  knowledge: {
+    listTree: listKnowledgeTree,
+    createFolder: createKnowledgeFolder,
+    renameFolder: renameKnowledgeFolder,
+    deleteFolder: deleteKnowledgeFolder,
+    createNote: createKnowledgeNote,
+    renameNote: renameKnowledgeNote,
+    deleteNote: deleteKnowledgeNote,
+    getNote: getKnowledgeNote,
+    updateNote: updateKnowledgeNote,
+    searchNotes: searchKnowledgeNotes,
+    moveFolder: moveKnowledgeFolder,
+    moveNote: moveKnowledgeNote,
+  },
 }
 
 export function useNotebookState(scope = "notebook") {
-  const api = getApi(scope)
+  const api = API_MAP[scope] || API_MAP.notebook
   const ui = UI_STATE[scope]
 
   const [tree, setTree] = useState({ folders: [], notes: [] })

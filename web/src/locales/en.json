@@ -161,7 +161,13 @@
     "terminal": "Terminal Actions",
     "terminalDescription": "Run commands inside the workspace",
     "commands": "Hermes Commands",
-    "commandsDescription": "Browse the Hermes command manual"
+    "commandsDescription": "Browse the Hermes command manual",
+    "sidebar": {
+      "group": {
+        "ai": "AI",
+        "business": "Enterprise Data"
+      }
+    }
   },
   "chat": {
     "historicalSummary": "Previous messages were condensed into a summary.",

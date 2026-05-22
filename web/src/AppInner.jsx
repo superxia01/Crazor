@@ -233,94 +233,35 @@ const DEFAULT_WORKSPACES = [
   },
 ]
 
-const VIEW_ITEMS = [
+const SIDEBAR_GROUPS = [
   {
-    id: "home",
-    labelKey: "nav.home",
-    descriptionKey: "nav.homeDescription",
-    icon: HomeIcon,
+    group: "ai",
+    labelKey: "nav.sidebar.group.ai",
+    items: [
+      { id: "home", labelKey: "nav.home", descriptionKey: "nav.homeDescription", icon: HomeIcon },
+      { id: "sessions", labelKey: "nav.sessions", descriptionKey: "nav.sessionsDescription", icon: MessageSquareIcon },
+      { id: "prompt-market", labelKey: "nav.promptMarket", descriptionKey: "nav.promptMarketDescription", icon: MessageSquareCodeIcon },
+      { id: "hermes-skills", labelKey: "nav.skillsList", descriptionKey: "nav.skillsDescription", icon: PackageIcon },
+      { id: "cron", labelKey: "nav.cron", descriptionKey: "nav.cronDescription", icon: ClockIcon },
+      { id: "hermes", labelKey: "nav.hermes", descriptionKey: "nav.tasksDescription", icon: SparklesIcon },
+    ],
   },
   {
-    id: "sessions",
-    labelKey: "nav.sessions",
-    descriptionKey: "nav.sessionsDescription",
-    icon: MessageSquareIcon,
-  },
-  {
-    id: "prompt-market",
-    labelKey: "nav.promptMarket",
-    descriptionKey: "nav.promptMarketDescription",
-    icon: MessageSquareCodeIcon,
-  },
-  {
-    id: "office",
-    labelKey: "nav.office",
-    descriptionKey: "nav.office",
-    icon: GlobeIcon,
-    badge: "3D",
-  },
-  {
-    id: "contacts",
-    labelKey: "nav.contacts",
-    descriptionKey: "nav.contacts",
-    icon: UsersIcon,
-  },
-  {
-    id: "finance",
-    labelKey: "nav.finance",
-    descriptionKey: "nav.finance",
-    icon: LandmarkIcon,
-  },
-  {
-    id: "projects",
-    labelKey: "nav.projects",
-    descriptionKey: "nav.projects",
-    icon: KanbanSquareIcon,
-  },
-  {
-    id: "notebook",
-    labelKey: "nav.notebook",
-    descriptionKey: "nav.chatDescription",
-    icon: BookIcon,
-    badge: "beta",
-  },
-  {
-    id: "knowledge",
-    labelKey: "nav.knowledge",
-    descriptionKey: "nav.knowledge",
-    icon: FileTextIcon,
-  },
-  {
-    id: "hermes-skills",
-    labelKey: "nav.skillsList",
-    descriptionKey: "nav.skillsDescription",
-    icon: PackageIcon,
-  },
-  {
-    id: "files",
-    labelKey: "nav.files",
-    descriptionKey: "nav.filesDescription",
-    icon: FolderOpenIcon,
-  },
-  {
-    id: "cron",
-    labelKey: "nav.cron",
-    descriptionKey: "nav.cronDescription",
-    icon: ClockIcon,
-  },
-  {
-    id: "analytics",
-    labelKey: "nav.analytics",
-    descriptionKey: "nav.analytics",
-    icon: BarChart3Icon,
-  },
-  {
-    id: "hermes",
-    labelKey: "nav.hermes",
-    descriptionKey: "nav.tasksDescription",
-    icon: SparklesIcon,
+    group: "business",
+    labelKey: "nav.sidebar.group.business",
+    items: [
+      { id: "contacts", labelKey: "nav.contacts", descriptionKey: "nav.contacts", icon: UsersIcon },
+      { id: "finance", labelKey: "nav.finance", descriptionKey: "nav.finance", icon: LandmarkIcon },
+      { id: "projects", labelKey: "nav.projects", descriptionKey: "nav.projects", icon: KanbanSquareIcon },
+      { id: "knowledge", labelKey: "nav.knowledge", descriptionKey: "nav.knowledge", icon: FileTextIcon },
+      { id: "notebook", labelKey: "nav.notebook", descriptionKey: "nav.chatDescription", icon: BookIcon, badge: "beta" },
+      { id: "analytics", labelKey: "nav.analytics", descriptionKey: "nav.analytics", icon: BarChart3Icon },
+      { id: "files", labelKey: "nav.files", descriptionKey: "nav.filesDescription", icon: FolderOpenIcon },
+    ],
   },
 ]
+
+const VIEW_ITEMS = SIDEBAR_GROUPS.flatMap((g) => g.items)
 
 function ViewFallback() {
   return (
@@ -2342,7 +2283,7 @@ export function AppInner() {
   const terminalDockHeight = shellLayout.terminalDockExpanded
     ? TERMINAL_DOCK_EXPANDED_HEIGHT
     : TERMINAL_DOCK_HEIGHT
-  const hasMiddleColumnContent = ["sessions", "hermes-submenu", "notebook", "files"].includes(
+  const hasMiddleColumnContent = ["sessions", "hermes-submenu", "notebook", "knowledge", "files"].includes(
     activeMiddleView || ""
   )
   const activeSidebarItemId =
@@ -2466,41 +2407,54 @@ export function AppInner() {
               <div className="px-1.5 pb-1 pt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
                 MENU
               </div>
-              <SidebarMenu className="gap-0.5">
-                {viewItems.map((item) => (
-                  <SidebarMenuItem key={item.id}>
-                    <SidebarMenuButton
-                      tooltip={item.label}
-                      isActive={activeSidebarItemId === item.id}
-                      onClick={() => handleNavigateView(item.id)}
-                      className={cn(
-                        "group/navitem relative h-8 rounded-[11px] px-3 py-[7px] text-[12px] font-medium transition-all duration-150",
-                        "text-sidebar-foreground hover:bg-accent hover:text-sidebar-foreground",
-                        "data-[active=true]:border-transparent data-[active=true]:bg-sidebar-accent/88 data-[active=true]:font-semibold data-[active=true]:text-sidebar-foreground",
-                        "data-[active=true]:shadow-none",
-                        "group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:px-0"
-                      )}>
-                      <span
-                        className={cn(
-                          "flex size-[18px] shrink-0 items-center justify-center transition-colors",
-                          activeSidebarItemId === item.id
-                            ? "text-sidebar-foreground"
-                            : "text-sidebar-foreground group-hover/navitem:text-sidebar-foreground"
-                        )}>
-                        <item.icon className="size-[17px]" />
-                      </span>
-                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                        <span className="truncate">{item.label}</span>
-                        {item.badge ? (
-                          <span className="shrink-0 rounded-[5px] border border-red-500 bg-white px-1.5 py-[1px] text-[9px] font-semibold leading-none text-red-600">
-                            {item.badge}
-                          </span>
-                        ) : null}
-                      </span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
+              {SIDEBAR_GROUPS.map((group, gi) => (
+                <div key={group.group} className={cn("space-y-0.5", gi > 0 && "pt-1.5")}>
+                  <div className="group-data-[collapsible=icon]:hidden mb-0.5 flex h-5 items-center px-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+                      {t(group.labelKey)}
+                    </span>
+                  </div>
+                  <SidebarMenu className="gap-0.5">
+                    {group.items.map((item) => {
+                      const resolved = viewItems.find((v) => v.id === item.id)
+                      if (!resolved) return null
+                      return (
+                        <SidebarMenuItem key={item.id}>
+                          <SidebarMenuButton
+                            tooltip={resolved.label}
+                            isActive={activeSidebarItemId === item.id}
+                            onClick={() => handleNavigateView(item.id)}
+                            className={cn(
+                              "group/navitem relative h-8 rounded-[11px] px-3 py-[7px] text-[12px] font-medium transition-all duration-150",
+                              "text-sidebar-foreground hover:bg-accent hover:text-sidebar-foreground",
+                              "data-[active=true]:border-transparent data-[active=true]:bg-sidebar-accent/88 data-[active=true]:font-semibold data-[active=true]:text-sidebar-foreground",
+                              "data-[active=true]:shadow-none",
+                              "group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:px-0"
+                            )}>
+                            <span
+                              className={cn(
+                                "flex size-[18px] shrink-0 items-center justify-center transition-colors",
+                                activeSidebarItemId === item.id
+                                  ? "text-sidebar-foreground"
+                                  : "text-sidebar-foreground group-hover/navitem:text-sidebar-foreground"
+                              )}>
+                              <item.icon className="size-[17px]" />
+                            </span>
+                            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                              <span className="truncate">{resolved.label}</span>
+                              {item.badge ? (
+                                <span className="shrink-0 rounded-[5px] border border-red-500 bg-white px-1.5 py-[1px] text-[9px] font-semibold leading-none text-red-600">
+                                  {item.badge}
+                                </span>
+                              ) : null}
+                            </span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      )
+                    })}
+                  </SidebarMenu>
+                </div>
+              ))}
             </SidebarGroup>
 
           </SidebarContent>
@@ -2513,6 +2467,14 @@ export function AppInner() {
 
           <SidebarFooter className="px-2 pb-2 pt-1 group-data-[collapsible=icon]:hidden">
             <div className="space-y-1.5 px-1">
+              <Button
+                onClick={() => handleNavigateView("office")}
+                className="h-7 w-full rounded-md border border-purple-300/60 bg-gradient-to-r from-purple-500/90 to-indigo-500/90 px-2 text-white shadow-sm hover:from-purple-600 hover:to-indigo-600 hover:shadow-md transition-all">
+                <GlobeIcon className="size-3.5 shrink-0" />
+                <span className="text-xs font-medium">{t("nav.office")}</span>
+                <span className="ml-auto rounded-[4px] bg-white/25 px-1 py-[1px] text-[9px] font-bold leading-none">3D</span>
+              </Button>
+
               <div
                 data-sidebar-model-switcher="true"
                 className="rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 p-1.5">

@@ -161,7 +161,13 @@
     "terminal": "终端操作",
     "terminalDescription": "在工作区中直接运行命令",
     "commands": "Hermes指令",
-    "commandsDescription": "查看 Hermes 指令手册"
+    "commandsDescription": "查看 Hermes 指令手册",
+    "sidebar": {
+      "group": {
+        "ai": "AI",
+        "business": "企业数据"
+      }
+    }
   },
   "chat": {
     "historicalSummary": "之前的对话已经被整理为摘要。",
@@ -1013,5 +1019,35 @@
     "emptyContent": "## 空白笔记\n\n开始输入内容吧。",
     "mermaidError": "Mermaid 渲染失败",
     "imageAlt": "插图"
+  },
+  "knowledge": {
+    "badge": "Knowledge",
+    "title": "知识库",
+    "emptyTitle": "选择一篇文档或新建文档",
+    "emptyDescription": "中栏选择文档后将在这里打开编辑页。",
+    "newNote": "新建文档",
+    "newFolder": "新建目录",
+    "newNoteShort": "新文档",
+    "newFolderShort": "新目录",
+    "countLabel": "数量：",
+    "titlePlaceholder": "标题",
+    "untitled": "未命名文档",
+    "directoryTitle": "文档目录",
+    "directorySubtitle": "搜索、创建与整理当前文档集合",
+    "searchAction": "搜索文档",
+    "searchPlaceholder": "搜索文档 [标题+全文]",
+    "allNotes": "全部文档",
+    "newNoteFolder": "新建目录",
+    "searchHelper": "从当前结果中快速定位文档",
+    "saveSaving": "保存中...",
+    "saveSaved": "已保存",
+    "saveUnsaved": "未保存",
+    "loadingTree": "加载中...",
+    "toc": "目录",
+    "tocDescription": "当前文档结构",
+    "emptyToc": "暂无目录",
+    "previewBadge": "Preview 预览",
+    "loadingPreview": "正在载入预览...",
+    "loadingEditor": "正在载入编辑器..."
   }
 }
