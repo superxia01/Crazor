@@ -28,7 +28,6 @@ import {
   FolderCodeIcon,
   FolderOpenIcon,
   GripVerticalIcon,
-  GlobeIcon,
   HomeIcon,
   KanbanSquareIcon,
   LanguagesIcon,
@@ -51,6 +50,7 @@ import {
   Trash2Icon,
   UsersIcon,
   WrenchIcon,
+  Gamepad2Icon,
 } from "lucide-react"
 
 import {
@@ -187,11 +187,11 @@ const MemoryView = lazy(() => import("@/MemoryView"))
 const ModelConfigPage = lazy(() => import("@/ModelConfigPage"))
 const FileView = lazy(() => import("@/components/FileView"))
 const TerminalView = lazy(() => import("@/TerminalView"))
-const OfficeView = lazy(() => import("@/OfficeView"))
 const CommandsReference = lazy(() => import("@/CommandsReference"))
 const SettingsModal = lazy(() => import("@/SettingsModal"))
 const NotebookView = lazy(() => import("@/components/NotebookView.jsx"))
 const HermesAnalyticsPage = lazy(() => import("@/components/hermes/AnalyticsPage"))
+const OfficeView = lazy(() => import("@/components/office/OfficeView"))
 const HermesChannelsPage = lazy(() => import("@/components/hermes/ChannelsPage"))
 const HermesSkillsPage = lazy(() => import("@/components/hermes/SkillsPage"))
 const HermesMemoryPage = lazy(() => import("@/components/hermes/MemoryPage"))
@@ -379,6 +379,53 @@ function prepareContext(currentMessages, newUserMessage, t) {
   }
 
   return nextMessages
+}
+
+// 3D Office toggle — persists to localStorage
+const OFFICE_ENABLED_KEY = "crazor-office-3d-enabled"
+function OfficeToggle({ onNavigate, onLeave, isActive }) {
+  const [enabled, setEnabled] = useState(() => {
+    try { return localStorage.getItem(OFFICE_ENABLED_KEY) === "true" } catch { return false }
+  })
+
+  const toggle = useCallback(() => {
+    const next = !enabled
+    setEnabled(next)
+    try { localStorage.setItem(OFFICE_ENABLED_KEY, String(next)) } catch { /* ignore */ }
+    if (!next && isActive) onLeave?.()
+  }, [enabled, isActive, onLeave])
+
+  return (
+    <div className="rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 p-2 space-y-2">
+      {/* Toggle switch row */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Gamepad2Icon className="size-3.5 text-sidebar-foreground/70" />
+          <span className="text-[11px] font-medium text-sidebar-foreground/80">3D 办公室</span>
+        </div>
+        <button
+          onClick={toggle}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ${enabled ? "bg-emerald-500" : "bg-muted"}`}
+        >
+          <span
+            className={`pointer-events-none block size-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${enabled ? "translate-x-[18px]" : "translate-x-[2px]"}`}
+          />
+        </button>
+      </div>
+      {/* Enter button — only when enabled */}
+      {enabled && (
+        <Button
+          onClick={() => (isActive ? onLeave?.() : onNavigate())}
+          variant={isActive ? "secondary" : "outline"}
+          size="sm"
+          className={`h-7 w-full gap-1.5 text-[11px] font-medium ${isActive ? "" : "border-emerald-300 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20"}`}
+        >
+          <Gamepad2Icon className="size-3.5" />
+          {isActive ? "← 返回主页" : "进入办公室"}
+        </Button>
+      )}
+    </div>
+  )
 }
 
 export function AppInner() {
@@ -2467,15 +2514,8 @@ export function AppInner() {
 
           <SidebarFooter className="px-2 pb-2 pt-1 group-data-[collapsible=icon]:hidden">
             <div className="space-y-1.5 px-1">
-              <Button
-                onClick={() => handleNavigateView("office")}
-                className="h-7 w-full rounded-md border border-purple-300/60 bg-gradient-to-r from-purple-500/90 to-indigo-500/90 px-2 text-white shadow-sm hover:from-purple-600 hover:to-indigo-600 hover:shadow-md transition-all">
-                <GlobeIcon className="size-3.5 shrink-0" />
-                <span className="text-xs font-medium">{t("nav.office")}</span>
-                <span className="ml-auto rounded-[4px] bg-white/25 px-1 py-[1px] text-[9px] font-bold leading-none">3D</span>
-              </Button>
-
-              <div
+              <OfficeToggle onNavigate={() => setView("office")} onLeave={() => setView("home")} isActive={view === "office"} />
+<div
                 data-sidebar-model-switcher="true"
                 className="rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 p-1.5">
                 <div className="mb-1 flex items-center gap-1.5 px-0.5 text-[10px] font-medium text-sidebar-foreground/80">
