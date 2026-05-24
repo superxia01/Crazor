@@ -10,6 +10,7 @@ import {
   getMonthlyRevenue, listProjects, createProject, updateProject, deleteProject,
   listTasks, createTask, updateTask, deleteTask, moveTask,
   getContactStats, getFinanceStats, getProjectStats, getHermesSessionStats,
+  listFollowUps, createFollowUp, updateFollowUp, deleteFollowUp,
 } from './services/crazor-db'
 import * as docs from './services/crazor-docs'
 import * as docTree from './services/crazor-doc-tree'
@@ -92,7 +93,7 @@ app.get('/api/health', (c) => c.json({ status: 'ok', service: 'crazor-api' }))
 app.get('/mcp/sse', (c) => handleSSEConnect())
 app.post('/mcp/sse', async (c) => {
   const body = await c.req.json()
-  const sessionIdParam = c.req.query('sessionId')
+  const sessionIdParam = c.req.query('sessionId') ?? null
   const response = handleSSEMessage(body, sessionIdParam)
   if (response === null) return c.json({})
   return c.json(response)
@@ -1091,6 +1092,36 @@ app.patch('/api/crazor/tasks/:id/move', async (c) => {
   if (!body.status) return c.json({ error: 'status is required' }, 400)
   const updated = moveTask(c.req.param('id'), body.status, body.sort_order)
   return c.json(updated)
+})
+
+// --- Follow-ups (跟进记录) ---
+app.get('/api/crazor/follow-ups', (c) => {
+  const contactId = c.req.query('contact_id')
+  const projectId = c.req.query('project_id')
+  const status = c.req.query('status')
+  return c.json(listFollowUps({
+    contact_id: contactId || undefined,
+    project_id: projectId || undefined,
+    status: status || undefined,
+  }))
+})
+
+app.post('/api/crazor/follow-ups', async (c) => {
+  const body = await c.req.json()
+  if (!body.contact_id || !body.content) return c.json({ error: 'contact_id and content are required' }, 400)
+  return c.json(createFollowUp(body), 201)
+})
+
+app.patch('/api/crazor/follow-ups/:id', async (c) => {
+  const body = await c.req.json()
+  const updated = updateFollowUp(c.req.param('id'), body)
+  if (!updated) return c.json({ error: 'not found' }, 404)
+  return c.json(updated)
+})
+
+app.delete('/api/crazor/follow-ups/:id', (c) => {
+  deleteFollowUp(c.req.param('id'))
+  return c.json({ ok: true })
 })
 
 // --- Analytics ---

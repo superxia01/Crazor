@@ -83,6 +83,20 @@ db.exec(`
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS follow_ups (
+    id TEXT PRIMARY KEY,
+    contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    type TEXT DEFAULT '微信',
+    content TEXT NOT NULL,
+    outcome TEXT DEFAULT '',
+    next_step TEXT DEFAULT '',
+    next_date TEXT,
+    status TEXT DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `)
 
 // ── Schema migrations (idempotent) ──────────────────────────
@@ -283,7 +297,7 @@ export function createTask(data: Partial<any>) {
     id: id(), project_id: data.project_id, title: data.title || "", description: data.description || "",
     priority: data.priority || "medium", status: data.status || "todo", assignee: data.assignee || "",
     due_date: data.due_date || null, estimated_hours: data.estimated_hours || 0,
-    sort_order: data.sort_order ?? db.prepare("SELECT COALESCE(MAX(sort_order),-1)+1 as n FROM tasks WHERE project_id = ? AND status = ?").get(data.project_id, data.status || "todo").n,
+    sort_order: data.sort_order ?? (db.prepare("SELECT COALESCE(MAX(sort_order),-1)+1 as n FROM tasks WHERE project_id = ? AND status = ?").get(data.project_id, data.status || "todo") as {n:number}).n,
     created_at: now(), updated_at: now(),
   }
   db.prepare(`INSERT INTO tasks (id,project_id,title,description,priority,status,assignee,due_date,estimated_hours,sort_order,created_at,updated_at)
@@ -308,7 +322,7 @@ export function deleteTask(id: string) {
 }
 
 export function moveTask(id: string, status: string, sortOrder?: number) {
-  const so = sortOrder ?? db.prepare("SELECT COALESCE(MAX(sort_order),-1)+1 as n FROM tasks WHERE status = ?").get(status).n
+  const so = sortOrder ?? (db.prepare("SELECT COALESCE(MAX(sort_order),-1)+1 as n FROM tasks WHERE status = ?").get(status) as {n:number}).n
   db.prepare("UPDATE tasks SET status = ?, sort_order = ?, updated_at = ? WHERE id = ?").run(status, so, now(), id)
   return db.prepare("SELECT * FROM tasks WHERE id = ?").get(id)
 }
@@ -369,6 +383,59 @@ export function getHermesSessionStats() {
   } catch {
     return { todayConversations: 0, weekConversations: 0, toolCalls: 0, dailyTrend: [] }
   }
+}
+
+// ── Follow-ups (跟进记录) ──────────────────────────────────
+
+export function listFollowUps(filter?: { contact_id?: string; project_id?: string; status?: string }) {
+  let sql = "SELECT f.*, c.name as contact_name FROM follow_ups f LEFT JOIN contacts c ON f.contact_id = c.id WHERE 1=1"
+  const params: any[] = []
+  if (filter?.contact_id) { sql += " AND f.contact_id = ?"; params.push(filter.contact_id) }
+  if (filter?.project_id) { sql += " AND f.project_id = ?"; params.push(filter.project_id) }
+  if (filter?.status) { sql += " AND f.status = ?"; params.push(filter.status) }
+  sql += " ORDER BY f.created_at DESC"
+  return db.prepare(sql).all(...params).map((r: any) => ({ ...r, next_date: r.next_date || null }))
+}
+
+export function getFollowUp(id: string) {
+  return db.prepare(`
+    SELECT f.*, c.name as contact_name FROM follow_ups f LEFT JOIN contacts c ON f.contact_id = c.id WHERE f.id = ?
+  `).get(id)
+}
+
+export function createFollowUp(data: Partial<any>) {
+  const f = {
+    id: id(), contact_id: data.contact_id, project_id: data.project_id || null,
+    type: data.type || "微信", content: data.content || "",
+    outcome: data.outcome || "", next_step: data.next_step || "",
+    next_date: data.next_date || null, status: data.status || "pending",
+    created_at: now(), updated_at: now(),
+  }
+  db.prepare(`INSERT INTO follow_ups (id,contact_id,project_id,type,content,outcome,next_step,next_date,status,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(f.id, f.contact_id, f.project_id, f.type, f.content, f.outcome, f.next_step, f.next_date, f.status, f.created_at, f.updated_at)
+  // Update contact's last_contacted_at
+  if (f.contact_id) {
+    db.prepare("UPDATE contacts SET last_contacted_at = ?, updated_at = ? WHERE id = ?").run(now(), now(), f.contact_id)
+  }
+  return getFollowUp(f.id)
+}
+
+export function updateFollowUp(id: string, data: Partial<any>) {
+  const existing = getFollowUp(id)
+  if (!existing) return null
+  const sets: string[] = []
+  const params: any[] = []
+  for (const key of ["contact_id", "project_id", "type", "content", "outcome", "next_step", "next_date", "status"]) {
+    if (data[key] !== undefined) { sets.push(`${key} = ?`); params.push(data[key]) }
+  }
+  if (sets.length === 0) return existing
+  sets.push("updated_at = ?"); params.push(now()); params.push(id)
+  db.prepare(`UPDATE follow_ups SET ${sets.join(", ")} WHERE id = ?`).run(...params)
+  return getFollowUp(id)
+}
+
+export function deleteFollowUp(id: string) {
+  db.prepare("DELETE FROM follow_ups WHERE id = ?").run(id)
 }
 
 // ── Exports for doc-tree service ─────────────────────────────
