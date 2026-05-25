@@ -3,6 +3,7 @@ import {
   BookOpenIcon,
   DatabaseIcon,
   GlobeIcon,
+  MessageSquareIcon,
   ServerIcon,
   WrenchIcon,
   XIcon,
@@ -18,7 +19,7 @@ const META_SECTIONS = [
   { key: "externalApis", label: "外部 API", icon: GlobeIcon, color: "bg-orange-100 text-orange-700 border-orange-200" },
 ]
 
-export default function EmployeePanel({ sceneRef }) {
+export default function EmployeePanel({ sceneRef, onStartChat }) {
   const employees = useOfficeStore((s) => s.employees)
   const selectedId = useOfficeStore((s) => s.selectedEmployeeId)
   const metaCache = useOfficeStore((s) => s.metaCache)
@@ -45,19 +46,26 @@ export default function EmployeePanel({ sceneRef }) {
 
   if (!employee) return null
 
+  const handleClose = () => {
+    selectEmployee(null)
+    charManager?.unhighlight()
+  }
+
+  const handleStartChat = () => {
+    onStartChat?.(selectedId)
+    handleClose()
+  }
+
   return (
     <div className="fixed inset-y-0 right-0 z-50 w-full max-w-sm bg-background border-l shadow-xl flex flex-col animate-in slide-in-from-right duration-200">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b">
-        <div>
+        <div className="min-w-0">
           <h2 className="text-base font-semibold">{employee.name}</h2>
           <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">{employee.description}</p>
         </div>
         <button
-          onClick={() => {
-            selectEmployee(null)
-            charManager?.unhighlight()
-          }}
+          onClick={handleClose}
           className="p-1.5 rounded-md hover:bg-muted transition-colors"
         >
           <XIcon className="size-4" />
@@ -108,6 +116,14 @@ export default function EmployeePanel({ sceneRef }) {
             </p>
           </div>
         )}
+      </div>
+
+      {/* Action button */}
+      <div className="px-4 py-3 border-t">
+        <Button className="w-full gap-2" onClick={handleStartChat}>
+          <MessageSquareIcon className="size-4" />
+          开始对话
+        </Button>
       </div>
     </div>
   )

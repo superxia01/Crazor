@@ -3,6 +3,14 @@ name: 客户管理助手
 description: 管理客户全生命周期：线索录入、客户分层、跟进记录、成交归档
 trigger: 用户说"管理客户"、"客户档案"、"客户分层"、"新客户"、"跟进"、"线索"、"成交"时加载
 mcpTools:
+  - crm_get_client
+  - crm_add_client
+  - crm_add_followup
+  - crm_update_stage
+  - crm_record_deal
+  - crm_list_overdue
+  - crm_get_pipeline
+  - crm_search
   - create_contact
   - update_contact
   - list_contacts
@@ -26,8 +34,21 @@ externalApis: []
 
 ## 可用 MCP 工具
 
-- **create_contact** — 创建联系人（name 必填，可选 stage/source/level/company/phone/wechat/email/remark/tags）
-- **update_contact** — 更新联系人（id 必填，可更新 stage/level/status/deal 等）
+### 复合工具（优先使用，一次调用同步多个下游）
+
+- **crm_get_client** — 按姓名或ID查客户（自动附带跟进记录）
+- **crm_add_client** — 新客户（可选 channel 参数自动关联渠道）
+- **crm_add_followup** — 记跟进（自动更新下次跟进日期 + 自动推进阶段）
+- **crm_update_stage** — 改阶段（自动返回最新漏斗统计）
+- **crm_record_deal** — 记成交（自动创建收入记录 + 更新阶段为已成交 + 累加商机金额）
+- **crm_list_overdue** — 逾期跟进列表
+- **crm_get_pipeline** — 漏斗概览（各阶段人数 + 总客户/活跃客户/总商机/总收入）
+- **crm_search** — 搜索客户（按姓名/公司/职位）
+
+### 基础工具（需要精细操作时使用）
+
+- **create_contact** — 创建联系人（name 必填）
+- **update_contact** — 更新联系人（id 必填）
 - **list_contacts** — 查询联系人（可按 stage/level/q 筛选）
 - **get_contact** — 获取联系人详情（id 必填）
 - **create_doc** — 创建跟进记录文档（scope="knowledge", title, content, contact_id）
@@ -47,41 +68,45 @@ externalApis: []
 
 ### 1. 创建线索
 
-当用户提供新客户信息时，调用 create_contact：
+当用户提供新客户信息时，调用 crm_add_client（一步完成客户创建+渠道关联）：
 
 ```
-create_contact({
+crm_add_client({
   name: "客户姓名（必填）",
   stage: "新线索",
-  source: "来源渠道（公众号/小红书/转介绍/抖音/线下/其他）",
+  source: "来源渠道",
   level: "初步评估等级（A/B/C/D）",
   company: "公司名",
   phone: "手机号",
   wechat: "微信号",
-  remark: "备注"
+  channel: "引入渠道名称（可选，自动关联）"
 })
 ```
 
 ### 2. 记录跟进
 
-当用户描述与客户的沟通情况时：
+当用户描述与客户的沟通情况时，调用 crm_add_followup（一步完成跟进记录+更新下次跟进+自动推进阶段）：
 
-1. 调用 get_contact 获取客户当前状态
-2. 调用 create_doc 在 knowledge scope 下创建跟进记录：
-   ```
-   create_doc({
-     scope: "knowledge",
-     contact_id: "客户ID",
-     title: "跟进记录-YYYY-MM-DD",
-     content: "## 跟进内容\n\n- 方式：微信/电话/面谈\n- 沟通内容：...\n- 下一步行动：...\n- 预计跟进时间：..."
-   })
-   ```
-3. 调用 update_contact 更新阶段和 last_contacted_at
+```
+crm_add_followup({
+  name: "客户姓名或ID",
+  method: "微信/面谈/电话/群聊",
+  content: "沟通内容摘要",
+  next_step: "下一步计划"
+})
+```
+
+如果需要额外写长文跟进记录，再用 create_doc 在 knowledge scope 下补充。
 
 ### 3. 阶段推进
 
-根据沟通进展调用 update_contact 推进阶段：
+根据沟通进展调用 crm_update_stage（一步完成阶段变更+返回最新漏斗）：
 
+```
+crm_update_stage({ name: "客户姓名或ID", stage: "意向确认" })
+```
+
+阶段流转：
 ```
 新线索 → 跟进中 → 意向确认 → 报价中 → 谈判中 → 已成交
                                                     ↓
@@ -90,13 +115,19 @@ create_contact({
 
 ### 4. 成交归档
 
-客户成交后：
+客户成交后，调用 crm_record_deal（一步完成收入记录+更新阶段+累加商机）：
 
-1. 调用 update_contact 更新：
-   - stage: "已成交"
-   - deal: 成交金额
-2. 调用 create_doc 创建成交复盘文档（contact_id 关联）
-3. 如果涉及收入记录，同时调用 create_transaction 记录成交金额
+```
+crm_record_deal({
+  name: "客户姓名或ID",
+  amount: 成交金额,
+  description: "交易描述",
+  product_type: "产品类型",
+  payment_status: "回款状态"
+})
+```
+
+再调用 create_doc 创建成交复盘文档（contact_id 关联）。
 
 ### 5. 跟进建议
 

@@ -9,6 +9,7 @@ mcpTools:
   - get_finance_stats
   - create_doc
   - search_docs
+  - read_vault_file
 apis:
   - /api/crazor/transactions
   - /api/crazor/docs

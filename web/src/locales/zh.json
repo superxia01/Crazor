@@ -131,8 +131,10 @@
     "newChat": "新对话",
     "hermes": "系统设置",
     "notebook": "AI笔记",
+    "content": "平台流量",
     "contacts": "客户管理",
     "finance": "财务中心",
+    "channels": "渠道管理",
     "projects": "项目看板",
     "knowledge": "知识库",
     "analytics": "数据分析",
@@ -163,6 +165,8 @@
     "terminalDescription": "在工作区中直接运行命令",
     "commands": "Hermes指令",
     "commandsDescription": "查看 Hermes 指令手册",
+    "integrations": "连接器",
+    "integrationsDescription": "管理外部服务集成与 API 绑定",
     "sidebar": {
       "group": {
         "ai": "AI",

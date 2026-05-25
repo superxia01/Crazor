@@ -27,6 +27,7 @@ import {
   FileTextIcon,
   FolderCodeIcon,
   FolderOpenIcon,
+  GlobeIcon,
   GripVerticalIcon,
   HomeIcon,
   KanbanSquareIcon,
@@ -36,6 +37,8 @@ import {
   MessageSquareCodeIcon,
   MoonStarIcon,
   PackageIcon,
+  PlugIcon,
+  MegaphoneIcon,
   Minimize2Icon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
@@ -197,11 +200,14 @@ const HermesSkillsPage = lazy(() => import("@/components/hermes/SkillsPage"))
 const HermesMemoryPage = lazy(() => import("@/components/hermes/MemoryPage"))
 const HermesAgentsPage = lazy(() => import("@/components/hermes/AgentsPage"))
 const PromptTemplatesPage = lazy(() => import("@/components/hermes/PromptTemplatesPage"))
+const ContentPiecesView = lazy(() => import("@/ContentPiecesView"))
 const ContactsView = lazy(() => import("@/ContactsView"))
 const FinanceView = lazy(() => import("@/FinanceView"))
+const ChannelsView = lazy(() => import("@/ChannelsView"))
 const ProjectsView = lazy(() => import("@/ProjectsView"))
 const KnowledgeBaseView = lazy(() => import("@/KnowledgeBaseView"))
 const DataAnalyticsView = lazy(() => import("@/DataAnalyticsView"))
+const IntegrationsView = lazy(() => import("@/IntegrationsView"))
 import { MainViewHeader } from "@/components/layout/MainViewHeader"
 import { HermesSubmenu } from "@/components/layout/HermesSubmenu"
 import { SessionsList } from "@/components/layout/SessionsList"
@@ -244,18 +250,21 @@ const SIDEBAR_GROUPS = [
       { id: "hermes-skills", labelKey: "nav.skillsList", descriptionKey: "nav.skillsDescription", icon: PackageIcon },
       { id: "cron", labelKey: "nav.cron", descriptionKey: "nav.cronDescription", icon: ClockIcon },
       { id: "hermes", labelKey: "nav.hermes", descriptionKey: "nav.tasksDescription", icon: SparklesIcon },
+      { id: "integrations", labelKey: "nav.integrations", descriptionKey: "nav.integrationsDescription", icon: PlugIcon },
     ],
   },
   {
     group: "business",
     labelKey: "nav.sidebar.group.business",
     items: [
+      { id: "analytics", labelKey: "nav.analytics", descriptionKey: "nav.analytics", icon: BarChart3Icon },
+      { id: "content", labelKey: "nav.content", descriptionKey: "nav.content", icon: MegaphoneIcon },
+      { id: "channels", labelKey: "nav.channels", descriptionKey: "nav.channels", icon: GlobeIcon },
       { id: "contacts", labelKey: "nav.contacts", descriptionKey: "nav.contacts", icon: UsersIcon },
       { id: "finance", labelKey: "nav.finance", descriptionKey: "nav.finance", icon: LandmarkIcon },
       { id: "projects", labelKey: "nav.projects", descriptionKey: "nav.projects", icon: KanbanSquareIcon },
       { id: "knowledge", labelKey: "nav.knowledge", descriptionKey: "nav.knowledge", icon: FileTextIcon },
       { id: "notebook", labelKey: "nav.notebook", descriptionKey: "nav.chatDescription", icon: BookIcon, badge: "beta" },
-      { id: "analytics", labelKey: "nav.analytics", descriptionKey: "nav.analytics", icon: BarChart3Icon },
       { id: "files", labelKey: "nav.files", descriptionKey: "nav.filesDescription", icon: FolderOpenIcon },
     ],
   },
@@ -2965,6 +2974,20 @@ export function AppInner() {
                       shellLayout={shellLayout}
                       toolOverlayVisible={showChatToolOverlay}
                       onToggleToolOverlay={() => setShowChatToolOverlay((current) => !current)}
+                      onSelectEmployee={(employeeId) => {
+                        fetch("/api/crazor/skills/catalog")
+                          .then((r) => (r.ok ? r.json() : []))
+                          .then((catalog) => {
+                            const emp = catalog.find((e) => e.id === employeeId)
+                            if (!emp) return
+                            fetch("/api/crazor/skills/install", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ id: employeeId }),
+                            }).catch(() => {})
+                            handleChatInputChange(`请以「${emp.name}」的身份协助我：`)
+                          })
+                      }}
                     />
                   ) : (
                     <Motion.div
@@ -3017,9 +3040,28 @@ export function AppInner() {
                             terminalSessionId={terminalSessionId}
                           />
                         )}
-                        {view === "office" && <OfficeView />}
+                        {view === "office" && (
+                          <OfficeView
+                            onSelectEmployee={async (employeeId) => {
+                              const { useOfficeStore: officeStore } = await import("@/components/office/store")
+                              const employees = officeStore.getState().employees
+                              const emp = employees.find((e) => e.id === employeeId)
+                              if (!emp) return
+                              // Install the skill so Hermes can load it
+                              fetch("/api/crazor/skills/install", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ id: employeeId }),
+                              }).catch(() => {})
+                              newConversation()
+                              setInput(`请以「${emp.name}」的身份协助我：`)
+                            }}
+                          />
+                        )}
+                        {view === "content" && <ContentPiecesView />}
                         {view === "contacts" && <ContactsView />}
                         {view === "finance" && <FinanceView />}
+                        {view === "channels" && <ChannelsView />}
                         {view === "projects" && <ProjectsView />}
                         {view === "knowledge" && (
                           <KnowledgeBaseView
@@ -3035,6 +3077,7 @@ export function AppInner() {
                           />
                         )}
                         {view === "analytics" && <DataAnalyticsView />}
+                        {view === "integrations" && <IntegrationsView />}
                         {view === "commands" && <CommandsReference />}
                         {view === "memory" && <MemoryView />}
                         {view === "hermes-analytics" && <HermesAnalyticsPage />}
@@ -3327,7 +3370,16 @@ function ChatWorkspace({
   toolOverlayVisible = false,
   onToggleToolOverlay,
   contextUsage = null,
+  onSelectEmployee,
 }) {
+  const [employees, setEmployees] = useState([])
+  useEffect(() => {
+    fetch("/api/crazor/skills/catalog")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setEmployees(data.filter((e) => e.id !== "vault-rules")))
+      .catch(() => {})
+  }, [])
+
   return (
     <Motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -3441,6 +3493,8 @@ function ChatWorkspace({
                   workspacePath={currentWorkspace?.path}
                   wideLayout={wideLayout}
                   contextUsage={contextUsage}
+                  employees={employees}
+                  onSelectEmployee={onSelectEmployee}
                 />
               </div>
             </div>

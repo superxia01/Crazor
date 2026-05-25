@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
-  BookOpenIcon,
   CheckCircleIcon,
-  CrownIcon,
   DatabaseIcon,
   FilterIcon,
   GlobeIcon,
@@ -12,7 +10,6 @@ import {
   SearchIcon,
   ServerIcon,
   TagIcon,
-  UnlockIcon,
   WrenchIcon,
   XIcon,
 } from "lucide-react"
@@ -31,24 +28,19 @@ import { Input } from "@/components/ui/input"
 import { ViewFrame } from "@/components/view-frame"
 import { cn } from "@/lib/utils"
 
-// --- Categories & Filters ---
+// --- Categories ---
 
 const CATEGORIES = [
   { id: "all", label: "全部" },
-  { id: "运营", label: "运营" },
-  { id: "内容", label: "内容" },
-  { id: "客户", label: "客户" },
-  { id: "管理", label: "管理" },
-  { id: "跨境", label: "跨境" },
-  { id: "编程", label: "编程" },
-  { id: "通用", label: "通用" },
-  { id: "基础", label: "基础" },
-]
-
-const TYPE_FILTERS = [
-  { id: "all", label: "全部", icon: FilterIcon },
-  { id: "free", label: "免费", icon: UnlockIcon },
-  { id: "paid", label: "付费", icon: CrownIcon },
+  { id: "新媒体运营部", label: "新媒体运营部" },
+  { id: "销售部", label: "销售部" },
+  { id: "跨境电商部", label: "跨境电商部" },
+  { id: "海外社媒部", label: "海外社媒部" },
+  { id: "财务部", label: "财务部" },
+  { id: "项目部", label: "项目部" },
+  { id: "人事部", label: "人事部" },
+  { id: "IT部", label: "IT部" },
+  { id: "开放办公区", label: "开放办公区" },
 ]
 
 function normalizeText(value) {
@@ -131,15 +123,11 @@ function SkillMetaPanel({ meta, trigger, onClose }) {
 }
 
 function TemplateCard({ template, installed, onInstall, busy, onSelect, selected }) {
-  const type = template.type
-  const isPaid = type === "paid"
-  const isFree = type === "free"
-  const isInstalled = isFree && installed
+  const isInstalled = installed
 
   return (
     <Card className={cn(
       "group relative overflow-hidden transition-all duration-200 hover:shadow-md hover:border-primary/30 cursor-pointer",
-      isPaid && "border-amber-200 bg-gradient-to-br from-amber-50/50 to-orange-50/30",
       isInstalled && "border-emerald-200/60",
       selected && "ring-2 ring-primary",
     )} onClick={() => onSelect?.(template)}>
@@ -150,20 +138,9 @@ function TemplateCard({ template, installed, onInstall, busy, onSelect, selected
           </Badge>
         </div>
       )}
-      {isPaid && (
-        <div className="absolute top-3 right-3">
-          <Badge variant="secondary" className="bg-amber-100 text-amber-700 border-amber-200">
-            <CrownIcon className="size-3 mr-1" />¥{template.price}
-          </Badge>
-        </div>
-      )}
 
       <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
-          {template.name}
-          {isFree && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">免费</span>}
-          {isPaid && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">付费</span>}
-        </CardTitle>
+        <CardTitle className="text-base">{template.name}</CardTitle>
         <CardDescription className="line-clamp-2">{template.description}</CardDescription>
         <div className="flex flex-wrap gap-1.5 mt-1.5">
           {template.tags?.map((tag) => (
@@ -180,13 +157,6 @@ function TemplateCard({ template, installed, onInstall, busy, onSelect, selected
             触发：{template.trigger}
           </p>
         )}
-        {isPaid && template.features && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {template.features.map((f) => (
-              <Badge key={f} variant="secondary" className="text-xs">{f}</Badge>
-            ))}
-          </div>
-        )}
         <Button size="sm" className="w-full" onClick={(e) => { e.stopPropagation(); onInstall?.(template) }}
           disabled={isInstalled || busy}
           variant={isInstalled ? "outline" : "default"}>
@@ -199,7 +169,6 @@ function TemplateCard({ template, installed, onInstall, busy, onSelect, selected
 
 export default function PromptTemplatesPage() {
   const [activeCategory, setActiveCategory] = useState("all")
-  const [typeFilter, setTypeFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [catalog, setCatalog] = useState([])
   const [installedIds, setInstalledIds] = useState(new Set())
@@ -225,26 +194,15 @@ export default function PromptTemplatesPage() {
   useEffect(() => { void loadCatalog(); void loadInstalled() }, [loadCatalog, loadInstalled])
 
   const allTemplates = useMemo(() => {
-    const paidSkills = catalog.map((s) => ({ ...s, type: "paid" }))
-    return [...paidSkills]
+    return catalog.map((s) => ({ ...s }))
   }, [catalog])
 
   const filteredTemplates = useMemo(() => {
     let templates = allTemplates
     if (activeCategory !== "all") templates = templates.filter((t) => t.category === activeCategory)
-    if (typeFilter !== "all") templates = templates.filter((t) => t.type === typeFilter)
     if (searchQuery) templates = templates.filter((t) => itemMatchesQuery(t, searchQuery))
     return templates
-  }, [activeCategory, typeFilter, searchQuery, allTemplates])
-
-  const counts = useMemo(() => {
-    const byCategory = activeCategory === "all" ? allTemplates : allTemplates.filter((t) => t.category === activeCategory)
-    return {
-      all: byCategory.length,
-      free: byCategory.filter((t) => t.type === "free").length,
-      paid: byCategory.filter((t) => t.type === "paid").length,
-    }
-  }, [activeCategory, allTemplates])
+  }, [activeCategory, searchQuery, allTemplates])
 
   const handleInstall = useCallback(async (template) => {
     setBusyId(template.id)
@@ -268,11 +226,9 @@ export default function PromptTemplatesPage() {
     }
   }, [loadInstalled])
 
-  // Find the trigger string from catalog for a paid skill
   const catalogMap = useMemo(() => new Map(catalog.map((s) => [s.id, s])), [catalog])
 
   const handleSelect = useCallback(async (template) => {
-    if (template.type !== "paid") return
     if (selectedId === template.id) {
       setSelectedId(null)
       setSelectedMeta(null)
@@ -301,42 +257,14 @@ export default function PromptTemplatesPage() {
       <div className="flex-1 overflow-hidden relative flex">
       {/* Main content */}
       <div className={`flex-1 overflow-auto p-4 md:p-6 transition-all duration-200 ${selectedId ? "mr-0 md:mr-[420px]" : ""}`}>
-        {/* Row 1: Category by function */}
-        <div className="flex flex-wrap gap-2 mb-3">
+        {/* Category filter */}
+        <div className="flex flex-wrap gap-2 mb-4">
           {CATEGORIES.map((cat) => (
             <Button key={cat.id} variant={activeCategory === cat.id ? "default" : "outline"}
               size="sm" onClick={() => setActiveCategory(cat.id)}>
               {cat.label}
             </Button>
           ))}
-        </div>
-
-        {/* Row 2: Type filter */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {TYPE_FILTERS.map((f) => {
-            const Icon = f.icon
-            const active = typeFilter === f.id
-            const colorMap = {
-              all: "",
-              free: active ? "bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200" : "",
-              paid: active ? "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200" : "",
-            }
-            const badgeColorMap = {
-              free: "bg-emerald-200 text-emerald-800",
-              paid: "bg-amber-200 text-amber-800",
-            }
-            return (
-              <Button key={f.id} variant={active ? "outline" : "ghost"}
-                size="sm" onClick={() => setTypeFilter(f.id)}
-                className={cn("flex items-center gap-1.5", colorMap[f.id])}>
-                <Icon className="size-3.5" />{f.label}
-                <span className={cn(
-                  "text-[10px] font-medium px-1.5 py-0.5 rounded ml-1",
-                  active && f.id !== "all" ? badgeColorMap[f.id] : "bg-muted text-muted-foreground"
-                )}>{counts[f.id]}</span>
-              </Button>
-            )
-          })}
         </div>
 
         <div className="relative mb-6">

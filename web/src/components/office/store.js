@@ -7,6 +7,7 @@ const useOfficeStore = create((set, get) => ({
   hoveredEmployeeId: null,
   zoom: 1.0,
   metaCache: {}, // employeeId -> meta data
+  meetingState: "idle", // idle | going | meeting | returning
 
   setEmployees: (employees) => set({ employees, employeesLoading: false }),
 
@@ -15,6 +16,8 @@ const useOfficeStore = create((set, get) => ({
   setHoveredEmployee: (id) => set({ hoveredEmployeeId: id }),
 
   setZoom: (zoom) => set({ zoom: Math.max(0.5, Math.min(2.5, zoom)) }),
+
+  setMeetingState: (meetingState) => set({ meetingState }),
 
   resetZoom: () => set({ zoom: 1.0 }),
 

@@ -15,7 +15,7 @@ import OfficeToolbar from "./ui/OfficeToolbar"
 
 const OFFICE_ENABLED_KEY = "crazor-office-3d-enabled"
 
-export default function OfficeView() {
+export default function OfficeView({ onSelectEmployee }) {
   const containerRef = useRef(null)
   const sceneRef = useRef(null)
   const [enabled, setEnabled] = useState(() => {
@@ -135,7 +135,9 @@ export default function OfficeView() {
           .map((emp) => (
             <EmployeeBubble key={emp.id} employeeId={emp.id} sceneRef={sceneRef} />
           ))}
-        {selectedEmployeeId && <EmployeePanel sceneRef={sceneRef} />}
+        {selectedEmployeeId && (
+          <EmployeePanel sceneRef={sceneRef} onStartChat={onSelectEmployee} />
+        )}
       </div>
     </ViewFrame>
   )

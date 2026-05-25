@@ -131,8 +131,10 @@
     "newChat": "New Chat",
     "hermes": "System Settings",
     "notebook": "AI Notes",
+    "content": "Content",
     "contacts": "Contacts",
     "finance": "Finance",
+    "channels": "Channels",
     "projects": "Projects",
     "knowledge": "Knowledge Base",
     "analytics": "Analytics",
@@ -163,6 +165,8 @@
     "terminalDescription": "Run commands inside the workspace",
     "commands": "Hermes Commands",
     "commandsDescription": "Browse the Hermes command manual",
+    "integrations": "Connectors",
+    "integrationsDescription": "Manage external service integrations and API bindings",
     "sidebar": {
       "group": {
         "ai": "AI",

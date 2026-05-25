@@ -10,7 +10,12 @@ import {
   getMonthlyRevenue, listProjects, createProject, updateProject, deleteProject,
   listTasks, createTask, updateTask, deleteTask, moveTask,
   getContactStats, getFinanceStats, getProjectStats, getHermesSessionStats,
+  listFollowUps, createFollowUp, updateFollowUp, deleteFollowUp, getFollowUpReminders,
+  listChannels, getChannel, createChannel, updateChannel, deleteChannel, getChannelStats,
+  listChannelReferrals, createChannelReferral, listContactChannels,
+  listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats,
 } from './services/crazor-db'
+import { seedFieldDefinitions, discoverCustomFields, listFieldDefinitions, getFieldDefinition, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, reorderFieldDefinitions } from './services/field-definitions'
 import * as docs from './services/crazor-docs'
 import * as docTree from './services/crazor-doc-tree'
 import * as skillCatalog from './services/skill-catalog'
@@ -93,7 +98,7 @@ app.get('/mcp/sse', (c) => handleSSEConnect())
 app.post('/mcp/sse', async (c) => {
   const body = await c.req.json()
   const sessionIdParam = c.req.query('sessionId')
-  const response = handleSSEMessage(body, sessionIdParam)
+  const response = await handleSSEMessage(body, sessionIdParam)
   if (response === null) return c.json({})
   return c.json(response)
 })
@@ -927,6 +932,44 @@ app.post('/api/crazor/contacts/:id/docs', async (c) => {
   return c.json(note || docs.createContactDoc(contactId, body.filename, body.content || ''), 201)
 })
 
+// --- Content Pieces ---
+app.get('/api/crazor/content-pieces', (c) => {
+  const platform = c.req.query('platform')
+  const form = c.req.query('form')
+  const status = c.req.query('status')
+  const q = c.req.query('q')
+  return c.json(listContentPieces({ platform, form, status, q }))
+})
+
+app.get('/api/crazor/content-pieces/stats', (c) => {
+  return c.json(getContentPieceStats())
+})
+
+app.get('/api/crazor/content-pieces/:id', (c) => {
+  const piece = getContentPiece(c.req.param('id'))
+  if (!piece) return c.json({ error: 'not found' }, 404)
+  return c.json(piece)
+})
+
+app.post('/api/crazor/content-pieces', async (c) => {
+  const body = await c.req.json()
+  if (!body.title) return c.json({ error: 'title is required' }, 400)
+  const piece = createContentPiece(body)
+  return c.json(piece, 201)
+})
+
+app.patch('/api/crazor/content-pieces/:id', async (c) => {
+  const body = await c.req.json()
+  const updated = updateContentPiece(c.req.param('id'), body)
+  if (!updated) return c.json({ error: 'not found' }, 404)
+  return c.json(updated)
+})
+
+app.delete('/api/crazor/content-pieces/:id', (c) => {
+  deleteContentPiece(c.req.param('id'))
+  return c.json({ ok: true })
+})
+
 // Legacy file read/write (used by contact docs)
 app.get('/api/crazor/doc-files/*', (c) => {
   const docPath = c.req.path.replace('/api/crazor/doc-files/', '')
@@ -1093,6 +1136,83 @@ app.patch('/api/crazor/tasks/:id/move', async (c) => {
   return c.json(updated)
 })
 
+// --- Follow-ups ---
+app.get('/api/crazor/follow-up-reminders', (c) => {
+  return c.json(getFollowUpReminders())
+})
+
+app.get('/api/crazor/follow-ups', (c) => {
+  const contact_id = c.req.query('contact_id')
+  const status = c.req.query('status')
+  const date_from = c.req.query('date_from')
+  const date_to = c.req.query('date_to')
+  return c.json(listFollowUps({ contact_id: contact_id || undefined, status: status || undefined, date_from: date_from || undefined, date_to: date_to || undefined }))
+})
+
+app.post('/api/crazor/follow-ups', async (c) => {
+  const body = await c.req.json()
+  if (!body.contact_id) return c.json({ error: 'contact_id is required' }, 400)
+  return c.json(createFollowUp(body), 201)
+})
+
+app.patch('/api/crazor/follow-ups/:id', async (c) => {
+  const body = await c.req.json()
+  const updated = updateFollowUp(c.req.param('id'), body)
+  if (!updated) return c.json({ error: 'not found' }, 404)
+  return c.json(updated)
+})
+
+app.delete('/api/crazor/follow-ups/:id', (c) => {
+  deleteFollowUp(c.req.param('id'))
+  return c.json({ ok: true })
+})
+
+// --- Channels ---
+app.get('/api/crazor/channels', (c) => {
+  const status = c.req.query('status')
+  const rating = c.req.query('rating')
+  const is_public = c.req.query('is_public')
+  return c.json(listChannels({ status: status || undefined, rating: rating || undefined, is_public: is_public ? parseInt(is_public) : undefined }))
+})
+
+app.get('/api/crazor/channels/:id', (c) => {
+  const channel = getChannel(c.req.param('id'))
+  if (!channel) return c.json({ error: 'not found' }, 404)
+  return c.json(channel)
+})
+
+app.post('/api/crazor/channels', async (c) => {
+  const body = await c.req.json()
+  if (!body.name) return c.json({ error: 'name is required' }, 400)
+  return c.json(createChannel(body), 201)
+})
+
+app.patch('/api/crazor/channels/:id', async (c) => {
+  const body = await c.req.json()
+  const updated = updateChannel(c.req.param('id'), body)
+  if (!updated) return c.json({ error: 'not found' }, 404)
+  return c.json(updated)
+})
+
+app.delete('/api/crazor/channels/:id', (c) => {
+  deleteChannel(c.req.param('id'))
+  return c.json({ ok: true })
+})
+
+app.get('/api/crazor/channels/:id/referrals', (c) => {
+  return c.json(listChannelReferrals(c.req.param('id')))
+})
+
+app.post('/api/crazor/channels/:id/referrals', async (c) => {
+  const body = await c.req.json()
+  body.channel_id = c.req.param('id')
+  return c.json(createChannelReferral(body), 201)
+})
+
+app.get('/api/crazor/contacts/:id/channels', (c) => {
+  return c.json(listContactChannels(c.req.param('id')))
+})
+
 // --- Analytics ---
 app.get('/api/crazor/analytics/overview', (c) => {
   return c.json({
@@ -1100,11 +1220,54 @@ app.get('/api/crazor/analytics/overview', (c) => {
     finance: getFinanceStats(),
     projects: getProjectStats(),
     hermes: getHermesSessionStats(),
+    channels: getChannelStats(),
+    followUpReminders: getFollowUpReminders(),
   })
 })
 
 app.get('/api/crazor/analytics/revenue', (c) => {
   return c.json(getMonthlyRevenue(6))
+})
+
+app.get('/api/crazor/analytics/channels', (c) => {
+  return c.json(getChannelStats())
+})
+
+// --- Schema API ---
+app.get('/api/crazor/schema/:entity', (c) => {
+  return c.json(listFieldDefinitions(c.req.param('entity')))
+})
+
+app.post('/api/crazor/schema/:entity', async (c) => {
+  const body = await c.req.json()
+  body.entity = c.req.param('entity')
+  const result = createFieldDefinition(body)
+  if (!result) return c.json({ error: 'field already exists' }, 409)
+  return c.json(result, 201)
+})
+
+app.patch('/api/crazor/schema/:entity/:key', async (c) => {
+  const body = await c.req.json()
+  const result = updateFieldDefinition(c.req.param('entity'), c.req.param('key'), body)
+  if (!result) return c.json({ error: 'not found' }, 404)
+  return c.json(result)
+})
+
+app.delete('/api/crazor/schema/:entity/:key', (c) => {
+  const ok = deleteFieldDefinition(c.req.param('entity'), c.req.param('key'))
+  if (!ok) return c.json({ error: 'not found or not custom' }, 404)
+  return c.json({ ok: true })
+})
+
+app.post('/api/crazor/schema/:entity/reorder', async (c) => {
+  const { orderedKeys } = await c.req.json()
+  reorderFieldDefinitions(c.req.param('entity'), orderedKeys)
+  return c.json({ ok: true })
+})
+
+app.post('/api/crazor/schema/:entity/discover', (c) => {
+  discoverCustomFields(c.req.param('entity'))
+  return c.json(listFieldDefinitions(c.req.param('entity')))
 })
 
 // --- Crazor Skill Catalog & Installation ---
@@ -1162,6 +1325,11 @@ app.delete('/api/crazor/skills/:id', async (c) => {
 
 // --- Start ---
 const seedResult = seedVault()
+// Seed field definitions from schema metadata
+seedFieldDefinitions()
+for (const entity of ['contacts', 'channels', 'transactions']) {
+  discoverCustomFields(entity)
+}
 console.log(`🚀 Crazor API Server starting on port ${PORT}`)
 console.log(`   Hermes Gateway: ${HERMES_GATEWAY_URL}`)
 console.log(`   Hermes Dashboard: ${HERMES_DASHBOARD_URL}`)

@@ -1,6 +1,6 @@
 // Copyright (c) 2026 MeeJoy
 
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   FileIcon,
   ImageIcon,
@@ -10,6 +10,7 @@ import {
   SendHorizontalIcon,
   SlashIcon,
   SparklesIcon,
+  UsersIcon,
   XIcon,
 } from "lucide-react"
 
@@ -106,11 +107,14 @@ export function InputArea({
   workspacePath = null,
   wideLayout = false,
   contextUsage = null, // { tokenCount, contextLength }
+  employees = [],
+  onSelectEmployee,
 }) {
   const { lang, t } = useI18n()
   const textareaRef = useRef(null)
   const activeToken = useMemo(() => getActiveToken(value), [value])
   const composerMaxWidth = wideLayout ? "54rem" : "48rem"
+  const [empOpen, setEmpOpen] = useState(false)
 
   const getItemDescription = useCallback(
     (item) => (lang === "en" ? item.desc_en || item.desc_zh : item.desc_zh || item.desc_en),
@@ -461,16 +465,47 @@ export function InputArea({
 
             <Badge
               variant="outline"
-              className="rounded border-border bg-sidebar px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              className="cursor-pointer rounded border-border bg-sidebar px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              onClick={() => { onChange(value + "/"); textareaRef.current?.focus() }}>
               <SlashIcon className="size-3.5" />
               {t("input.commandChip")}
             </Badge>
             <Badge
               variant="outline"
-              className="rounded border-border bg-sidebar px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              className="cursor-pointer rounded border-border bg-sidebar px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              onClick={() => { onChange(value + "$"); textareaRef.current?.focus() }}>
               <SparklesIcon className="size-3.5" />
               {t("input.skillChip")}
             </Badge>
+            {employees.length > 0 && onSelectEmployee && (
+              <div className="relative">
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer rounded border-border bg-sidebar px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                  onClick={() => setEmpOpen((v) => !v)}>
+                  <UsersIcon className="size-3.5" />
+                  数字员工
+                </Badge>
+                {empOpen && (
+                  <div className="absolute bottom-full left-0 z-50 mb-2 w-56 rounded-lg border border-border bg-popover p-1 shadow-lg">
+                    <div className="max-h-64 overflow-auto">
+                      {employees.map((emp) => (
+                        <button
+                          key={emp.id}
+                          className="w-full rounded-md px-2.5 py-1.5 text-left text-[12px] hover:bg-accent transition-colors"
+                          onClick={() => {
+                            setEmpOpen(false)
+                            onSelectEmployee(emp.id)
+                          }}>
+                          <div className="font-medium">{emp.name}</div>
+                          <div className="text-[10px] text-muted-foreground">{emp.description}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <span className="mono hidden text-[11px] text-muted-foreground md:inline">
               {t("input.sendHint")}
             </span>

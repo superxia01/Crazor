@@ -83,6 +83,94 @@ db.exec(`
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS follow_ups (
+    id TEXT PRIMARY KEY,
+    contact_id TEXT REFERENCES contacts(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    method TEXT DEFAULT '',
+    content TEXT DEFAULT '',
+    next_step TEXT DEFAULT '',
+    status TEXT DEFAULT '待跟进',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS channels (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    contact_person TEXT DEFAULT '',
+    wechat TEXT DEFAULT '',
+    phone TEXT DEFAULT '',
+    company_type TEXT DEFAULT '',
+    company_name TEXT DEFAULT '',
+    cooperation_mode TEXT DEFAULT '',
+    commission_rate TEXT DEFAULT '',
+    settlement_method TEXT DEFAULT '',
+    status TEXT DEFAULT '活跃',
+    rating TEXT DEFAULT '潜力',
+    total_customers INTEGER DEFAULT 0,
+    total_revenue REAL DEFAULT 0,
+    main_products TEXT DEFAULT '',
+    last_brought_customer_at TEXT,
+    is_public INTEGER DEFAULT 0,
+    account_name TEXT DEFAULT '',
+    platform_id TEXT DEFAULT '',
+    followers INTEGER DEFAULT 0,
+    remark TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS content_pieces (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    platform TEXT DEFAULT '',
+    form TEXT DEFAULT '',
+    status TEXT DEFAULT '选题中',
+    published_at TEXT DEFAULT '',
+    topic_source TEXT DEFAULT '',
+    doc_id TEXT DEFAULT '',
+    views INTEGER DEFAULT 0,
+    likes INTEGER DEFAULT 0,
+    comments INTEGER DEFAULT 0,
+    shares INTEGER DEFAULT 0,
+    tags TEXT DEFAULT '[]',
+    custom_data TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS channel_referrals (
+    id TEXT PRIMARY KEY,
+    channel_id TEXT REFERENCES channels(id) ON DELETE CASCADE,
+    contact_id TEXT REFERENCES contacts(id) ON DELETE SET NULL,
+    product_type TEXT DEFAULT '',
+    deal_amount REAL DEFAULT 0,
+    date TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS field_definitions (
+    id TEXT PRIMARY KEY,
+    entity TEXT NOT NULL,
+    field_key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    field_type TEXT NOT NULL DEFAULT 'text',
+    options TEXT DEFAULT '[]',
+    visible INTEGER DEFAULT 1,
+    sortable INTEGER DEFAULT 1,
+    filterable INTEGER DEFAULT 1,
+    required INTEGER DEFAULT 0,
+    width INTEGER DEFAULT 150,
+    sort_order INTEGER DEFAULT 0,
+    section TEXT DEFAULT '',
+    is_custom INTEGER DEFAULT 0,
+    relation_entity TEXT DEFAULT '',
+    render_hint TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(entity, field_key)
+  );
 `)
 
 // ── Schema migrations (idempotent) ──────────────────────────
@@ -104,6 +192,24 @@ const migrations = [
   "ALTER TABLE projects ADD COLUMN deadline TEXT",
   "ALTER TABLE tasks ADD COLUMN estimated_hours REAL DEFAULT 0",
   "ALTER TABLE tasks ADD COLUMN actual_hours REAL DEFAULT 0",
+  // CRM enhancement: contacts
+  "ALTER TABLE contacts ADD COLUMN sales_person TEXT DEFAULT ''",
+  "ALTER TABLE contacts ADD COLUMN project_type TEXT DEFAULT ''",
+  "ALTER TABLE contacts ADD COLUMN budget_range TEXT DEFAULT ''",
+  "ALTER TABLE contacts ADD COLUMN next_follow_up TEXT",
+  "ALTER TABLE contacts ADD COLUMN identity TEXT DEFAULT ''",
+  "ALTER TABLE contacts ADD COLUMN situation TEXT DEFAULT ''",
+  // CRM enhancement: transactions (业绩流水)
+  "ALTER TABLE transactions ADD COLUMN quote REAL DEFAULT 0",
+  "ALTER TABLE transactions ADD COLUMN product_type TEXT DEFAULT ''",
+  "ALTER TABLE transactions ADD COLUMN progress TEXT DEFAULT ''",
+  "ALTER TABLE transactions ADD COLUMN payment_status TEXT DEFAULT ''",
+  "ALTER TABLE transactions ADD COLUMN payment_channel TEXT DEFAULT ''",
+  "ALTER TABLE transactions ADD COLUMN channel_id TEXT DEFAULT ''",
+  // Dynamic custom_data JSON column for flexible fields
+  "ALTER TABLE contacts ADD COLUMN custom_data TEXT DEFAULT '{}'",
+  "ALTER TABLE transactions ADD COLUMN custom_data TEXT DEFAULT '{}'",
+  "ALTER TABLE channels ADD COLUMN custom_data TEXT DEFAULT '{}'",
 ]
 for (const sql of migrations) {
   try { db.exec(sql) } catch { /* column already exists */ }
@@ -121,17 +227,55 @@ function now(): string {
 
 function mapContact(row: any) {
   if (!row) return null
-  return { ...row, tags: JSON.parse(row.tags || "[]"), deal: Number(row.deal) }
+  const { custom_data, tags, deal, ...rest } = row
+  return { ...rest, tags: JSON.parse(tags || "[]"), deal: Number(deal), ...JSON.parse(custom_data || "{}") }
+}
+
+function mapTransaction(row: any) {
+  if (!row) return null
+  const { custom_data, amount, tax_amount, quote, ...rest } = row
+  return { ...rest, amount: Number(amount), tax_amount: Number(tax_amount || 0), quote: Number(quote || 0), ...JSON.parse(custom_data || "{}") }
+}
+
+function mapChannel(row: any) {
+  if (!row) return null
+  const { custom_data, total_revenue, followers, is_public, ...rest } = row
+  return { ...rest, total_revenue: Number(total_revenue || 0), followers: Number(followers || 0), is_public: Number(is_public || 0), ...JSON.parse(custom_data || "{}") }
+}
+
+function mapContentPiece(row: any) {
+  if (!row) return null
+  const { custom_data, tags, ...rest } = row
+  return { ...rest, tags: JSON.parse(tags || "[]"), ...JSON.parse(custom_data || "{}") }
+}
+
+// Known column names per table (used to separate known vs custom fields)
+const CONTACT_COLUMNS = new Set(["id","name","company","role","phone","email","status","deal","tags","last_contacted_at","stage","source","level","wechat","remark","sales_person","project_type","budget_range","next_follow_up","identity","situation","custom_data","created_at","updated_at"])
+const TRANSACTION_COLUMNS = new Set(["id","contact_id","type","amount","description","invoice_status","date","category","subcategory","invoice_number","tax_amount","quote","product_type","progress","payment_status","payment_channel","channel_id","custom_data","created_at","updated_at"])
+const CHANNEL_COLUMNS = new Set(["id","name","contact_person","wechat","phone","company_type","company_name","cooperation_mode","commission_rate","settlement_method","status","rating","total_customers","total_revenue","main_products","last_brought_customer_at","is_public","account_name","platform_id","followers","remark","custom_data","created_at","updated_at"])
+const CONTENT_PIECE_COLUMNS = new Set(["id","title","platform","form","status","published_at","topic_source","doc_id","views","likes","comments","shares","tags","custom_data","created_at","updated_at"])
+
+function splitKnownCustom(data: Record<string, any>, known: Set<string>) {
+  const known_: Record<string, any> = {}
+  const custom: Record<string, any> = {}
+  for (const [k, v] of Object.entries(data)) {
+    if (k === "custom_data" || k === "created_at" || k === "updated_at" || k === "id") continue
+    if (known.has(k)) known_[k] = v
+    else custom[k] = v
+  }
+  return { known: known_, custom }
 }
 
 // ── Contacts ────────────────────────────────────────────────
 
-export function listContacts(filter?: { status?: string; q?: string; stage?: string; level?: string }) {
+export function listContacts(filter?: { status?: string; q?: string; stage?: string; level?: string; project_type?: string; sales_person?: string }) {
   let sql = "SELECT * FROM contacts WHERE 1=1"
   const params: any[] = []
   if (filter?.status) { sql += " AND status = ?"; params.push(filter.status) }
   if (filter?.stage) { sql += " AND stage = ?"; params.push(filter.stage) }
   if (filter?.level) { sql += " AND level = ?"; params.push(filter.level) }
+  if (filter?.project_type) { sql += " AND project_type = ?"; params.push(filter.project_type) }
+  if (filter?.sales_person) { sql += " AND sales_person = ?"; params.push(filter.sales_person) }
   if (filter?.q) {
     sql += " AND (name LIKE ? OR company LIKE ? OR role LIKE ?)"
     const q = `%${filter.q}%`
@@ -146,29 +290,41 @@ export function getContact(id: string) {
 }
 
 export function createContact(data: Partial<any>) {
+  const { known, custom } = splitKnownCustom(data, CONTACT_COLUMNS)
   const c = {
-    id: id(), name: data.name || "", company: data.company || "", role: data.role || "",
-    phone: data.phone || "", email: data.email || "", status: data.status || "potential",
-    deal: data.deal || 0, tags: JSON.stringify(data.tags || []),
-    last_contacted_at: data.last_contacted_at || null,
-    stage: data.stage || "新线索", source: data.source || "", level: data.level || "",
-    wechat: data.wechat || "", remark: data.remark || "",
+    id: id(), name: known.name || "", company: known.company || "", role: known.role || "",
+    phone: known.phone || "", email: known.email || "", status: known.status || "potential",
+    deal: known.deal || 0, tags: JSON.stringify(known.tags || []),
+    last_contacted_at: known.last_contacted_at || null,
+    stage: known.stage || "新线索", source: known.source || "", level: known.level || "",
+    wechat: known.wechat || "", remark: known.remark || "",
+    sales_person: known.sales_person || "", project_type: known.project_type || "",
+    budget_range: known.budget_range || "", next_follow_up: known.next_follow_up || null,
+    identity: known.identity || "", situation: known.situation || "",
+    custom_data: JSON.stringify(custom),
     created_at: now(), updated_at: now(),
   }
-  db.prepare(`INSERT INTO contacts (id,name,company,role,phone,email,status,deal,tags,last_contacted_at,stage,source,level,wechat,remark,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(c.id, c.name, c.company, c.role, c.phone, c.email, c.status, c.deal, c.tags, c.last_contacted_at, c.stage, c.source, c.level, c.wechat, c.remark, c.created_at, c.updated_at)
+  db.prepare(`INSERT INTO contacts (id,name,company,role,phone,email,status,deal,tags,last_contacted_at,stage,source,level,wechat,remark,sales_person,project_type,budget_range,next_follow_up,identity,situation,custom_data,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(c.id, c.name, c.company, c.role, c.phone, c.email, c.status, c.deal, c.tags, c.last_contacted_at, c.stage, c.source, c.level, c.wechat, c.remark, c.sales_person, c.project_type, c.budget_range, c.next_follow_up, c.identity, c.situation, c.custom_data, c.created_at, c.updated_at)
   return getContact(c.id)
 }
 
 export function updateContact(id: string, data: Partial<any>) {
   const existing = getContact(id)
   if (!existing) return null
+  const { known, custom } = splitKnownCustom(data, CONTACT_COLUMNS)
   const sets: string[] = []
   const params: any[] = []
-  for (const key of ["name", "company", "role", "phone", "email", "status", "deal", "last_contacted_at", "stage", "source", "level", "wechat", "remark"]) {
-    if (data[key] !== undefined) { sets.push(`${key} = ?`); params.push(data[key]) }
+  for (const key of ["name", "company", "role", "phone", "email", "status", "deal", "last_contacted_at", "stage", "source", "level", "wechat", "remark", "sales_person", "project_type", "budget_range", "next_follow_up", "identity", "situation"]) {
+    if (known[key] !== undefined) { sets.push(`${key} = ?`); params.push(known[key]) }
   }
-  if (data.tags !== undefined) { sets.push("tags = ?"); params.push(JSON.stringify(data.tags)) }
+  if (known.tags !== undefined) { sets.push("tags = ?"); params.push(JSON.stringify(known.tags)) }
+  // Merge custom_data: existing custom fields + new ones
+  if (Object.keys(custom).length > 0) {
+    const existingCustom = JSON.parse((db.prepare("SELECT custom_data FROM contacts WHERE id = ?").get(id) as any)?.custom_data || "{}")
+    sets.push("custom_data = ?")
+    params.push(JSON.stringify({ ...existingCustom, ...custom }))
+  }
   if (sets.length === 0) return existing
   sets.push("updated_at = ?"); params.push(now())
   params.push(id)
@@ -180,43 +336,140 @@ export function deleteContact(id: string) {
   db.prepare("DELETE FROM contacts WHERE id = ?").run(id)
 }
 
+// ── Content Pieces ───────────────────────────────────────────
+
+export function listContentPieces(filter?: { platform?: string; form?: string; status?: string; q?: string }) {
+  let sql = "SELECT * FROM content_pieces WHERE 1=1"
+  const params: any[] = []
+  if (filter?.platform) { sql += " AND platform = ?"; params.push(filter.platform) }
+  if (filter?.form) { sql += " AND form = ?"; params.push(filter.form) }
+  if (filter?.status) { sql += " AND status = ?"; params.push(filter.status) }
+  if (filter?.q) {
+    sql += " AND title LIKE ?"
+    params.push(`%${filter.q}%`)
+  }
+  sql += " ORDER BY updated_at DESC"
+  return db.prepare(sql).all(...params).map(mapContentPiece)
+}
+
+export function getContentPiece(id: string) {
+  return mapContentPiece(db.prepare("SELECT * FROM content_pieces WHERE id = ?").get(id))
+}
+
+export function createContentPiece(data: Record<string, any>) {
+  const { known, custom } = splitKnownCustom(data, CONTENT_PIECE_COLUMNS)
+  const c = {
+    id: id(), title: known.title || "", platform: known.platform || "",
+    form: known.form || "", status: known.status || "选题中",
+    published_at: known.published_at || "", topic_source: known.topic_source || "",
+    doc_id: known.doc_id || "",
+    views: known.views || 0, likes: known.likes || 0,
+    comments: known.comments || 0, shares: known.shares || 0,
+    tags: JSON.stringify(known.tags || []),
+    custom_data: JSON.stringify(custom),
+    created_at: now(), updated_at: now(),
+  }
+  db.prepare(`INSERT INTO content_pieces (id,title,platform,form,status,published_at,topic_source,doc_id,views,likes,comments,shares,tags,custom_data,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(c.id, c.title, c.platform, c.form, c.status, c.published_at, c.topic_source, c.doc_id, c.views, c.likes, c.comments, c.shares, c.tags, c.custom_data, c.created_at, c.updated_at)
+  return getContentPiece(c.id)
+}
+
+export function updateContentPiece(id: string, data: Record<string, any>) {
+  const existing = getContentPiece(id)
+  if (!existing) return null
+  const { known, custom } = splitKnownCustom(data, CONTENT_PIECE_COLUMNS)
+  const sets: string[] = []
+  const params: any[] = []
+  for (const key of ["title", "platform", "form", "status", "published_at", "topic_source", "doc_id"]) {
+    if (known[key] !== undefined) { sets.push(`${key} = ?`); params.push(known[key]) }
+  }
+  for (const key of ["views", "likes", "comments", "shares"]) {
+    if (known[key] !== undefined) { sets.push(`${key} = ?`); params.push(Number(known[key])) }
+  }
+  if (known.tags !== undefined) { sets.push("tags = ?"); params.push(JSON.stringify(known.tags)) }
+  if (Object.keys(custom).length > 0) {
+    const existingCustom = JSON.parse((db.prepare("SELECT custom_data FROM content_pieces WHERE id = ?").get(id) as any)?.custom_data || "{}")
+    sets.push("custom_data = ?")
+    params.push(JSON.stringify({ ...existingCustom, ...custom }))
+  }
+  if (sets.length === 0) return existing
+  sets.push("updated_at = ?"); params.push(now())
+  params.push(id)
+  db.prepare(`UPDATE content_pieces SET ${sets.join(", ")} WHERE id = ?`).run(...params)
+  return getContentPiece(id)
+}
+
+export function deleteContentPiece(id: string) {
+  db.prepare("DELETE FROM content_pieces WHERE id = ?").run(id)
+}
+
+export function getContentPieceStats() {
+  const total = (db.prepare("SELECT count(*) as c FROM content_pieces").get() as any).c
+  const published = (db.prepare("SELECT count(*) as c FROM content_pieces WHERE status = '已发布'").get() as any).c
+  const byPlatform = db.prepare("SELECT platform, count(*) as c FROM content_pieces WHERE platform != '' GROUP BY platform").all() as any[]
+  const byStatus = db.prepare("SELECT status, count(*) as c FROM content_pieces GROUP BY status").all() as any[]
+  const byForm = db.prepare("SELECT form, count(*) as c FROM content_pieces WHERE form != '' GROUP BY form").all() as any[]
+  const views = db.prepare("SELECT COALESCE(SUM(views),0) as s, COALESCE(AVG(views),0) as a FROM content_pieces WHERE status = '已发布'").get() as any
+  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
+  const thisWeek = (db.prepare("SELECT count(*) as c FROM content_pieces WHERE published_at >= ?").get(weekAgo) as any).c
+  return {
+    total, published, thisWeek,
+    byPlatform: Object.fromEntries(byPlatform.map(r => [r.platform, r.c])),
+    byStatus: Object.fromEntries(byStatus.map(r => [r.status, r.c])),
+    byForm: Object.fromEntries(byForm.map(r => [r.form, r.c])),
+    totalViews: Number(views.s), avgViews: Math.round(Number(views.a)),
+  }
+}
+
 // ── Transactions ────────────────────────────────────────────
 
-export function listTransactions(filter?: { type?: string; month?: string; category?: string }) {
+export function listTransactions(filter?: { type?: string; month?: string; category?: string; product_type?: string }) {
   let sql = "SELECT * FROM transactions WHERE 1=1"
   const params: any[] = []
   if (filter?.type) { sql += " AND type = ?"; params.push(filter.type) }
   if (filter?.month) { sql += " AND date LIKE ?"; params.push(`${filter.month}%`) }
   if (filter?.category) { sql += " AND category = ?"; params.push(filter.category) }
+  if (filter?.product_type) { sql += " AND product_type = ?"; params.push(filter.product_type) }
   sql += " ORDER BY date DESC"
-  return db.prepare(sql).all(...params).map((r: any) => ({ ...r, amount: Number(r.amount), tax_amount: Number(r.tax_amount || 0) }))
+  return db.prepare(sql).all(...params).map(mapTransaction)
 }
 
 export function createTransaction(data: Partial<any>) {
+  const { known, custom } = splitKnownCustom(data, TRANSACTION_COLUMNS)
   const t = {
-    id: id(), contact_id: data.contact_id || null, type: data.type, amount: data.amount,
-    description: data.description || "", invoice_status: data.invoice_status || "none",
-    date: data.date || now().slice(0, 10),
-    category: data.category || "", subcategory: data.subcategory || "",
-    invoice_number: data.invoice_number || "", tax_amount: data.tax_amount || 0,
+    id: id(), contact_id: known.contact_id || null, type: known.type, amount: known.amount,
+    description: known.description || "", invoice_status: known.invoice_status || "none",
+    date: known.date || now().slice(0, 10),
+    category: known.category || "", subcategory: known.subcategory || "",
+    invoice_number: known.invoice_number || "", tax_amount: known.tax_amount || 0,
+    quote: known.quote || 0, product_type: known.product_type || "",
+    progress: known.progress || "", payment_status: known.payment_status || "",
+    payment_channel: known.payment_channel || "", channel_id: known.channel_id || "",
+    custom_data: JSON.stringify(custom),
     created_at: now(), updated_at: now(),
   }
-  db.prepare(`INSERT INTO transactions (id,contact_id,type,amount,description,invoice_status,date,category,subcategory,invoice_number,tax_amount,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(t.id, t.contact_id, t.type, t.amount, t.description, t.invoice_status, t.date, t.category, t.subcategory, t.invoice_number, t.tax_amount, t.created_at, t.updated_at)
+  db.prepare(`INSERT INTO transactions (id,contact_id,type,amount,description,invoice_status,date,category,subcategory,invoice_number,tax_amount,quote,product_type,progress,payment_status,payment_channel,channel_id,custom_data,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(t.id, t.contact_id, t.type, t.amount, t.description, t.invoice_status, t.date, t.category, t.subcategory, t.invoice_number, t.tax_amount, t.quote, t.product_type, t.progress, t.payment_status, t.payment_channel, t.channel_id, t.custom_data, t.created_at, t.updated_at)
   return t
 }
 
 export function updateTransaction(id: string, data: Partial<any>) {
+  const { known, custom } = splitKnownCustom(data, TRANSACTION_COLUMNS)
   const sets: string[] = []
   const params: any[] = []
-  for (const key of ["type", "amount", "description", "invoice_status", "date", "contact_id", "category", "subcategory", "invoice_number", "tax_amount"]) {
-    if (data[key] !== undefined) { sets.push(`${key} = ?`); params.push(data[key]) }
+  for (const key of ["type", "amount", "description", "invoice_status", "date", "contact_id", "category", "subcategory", "invoice_number", "tax_amount", "quote", "product_type", "progress", "payment_status", "payment_channel", "channel_id"]) {
+    if (known[key] !== undefined) { sets.push(`${key} = ?`); params.push(known[key]) }
+  }
+  if (Object.keys(custom).length > 0) {
+    const existingCustom = JSON.parse((db.prepare("SELECT custom_data FROM transactions WHERE id = ?").get(id) as any)?.custom_data || "{}")
+    sets.push("custom_data = ?")
+    params.push(JSON.stringify({ ...existingCustom, ...custom }))
   }
   if (sets.length === 0) return null
   sets.push("updated_at = ?"); params.push(now())
   params.push(id)
   db.prepare(`UPDATE transactions SET ${sets.join(", ")} WHERE id = ?`).run(...params)
-  return db.prepare("SELECT * FROM transactions WHERE id = ?").get(id)
+  return db.prepare("SELECT * FROM transactions WHERE id = ?").get(id) as any
 }
 
 export function deleteTransaction(id: string) {
@@ -313,6 +566,179 @@ export function moveTask(id: string, status: string, sortOrder?: number) {
   return db.prepare("SELECT * FROM tasks WHERE id = ?").get(id)
 }
 
+// ── Follow-ups ──────────────────────────────────────────────
+
+export function listFollowUps(filter?: { contact_id?: string; status?: string; date_from?: string; date_to?: string }) {
+  let sql = "SELECT * FROM follow_ups WHERE 1=1"
+  const params: any[] = []
+  if (filter?.contact_id) { sql += " AND contact_id = ?"; params.push(filter.contact_id) }
+  if (filter?.status) { sql += " AND status = ?"; params.push(filter.status) }
+  if (filter?.date_from) { sql += " AND date >= ?"; params.push(filter.date_from) }
+  if (filter?.date_to) { sql += " AND date <= ?"; params.push(filter.date_to) }
+  sql += " ORDER BY date DESC"
+  return db.prepare(sql).all(...params)
+}
+
+export function getFollowUp(id: string) {
+  return db.prepare("SELECT * FROM follow_ups WHERE id = ?").get(id)
+}
+
+export function createFollowUp(data: Partial<any>) {
+  const f = {
+    id: id(), contact_id: data.contact_id, date: data.date || now().slice(0, 10),
+    method: data.method || "", content: data.content || "", next_step: data.next_step || "",
+    status: data.status || "待跟进",
+    created_at: now(), updated_at: now(),
+  }
+  db.prepare(`INSERT INTO follow_ups (id,contact_id,date,method,content,next_step,status,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?)`).run(f.id, f.contact_id, f.date, f.method, f.content, f.next_step, f.status, f.created_at, f.updated_at)
+  return f
+}
+
+export function updateFollowUp(id: string, data: Partial<any>) {
+  const sets: string[] = []
+  const params: any[] = []
+  for (const key of ["date", "method", "content", "next_step", "status"]) {
+    if (data[key] !== undefined) { sets.push(`${key} = ?`); params.push(data[key]) }
+  }
+  if (sets.length === 0) return null
+  sets.push("updated_at = ?"); params.push(now()); params.push(id)
+  db.prepare(`UPDATE follow_ups SET ${sets.join(", ")} WHERE id = ?`).run(...params)
+  return db.prepare("SELECT * FROM follow_ups WHERE id = ?").get(id)
+}
+
+export function deleteFollowUp(id: string) {
+  db.prepare("DELETE FROM follow_ups WHERE id = ?").run(id)
+}
+
+export function getFollowUpReminders() {
+  const today = now().slice(0, 10)
+  return db.prepare(`
+    SELECT f.*, c.name as contact_name
+    FROM follow_ups f
+    JOIN contacts c ON c.id = f.contact_id
+    WHERE f.status = '待跟进' AND f.date <= ?
+    ORDER BY f.date ASC
+  `).all(today)
+}
+
+// ── Channels ────────────────────────────────────────────────
+
+export function listChannels(filter?: { status?: string; rating?: string; is_public?: number }) {
+  let sql = `SELECT ch.*,
+    COALESCE(ref.cnt, 0) as total_customers,
+    COALESCE(ref.rev, 0) as total_revenue
+    FROM channels ch
+    LEFT JOIN (SELECT channel_id, count(*) as cnt, SUM(deal_amount) as rev FROM channel_referrals GROUP BY channel_id) ref ON ref.channel_id = ch.id
+    WHERE 1=1`
+  const params: any[] = []
+  if (filter?.status) { sql += " AND ch.status = ?"; params.push(filter.status) }
+  if (filter?.rating) { sql += " AND ch.rating = ?"; params.push(filter.rating) }
+  if (filter?.is_public !== undefined) { sql += " AND ch.is_public = ?"; params.push(filter.is_public) }
+  sql += " ORDER BY ch.updated_at DESC"
+  return db.prepare(sql).all(...params).map(mapChannel)
+}
+
+export function getChannel(id: string) {
+  return mapChannel(db.prepare(`
+    SELECT ch.*,
+    COALESCE(ref.cnt, 0) as total_customers,
+    COALESCE(ref.rev, 0) as total_revenue
+    FROM channels ch
+    LEFT JOIN (SELECT channel_id, count(*) as cnt, SUM(deal_amount) as rev FROM channel_referrals GROUP BY channel_id) ref ON ref.channel_id = ch.id
+    WHERE ch.id = ?
+  `).get(id))
+}
+
+export function createChannel(data: Partial<any>) {
+  const { known, custom } = splitKnownCustom(data, CHANNEL_COLUMNS)
+  const ch = {
+    id: id(), name: known.name || "", contact_person: known.contact_person || "",
+    wechat: known.wechat || "", phone: known.phone || "",
+    company_type: known.company_type || "", company_name: known.company_name || "",
+    cooperation_mode: known.cooperation_mode || "", commission_rate: known.commission_rate || "",
+    settlement_method: known.settlement_method || "", status: known.status || "活跃",
+    rating: known.rating || "潜力", total_customers: known.total_customers || 0,
+    total_revenue: known.total_revenue || 0, main_products: known.main_products || "",
+    last_brought_customer_at: known.last_brought_customer_at || null,
+    is_public: known.is_public || 0, account_name: known.account_name || "",
+    platform_id: known.platform_id || "", followers: known.followers || 0,
+    remark: known.remark || "",
+    custom_data: JSON.stringify(custom),
+    created_at: now(), updated_at: now(),
+  }
+  db.prepare(`INSERT INTO channels (id,name,contact_person,wechat,phone,company_type,company_name,cooperation_mode,commission_rate,settlement_method,status,rating,total_customers,total_revenue,main_products,last_brought_customer_at,is_public,account_name,platform_id,followers,remark,custom_data,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(ch.id, ch.name, ch.contact_person, ch.wechat, ch.phone, ch.company_type, ch.company_name, ch.cooperation_mode, ch.commission_rate, ch.settlement_method, ch.status, ch.rating, ch.total_customers, ch.total_revenue, ch.main_products, ch.last_brought_customer_at, ch.is_public, ch.account_name, ch.platform_id, ch.followers, ch.remark, ch.custom_data, ch.created_at, ch.updated_at)
+  return getChannel(ch.id)
+}
+
+export function updateChannel(id: string, data: Partial<any>) {
+  const { known, custom } = splitKnownCustom(data, CHANNEL_COLUMNS)
+  const sets: string[] = []
+  const params: any[] = []
+  for (const key of ["name", "contact_person", "wechat", "phone", "company_type", "company_name", "cooperation_mode", "commission_rate", "settlement_method", "status", "rating", "total_customers", "total_revenue", "main_products", "last_brought_customer_at", "is_public", "account_name", "platform_id", "followers", "remark"]) {
+    if (known[key] !== undefined) { sets.push(`${key} = ?`); params.push(known[key]) }
+  }
+  if (Object.keys(custom).length > 0) {
+    const existingCustom = JSON.parse((db.prepare("SELECT custom_data FROM channels WHERE id = ?").get(id) as any)?.custom_data || "{}")
+    sets.push("custom_data = ?")
+    params.push(JSON.stringify({ ...existingCustom, ...custom }))
+  }
+  if (sets.length === 0) return null
+  sets.push("updated_at = ?"); params.push(now()); params.push(id)
+  db.prepare(`UPDATE channels SET ${sets.join(", ")} WHERE id = ?`).run(...params)
+  return getChannel(id)
+}
+
+export function deleteChannel(id: string) {
+  db.prepare("DELETE FROM channel_referrals WHERE channel_id = ?").run(id)
+  db.prepare("DELETE FROM channels WHERE id = ?").run(id)
+}
+
+export function getChannelStats() {
+  const total = (db.prepare("SELECT count(*) as c FROM channels").get() as any).c
+  const active = (db.prepare("SELECT count(*) as c FROM channels WHERE status = '活跃'").get() as any).c
+  const totalRevenue = db.prepare("SELECT COALESCE(SUM(total_revenue),0) as s FROM channels").get() as any
+  const totalCustomers = db.prepare("SELECT COALESCE(SUM(total_customers),0) as s FROM channels").get() as any
+  const byRating = db.prepare("SELECT rating, count(*) as c FROM channels GROUP BY rating").all() as any[]
+  const byType = db.prepare("SELECT company_type, count(*) as c FROM channels WHERE company_type != '' GROUP BY company_type").all() as any[]
+  return {
+    total, active, totalRevenue: Number(totalRevenue.s), totalCustomers: Number(totalCustomers.s),
+    byRating: Object.fromEntries(byRating.map(r => [r.rating, r.c])),
+    byType: Object.fromEntries(byType.map(r => [r.company_type, r.c])),
+  }
+}
+
+// ── Channel referrals ───────────────────────────────────────
+
+export function listChannelReferrals(channelId: string) {
+  return db.prepare(
+    "SELECT r.*, c.name as contact_name FROM channel_referrals r LEFT JOIN contacts c ON r.contact_id = c.id WHERE r.channel_id = ? ORDER BY r.date DESC"
+  ).all(channelId)
+}
+
+export function listContactChannels(contactId: string) {
+  return db.prepare(
+    "SELECT r.*, ch.name as channel_name, ch.rating as channel_rating FROM channel_referrals r LEFT JOIN channels ch ON ch.id = r.channel_id WHERE r.contact_id = ? ORDER BY r.date DESC"
+  ).all(contactId)
+}
+
+export function createChannelReferral(data: Partial<any>) {
+  const r = {
+    id: id(), channel_id: data.channel_id, contact_id: data.contact_id || null,
+    product_type: data.product_type || "", deal_amount: data.deal_amount || 0,
+    date: data.date || now().slice(0, 10),
+  }
+  db.prepare("INSERT INTO channel_referrals (id,channel_id,contact_id,product_type,deal_amount,date) VALUES (?,?,?,?,?,?)")
+    .run(r.id, r.channel_id, r.contact_id, r.product_type, r.deal_amount, r.date)
+  if (r.deal_amount > 0) {
+    db.prepare("UPDATE channels SET total_customers = total_customers + 1, total_revenue = total_revenue + ?, last_brought_customer_at = ? WHERE id = ?")
+      .run(r.deal_amount, r.date, r.channel_id)
+  }
+  return r
+}
+
 // ── Analytics ───────────────────────────────────────────────
 
 export function getContactStats() {
@@ -322,10 +748,14 @@ export function getContactStats() {
   const revenue = db.prepare("SELECT COALESCE(SUM(deal),0) as s FROM contacts").get() as any
   const byStage = db.prepare("SELECT stage, count(*) as c FROM contacts GROUP BY stage").all() as any[]
   const byLevel = db.prepare("SELECT level, count(*) as c FROM contacts WHERE level != '' GROUP BY level").all() as any[]
+  const followUpsDue = (db.prepare("SELECT count(*) as c FROM follow_ups WHERE status = '待跟进' AND date <= ?").get(now().slice(0, 10)) as any).c
+  const byProjectType = db.prepare("SELECT project_type, count(*) as c FROM contacts WHERE project_type != '' GROUP BY project_type").all() as any[]
   return {
     total, active, potential, totalDeal: Number(revenue.s),
     byStage: Object.fromEntries(byStage.map(r => [r.stage, r.c])),
     byLevel: Object.fromEntries(byLevel.map(r => [r.level, r.c])),
+    followUpsDue,
+    byProjectType: Object.fromEntries(byProjectType.map(r => [r.project_type, r.c])),
   }
 }
 
@@ -334,11 +764,194 @@ export function getFinanceStats() {
   const expense = db.prepare("SELECT COALESCE(SUM(amount),0) as s FROM transactions WHERE type = 'expense'").get() as any
   const pending = db.prepare("SELECT COALESCE(SUM(amount),0) as s FROM transactions WHERE invoice_status = 'pending'").get() as any
   const overdue = db.prepare("SELECT COALESCE(SUM(amount),0) as s FROM transactions WHERE invoice_status = 'overdue'").get() as any
+  const channelRevenue = db.prepare("SELECT COALESCE(SUM(total_revenue),0) as s FROM channels").get() as any
+  const byProductType = db.prepare("SELECT product_type, COALESCE(SUM(amount),0) as s FROM transactions WHERE type = 'income' AND product_type != '' GROUP BY product_type").all() as any[]
   return {
     totalIncome: Number(income.s), totalExpense: Number(expense.s),
     net: Number(income.s) - Number(expense.s),
     pendingInvoice: Number(pending.s), overdueInvoice: Number(overdue.s),
+    channelRevenue: Number(channelRevenue.s),
+    byProductType: Object.fromEntries(byProductType.map(r => [r.product_type, Number(r.s)])),
   }
+}
+
+// ── Content Composite Functions ─────────────────────────────
+
+export function contentPublish(idOrTitle: string) {
+  // Find by ID or title
+  let piece = getContentPiece(idOrTitle)
+  if (!piece) {
+    const list = listContentPieces({ q: idOrTitle })
+    piece = list.length > 0 ? list[0] : null
+  }
+  if (!piece) throw new Error(`内容不存在: ${idOrTitle}`)
+
+  const updated = updateContentPiece(piece.id, {
+    status: "已发布",
+    published_at: now().slice(0, 10),
+  })
+  return { piece: updated, stats: getContentPieceStats() }
+}
+
+export function contentUpdateMetrics(idOrTitle: string, metrics: { views?: number; likes?: number; comments?: number; shares?: number }) {
+  let piece = getContentPiece(idOrTitle)
+  if (!piece) {
+    const list = listContentPieces({ q: idOrTitle })
+    piece = list.length > 0 ? list[0] : null
+  }
+  if (!piece) throw new Error(`内容不存在: ${idOrTitle}`)
+
+  const updated = updateContentPiece(piece.id, metrics)
+  return { piece: updated, stats: getContentPieceStats() }
+}
+
+export function contentCheckDaily() {
+  const today = now().slice(0, 10)
+  const stats = getContentPieceStats()
+  const published = listContentPieces({ status: "已发布" })
+  const todayPublished = published.filter((p: any) => p.published_at === today)
+
+  // Check daily targets
+  const targets: Record<string, number> = { "公众号": 1, "小红书": 1, "知识星球": 1 }
+  const results: Record<string, { target: number; actual: number; met: boolean }> = {}
+  for (const [platform, target] of Object.entries(targets)) {
+    const actual = todayPublished.filter((p: any) => p.platform === platform).length
+    results[platform] = { target, actual, met: actual >= target }
+  }
+
+  return { date: today, stats, todayPublished, dailyCheck: results }
+}
+
+// ── Getbiji Stubs ────────────────────────────────────────────
+
+const getbijiState = { lastSync: "", status: "未连接", totalNotes: 0 }
+
+export function getbijiSync() {
+  // TODO: integrate with actual getbiji API
+  getbijiState.lastSync = now()
+  getbijiState.status = "已同步（占位）"
+  return { ...getbijiState, message: "getbiji 同步功能待接入，当前为占位返回" }
+}
+
+export function getbijiStatus() {
+  return getbijiState
+}
+
+export function getbijiForceFull() {
+  getbijiState.lastSync = now()
+  getbijiState.status = "全量同步（占位）"
+  return { ...getbijiState, message: "getbiji 全量同步功能待接入，当前为占位返回" }
+}
+
+// ── CRM Composite Functions ─────────────────────────────────
+
+export function crmGetClient(nameOrId: string) {
+  // Try by ID first, then by name
+  let contact = getContact(nameOrId)
+  if (!contact) {
+    const byName = listContacts({ q: nameOrId })
+    contact = byName.length > 0 ? byName[0] : null
+  }
+  if (!contact) return null
+  // Attach follow-ups
+  const followUps = listFollowUps({ contact_id: contact.id })
+  return { ...contact, follow_ups: followUps }
+}
+
+export function crmAddClient(data: Record<string, any>) {
+  const contact = createContact(data)
+  // If channel specified, create referral link
+  if (data.channel && contact) {
+    const channels = listChannels()
+    const ch = channels.find((c: any) => c.name === data.channel || c.id === data.channel)
+    if (ch) {
+      createChannelReferral({ channel_id: ch.id, contact_id: contact.id, product_type: data.project_type || "", date: now().slice(0, 10) })
+    }
+  }
+  return contact
+}
+
+export function crmAddFollowup(contactNameOrId: string, data: { method?: string; content: string; next_step?: string; date?: string }) {
+  const contact = crmGetClient(contactNameOrId)
+  if (!contact) throw new Error(`客户不存在: ${contactNameOrId}`)
+
+  // 1. Create follow-up record
+  const followUp = createFollowUp({
+    contact_id: contact.id,
+    date: data.date || now().slice(0, 10),
+    method: data.method || "微信",
+    content: data.content,
+    next_step: data.next_step || "",
+    status: "已跟进",
+  })
+
+  // 2. Update contact's next_follow_up if next_step provided
+  if (data.next_step) {
+    updateContact(contact.id, { next_follow_up: data.next_step })
+  }
+
+  // 3. Auto-advance stage if appropriate
+  const stageOrder = ["新线索", "跟进中", "意向确认", "报价中", "谈判中", "已成交"]
+  const currentIdx = stageOrder.indexOf(contact.stage)
+  if (contact.stage === "新线索" && currentIdx >= 0) {
+    updateContact(contact.id, { stage: "跟进中" })
+  }
+
+  return { follow_up: followUp, contact: crmGetClient(contact.id) }
+}
+
+export function crmUpdateStage(contactNameOrId: string, stage: string) {
+  const contact = crmGetClient(contactNameOrId)
+  if (!contact) throw new Error(`客户不存在: ${contactNameOrId}`)
+
+  const updated = updateContact(contact.id, { stage })
+  return { contact: updated, pipeline: getContactStats() }
+}
+
+export function crmRecordDeal(contactNameOrId: string, data: { amount: number; description?: string; product_type?: string; payment_status?: string }) {
+  const contact = crmGetClient(contactNameOrId)
+  if (!contact) throw new Error(`客户不存在: ${contactNameOrId}`)
+
+  // 1. Create transaction
+  const tx = createTransaction({
+    contact_id: contact.id,
+    type: "income",
+    amount: data.amount,
+    description: data.description || `${contact.name} 成交`,
+    date: now().slice(0, 10),
+    product_type: data.product_type || "",
+    payment_status: data.payment_status || "未回款",
+  })
+
+  // 2. Update contact stage + deal
+  updateContact(contact.id, { stage: "已成交", deal: (contact.deal || 0) + data.amount })
+
+  return { transaction: tx, contact: crmGetClient(contact.id) }
+}
+
+export function crmListOverdue() {
+  const today = now().slice(0, 10)
+  return getFollowUpReminders()
+}
+
+export function crmGetPipeline() {
+  const stats = getContactStats()
+  const finance = getFinanceStats()
+  const byStage = stats.byStage || {}
+  const stages = ["新线索", "跟进中", "意向确认", "报价中", "谈判中", "已成交", "已流失"]
+  const pipeline = stages.map((s) => ({ stage: s, count: byStage[s] || 0 }))
+  return {
+    pipeline,
+    totalContacts: stats.total,
+    activeContacts: stats.active,
+    totalDeal: stats.totalDeal,
+    totalIncome: finance.totalIncome,
+    followUpsDue: stats.followUpsDue,
+  }
+}
+
+export function crmSearch(query: string) {
+  return listContacts({ q: query })
 }
 
 export function getProjectStats() {

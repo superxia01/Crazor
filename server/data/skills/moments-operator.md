@@ -3,6 +3,9 @@ name: 朋友圈运营助手
 description: 朋友圈内容规划、社群运营和数据周报
 trigger: 用户说"朋友圈"、"朋友圈运营"、"私域"、"社群"、"今天发什么"时加载
 mcpTools:
+  - create_content_piece
+  - update_content_piece
+  - content_publish
   - create_doc
   - update_doc
   - read_doc
@@ -11,8 +14,10 @@ mcpTools:
   - create_folder
   - read_vault_file
 apis:
+  - /api/crazor/content-pieces
   - /api/crazor/docs
 dbTables:
+  - content_pieces
   - doc_notes
 externalApis: []
 ---

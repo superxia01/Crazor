@@ -1,6 +1,6 @@
 import * as THREE from "three"
 import { GRID, GRID_W, GRID_H, CELL_SIZE } from "../data/officeLayout"
-import { getEmployeeVisual } from "../data/employeeMap"
+import { getEmployeeVisual, MEETING_SEATS } from "../data/employeeMap"
 
 function cellToWorld(row, col) {
   return {
@@ -117,10 +117,84 @@ function addAccessory(group, type, bodyColor) {
       const box = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.14), makeMat(0xA16207))
       box.position.set(0.22, 0.02, 0.05)
       group.add(box)
-      // Tape on box
       const tape = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.02, 0.03), makeMat(0xCA8A04))
       tape.position.set(0.22, 0.09, 0.05)
       group.add(tape)
+      break
+    }
+    case "calendar": {
+      // Small calendar / schedule board
+      const board = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.18, 0.015), makeMat(0xffffff))
+      board.position.set(0.22, 0.15, 0)
+      group.add(board)
+      // Red top strip
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.03, 0.02), makeMat(0xEF4444))
+      strip.position.set(0.22, 0.25, 0)
+      group.add(strip)
+      // Grid lines
+      for (let i = 0; i < 3; i++) {
+        const line = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.008, 0.005), makeMat(0x999999))
+        line.position.set(0.22, 0.13 - i * 0.04, 0.01)
+        group.add(line)
+      }
+      break
+    }
+    case "newspaper": {
+      // Folded newspaper
+      const paper = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.01), makeMat(0xF5F5DC))
+      paper.position.set(0.2, 0.12, 0)
+      paper.rotation.z = 0.15
+      group.add(paper)
+      // Headline bar
+      const headline = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.015, 0.012), makeMat(dark))
+      headline.position.set(0.2, 0.16, 0.01)
+      headline.rotation.z = 0.15
+      group.add(headline)
+      break
+    }
+    case "camera": {
+      // Camera body
+      const camBody = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.06), makeMat(0x1a1a1a))
+      camBody.position.set(0.2, 0.2, -0.08)
+      group.add(camBody)
+      // Lens
+      const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.04, 8), makeMat(0x333333))
+      lens.position.set(0.2, 0.2, -0.12)
+      lens.rotation.x = Math.PI / 2
+      group.add(lens)
+      // Flash
+      const flash = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.02), makeMat(0xF5F5F5))
+      flash.position.set(0.24, 0.25, -0.09)
+      group.add(flash)
+      break
+    }
+    case "megaphone": {
+      // Megaphone body (cone)
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.2, 6), makeMat(0xEF4444))
+      cone.position.set(0.2, 0.2, 0)
+      cone.rotation.z = Math.PI / 4
+      group.add(cone)
+      // Handle
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.1, 4), makeMat(0x888888))
+      handle.position.set(0.12, 0.13, 0)
+      handle.rotation.z = Math.PI / 4
+      group.add(handle)
+      break
+    }
+    case "handshake": {
+      // Briefcase
+      const briefcase = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.06), makeMat(0x5B3A1A))
+      briefcase.position.set(0.2, 0.03, 0)
+      group.add(briefcase)
+      // Handle
+      const bHandle = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.01, 4, 8, Math.PI), makeMat(0x8B6F47))
+      bHandle.position.set(0.2, 0.1, 0)
+      bHandle.rotation.x = Math.PI / 2
+      group.add(bHandle)
+      // Lock
+      const lock = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.03), makeMat(0xCA8A04))
+      lock.position.set(0.2, 0.06, 0.04)
+      group.add(lock)
       break
     }
   }
@@ -277,6 +351,24 @@ export class CharacterManager {
     const startRow = Math.round((group.position.z - 0.3) / CELL_SIZE + GRID_H / 2)
     const path = pathfinder.findPath(startRow, startCol, targetRow, targetCol)
     if (path.length > 0) this.walkTargets.set(employeeId, { path, pathIndex: 0, speed: 3 })
+  }
+
+  moveAllToMeeting(pathfinder) {
+    let i = 0
+    for (const [id] of this.characters) {
+      if (i >= MEETING_SEATS.length) break
+      const seat = MEETING_SEATS[i++]
+      setTimeout(() => this.moveTo(id, seat.row, seat.col, pathfinder), i * 120)
+    }
+  }
+
+  moveAllToDesks(pathfinder) {
+    let i = 0
+    for (const [id] of this.characters) {
+      const visual = getEmployeeVisual(id)
+      if (!visual) continue
+      setTimeout(() => this.moveTo(id, visual.gridRow, visual.gridCol, pathfinder), i++ * 120)
+    }
   }
 
   highlight(employeeId) {
