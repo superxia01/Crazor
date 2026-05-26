@@ -630,14 +630,14 @@ const TOOLS: any[] = [
   // --- Documents ---
   {
     name: "create_doc",
-    description: "创建知识库/AI笔记文档",
+    description: "创建知识库/AI笔记文档。文件夹ID为路径格式，如 'knowledge/业务流程/客户管理'。常见路径：关于我、百科、业务流程/公域流量、业务流程/私域运营、业务流程/客户管理、业务流程/项目管理、素材资产。若不确定路径，先用 list_docs 查看目录树。",
     inputSchema: {
       type: "object",
       properties: {
         scope: { type: "string", description: "范围", enum: ["knowledge", "notebook"] },
         title: { type: "string", description: "标题" },
         content: { type: "string", description: "Markdown内容" },
-        folder_id: { type: "string", description: "所属文件夹ID" },
+        folder_id: { type: "string", description: "所属文件夹路径ID，如 'knowledge/业务流程/客户管理'。空则放根目录" },
         contact_id: { type: "string", description: "关联客户ID" },
       },
       required: ["scope", "title"],
@@ -667,12 +667,12 @@ const TOOLS: any[] = [
   },
   {
     name: "list_docs",
-    description: "列出文件夹下的文档",
+    description: "列出文件夹下的文档。返回完整目录树（folders + notes）。文件夹ID为路径格式，如 'knowledge/业务流程'。不传 folder_id 返回完整树。",
     inputSchema: {
       type: "object",
       properties: {
         scope: { type: "string", enum: ["knowledge", "notebook"] },
-        folder_id: { type: "string", description: "文件夹ID（空则查根级）" },
+        folder_id: { type: "string", description: "文件夹路径ID（空则返回完整树）" },
       },
       required: ["scope"],
     },
@@ -691,13 +691,13 @@ const TOOLS: any[] = [
   },
   {
     name: "create_folder",
-    description: "创建文件夹",
+    description: "创建文件夹。parent_id 为路径格式，如 'knowledge/业务流程'。",
     inputSchema: {
       type: "object",
       properties: {
         scope: { type: "string", enum: ["knowledge", "notebook"] },
         name: { type: "string", description: "文件夹名称" },
-        parent_id: { type: "string", description: "父文件夹ID" },
+        parent_id: { type: "string", description: "父文件夹路径ID，如 'knowledge/业务流程'" },
       },
       required: ["scope", "name"],
     },

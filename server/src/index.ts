@@ -20,6 +20,7 @@ import * as docs from './services/crazor-docs'
 import * as docTree from './services/crazor-doc-tree'
 import * as skillCatalog from './services/skill-catalog'
 import { seedVault } from './services/seed-vault'
+import { migrateVault } from './services/migrate-vault'
 import { handleSSEConnect, handleSSEMessage } from './services/crazor-mcp'
 import { CRAZOR_SKILLS_DIR } from './services/crazor-config'
 
@@ -999,19 +1000,30 @@ app.post('/api/crazor/docs/:scope/folders', async (c) => {
   return c.json(docTree.createFolder(scope, body.parentId || null, body.name || '未命名'), 201)
 })
 
-app.patch('/api/crazor/docs/folders/:id', async (c) => {
+// --- Document folder/note operations (ID via query param to support path-based IDs) ---
+
+app.patch('/api/crazor/docs/:scope/folders-ops', async (c) => {
+  const id = c.req.query('id')
   const body = await c.req.json()
-  docTree.renameFolder(c.req.param('id'), body.name)
+  docTree.renameFolder(id, body.name)
   return c.json({ ok: true })
 })
 
-app.delete('/api/crazor/docs/folders/:id', (c) => {
+app.delete('/api/crazor/docs/:scope/folders-ops', (c) => {
+  const id = c.req.query('id')
   try {
-    docTree.deleteFolder(c.req.param('id'))
+    docTree.deleteFolder(id)
     return c.json({ ok: true })
   } catch (e: any) {
     return c.json({ error: e.message }, 400)
   }
+})
+
+app.post('/api/crazor/docs/:scope/folders-ops/move', async (c) => {
+  const id = c.req.query('id')
+  const body = await c.req.json()
+  docTree.moveFolder(id, body.parentId || null, body.targetFolderId || null, body.position || null)
+  return c.json({ ok: true })
 })
 
 app.post('/api/crazor/docs/:scope/notes', async (c) => {
@@ -1020,20 +1032,30 @@ app.post('/api/crazor/docs/:scope/notes', async (c) => {
   return c.json(docTree.createNote(scope, body.folderId || null, body.title || '未命名笔记'), 201)
 })
 
-app.get('/api/crazor/docs/notes/:id', (c) => {
-  const note = docTree.getNote(c.req.param('id'))
+app.get('/api/crazor/docs/:scope/notes-ops', (c) => {
+  const id = c.req.query('id')
+  const note = docTree.getNote(id)
   if (!note) return c.json({ error: 'not found' }, 404)
   return c.json(note)
 })
 
-app.patch('/api/crazor/docs/notes/:id', async (c) => {
+app.patch('/api/crazor/docs/:scope/notes-ops', async (c) => {
+  const id = c.req.query('id')
   const body = await c.req.json()
-  docTree.updateNote(c.req.param('id'), body.title || '', body.content || '')
+  docTree.updateNote(id, body.title || '', body.content || '')
   return c.json({ ok: true })
 })
 
-app.delete('/api/crazor/docs/notes/:id', (c) => {
-  docTree.deleteNote(c.req.param('id'))
+app.delete('/api/crazor/docs/:scope/notes-ops', (c) => {
+  const id = c.req.query('id')
+  docTree.deleteNote(id)
+  return c.json({ ok: true })
+})
+
+app.post('/api/crazor/docs/:scope/notes-ops/move', async (c) => {
+  const id = c.req.query('id')
+  const body = await c.req.json()
+  docTree.moveNote(id, body.folderId || null, body.targetNoteId || null, body.position || null)
   return c.json({ ok: true })
 })
 
@@ -1041,18 +1063,6 @@ app.get('/api/crazor/docs/:scope/search', (c) => {
   const scope = c.req.param('scope')
   const q = c.req.query('q') || ''
   return c.json(docTree.searchNotes(scope, q))
-})
-
-app.patch('/api/crazor/docs/folders/:id/move', async (c) => {
-  const body = await c.req.json()
-  docTree.moveFolder(c.req.param('id'), body.parentId || null, body.targetFolderId || null, body.position || null)
-  return c.json({ ok: true })
-})
-
-app.patch('/api/crazor/docs/notes/:id/move', async (c) => {
-  const body = await c.req.json()
-  docTree.moveNote(c.req.param('id'), body.folderId || null, body.targetNoteId || null, body.position || null)
-  return c.json({ ok: true })
 })
 
 // --- Transactions ---
@@ -1324,6 +1334,7 @@ app.delete('/api/crazor/skills/:id', async (c) => {
 })
 
 // --- Start ---
+const migrationResult = migrateVault()
 const seedResult = seedVault()
 // Seed field definitions from schema metadata
 seedFieldDefinitions()

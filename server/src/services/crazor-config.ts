@@ -7,7 +7,9 @@ import { mkdirSync, existsSync } from 'node:fs'
 export const CRAZOR_HOME = resolve(process.env.CRAZOR_HOME || join(homedir(), '.crazor'))
 
 export const CRAZOR_DB_PATH = resolve(CRAZOR_HOME, 'crazor.db')
-export const CRAZOR_DOCS_ROOT = resolve(CRAZOR_HOME, 'docs')
+export const CRAZOR_DOCS_ROOT = resolve(CRAZOR_HOME, 'docs')    // legacy, will be removed
+export const CRAZOR_VAULT_ROOT = resolve(CRAZOR_HOME, 'vault')
+export const VAULT_META_FILE = '_.json'
 export const CRAZOR_SKILLS_DIR = resolve(CRAZOR_HOME, 'skills')
 
 // ── Hermes home (read-only) ──────────────────────────────────
@@ -16,6 +18,7 @@ export const HERMES_HOME = resolve(homedir(), '.hermes')
 
 // ── Ensure data directory exists ─────────────────────────────
 mkdirSync(CRAZOR_HOME, { recursive: true })
+mkdirSync(CRAZOR_VAULT_ROOT, { recursive: true })
 
 // ── Migration notice ─────────────────────────────────────────
 const legacyDb = resolve(HERMES_HOME, 'crazor.db')

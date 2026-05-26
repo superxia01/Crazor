@@ -1,11 +1,11 @@
-// Seed vault templates & mock-data into the knowledge base
-import { resolve, join } from "path"
-import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from "fs"
-import { db, id, now } from "./crazor-db"
-import { CRAZOR_DOCS_ROOT as DOCS_ROOT } from "./crazor-config"
-const VAULT_DATA = resolve(import.meta.dirname, "../../data/vault")
+// Seed vault templates & mock-data into filesystem vault
+// Creates real directories and .md files instead of SQLite rows
 
-// ── Vault folder hierarchy (no number prefixes) ────────────────────
+import { resolve, join } from "path"
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "fs"
+import { CRAZOR_VAULT_ROOT, VAULT_META_FILE } from "./crazor-config"
+
+const VAULT_DATA = resolve(import.meta.dirname, "../../data/vault")
 
 interface FolderDef {
   name: string
@@ -30,59 +30,44 @@ const VAULT_TREE: FolderDef[] = [
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-const seedFolders = new Map<string, string>() // name → folderId
-
-function insertFolder(scope: string, parentId: string | null, name: string, order: number): string {
-  const folderId = id()
-  const ts = now()
-  db.prepare(
-    "INSERT INTO doc_folders (id, scope, parent_id, name, sort_order, contact_id, created_at, updated_at) VALUES (?,?,?,?,NULL,?,?,?)"
-  ).run(folderId, scope, parentId, name, order, ts, ts)
-  return folderId
-}
-
-function insertNote(scope: string, folderId: string | null, title: string, content: string, order: number): string {
-  const noteId = id()
-  const ts = now()
-  db.prepare(
-    "INSERT INTO doc_notes (id, scope, folder_id, title, sort_order, contact_id, created_at, updated_at) VALUES (?,?,?,?,NULL,?,?,?)"
-  ).run(noteId, scope, folderId, title, order, ts, ts)
-  const dir = resolve(DOCS_ROOT, scope)
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(resolve(dir, `${noteId}.md`), content)
-  return noteId
-}
-
-function createFolderTree(scope: string, parentId: string | null, defs: (string | FolderDef)[], startOrder = 0) {
-  defs.forEach((def, i) => {
-    const name = typeof def === "string" ? def : def.name
-    const folderId = insertFolder(scope, parentId, name, startOrder + i)
-    seedFolders.set(name, folderId)
-    if (typeof def !== "string" && def.children) {
-      createFolderTree(scope, folderId, def.children)
-    }
-  })
-}
-
-function folderId(...parts: string[]): string | null {
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const found = seedFolders.get(parts[i])
-    if (found) return found
-  }
-  return null
+function writeDirMeta(dirPath: string, meta: Record<string, any>): void {
+  writeFileSync(resolve(dirPath, VAULT_META_FILE), JSON.stringify(meta, null, 2), 'utf-8')
 }
 
 function readMdFiles(dir: string): { filename: string; content: string }[] {
   if (!existsSync(dir)) return []
   return readdirSync(dir)
-    .filter((f) => f.endsWith(".md"))
-    .map((f) => ({ filename: f, content: readFileSync(join(dir, f), "utf-8") }))
+    .filter(f => f.endsWith(".md"))
+    .map(f => ({ filename: f, content: readFileSync(join(dir, f), "utf-8") }))
 }
 
-function seedNote(scope: string, folderParts: string[], filename: string, content: string, order: number) {
+function createDirTree(basePath: string, defs: (string | FolderDef)[]): void {
+  const sort: string[] = []
+  defs.forEach(def => {
+    const name = typeof def === "string" ? def : def.name
+    const dirPath = resolve(basePath, name)
+    mkdirSync(dirPath, { recursive: true })
+    sort.push(name)
+    if (typeof def !== "string" && def.children) {
+      createDirTree(dirPath, def.children)
+    }
+  })
+  writeDirMeta(basePath, { sort })
+}
+
+function copyNote(dirPath: string, filename: string, content: string): void {
+  mkdirSync(dirPath, { recursive: true })
   const title = filename.replace(/\.md$/, "")
-  const fid = folderParts.length > 0 ? folderId(...folderParts) : null
-  insertNote(scope, fid, title, content, order)
+  writeFileSync(resolve(dirPath, `${title}.md`), content, 'utf-8')
+  // Update sort in target directory
+  const metaPath = resolve(dirPath, VAULT_META_FILE)
+  let meta: Record<string, any> = {}
+  if (existsSync(metaPath)) {
+    try { meta = JSON.parse(readFileSync(metaPath, 'utf-8')) } catch { /* ignore */ }
+  }
+  if (!meta.sort) meta.sort = []
+  if (!meta.sort.includes(title)) meta.sort.push(title)
+  writeDirMeta(dirPath, meta)
 }
 
 // ── Per-file folder mapping ──────────────────────────────────────────
@@ -117,57 +102,66 @@ const FLOW_FILE_MAP: Record<string, string[]> = {
 // ── Main seed function ───────────────────────────────────────────────
 
 export function seedVault(): { folders: number; notes: number } {
-  const existing = (db.prepare("SELECT count(*) as c FROM doc_folders WHERE scope = 'knowledge'").get() as any).c
-  if (existing > 10) return { folders: 0, notes: 0 }
+  const knowledgeDir = resolve(CRAZOR_VAULT_ROOT, "knowledge")
 
+  // Skip if vault already has content
+  if (existsSync(knowledgeDir)) {
+    const entries = readdirSync(knowledgeDir).filter(e => e !== ".DS_Store" && e !== ".obsidian" && e !== VAULT_META_FILE)
+    if (entries.length > 5) return { folders: 0, notes: 0 }
+  }
+
+  mkdirSync(CRAZOR_VAULT_ROOT, { recursive: true })
   let noteCount = 0
 
-  db.prepare("DELETE FROM doc_folders WHERE scope = 'knowledge' AND name = '默认目录'").run()
-  db.prepare("DELETE FROM doc_folders WHERE scope = 'notebook' AND name = '默认目录'").run()
+  // 1. Create directory hierarchy
+  createDirTree(knowledgeDir, VAULT_TREE)
 
-  // 1. Create folder hierarchy
-  createFolderTree("knowledge", null, VAULT_TREE)
-
-  // 2. Root system guides — only system-level ones at root, others go to subfolders
+  // 2. Root system guides
   const ROOT_FILE_MAP: Record<string, string[]> = {
-    "20-raw-填写指南.md": [],         // raw 对应 AI笔记，不放入知识库
-    "raw-cleaned-填写指南.md": [],     // 同上
-    "raw-tagged-填写指南.md": [],      // 同上
+    "20-raw-填写指南.md": [],
+    "raw-cleaned-填写指南.md": [],
+    "raw-tagged-填写指南.md": [],
     "60-events-填写指南.md": ["事件"],
     "99-archive-填写指南.md": ["归档"],
   }
   for (const f of readMdFiles(join(VAULT_DATA, "root"))) {
     if (ROOT_FILE_MAP.hasOwnProperty(f.filename)) {
       const target = ROOT_FILE_MAP[f.filename]
-      if (target.length === 0) continue // skip raw-related guides
-      seedNote("knowledge", target, f.filename, f.content, noteCount++)
+      if (target.length === 0) continue
+      const dir = resolve(knowledgeDir, ...target)
+      copyNote(dir, f.filename, f.content)
+      noteCount++
     } else {
-      // 系统使用指南, 骨架设计说明 → root
-      seedNote("knowledge", [], f.filename, f.content, noteCount++)
+      copyNote(knowledgeDir, f.filename, f.content)
+      noteCount++
     }
   }
 
-  // 3. me templates
+  // 3. me templates → 关于我
   for (const f of readMdFiles(join(VAULT_DATA, "me"))) {
-    seedNote("knowledge", ["关于我"], f.filename, f.content, noteCount++)
+    copyNote(resolve(knowledgeDir, "关于我"), f.filename, f.content)
+    noteCount++
   }
 
-  // 4. wiki templates
+  // 4. wiki templates → 百科/{section}
   const wikiSubdirs = ["10-行业与市场", "20-产品知识", "30-客户洞察", "40-销售与转化", "50-内容与流量", "60-实战复盘"]
   for (const sub of wikiSubdirs) {
     const cleanName = sub.replace(/^\d+-/, "")
     for (const f of readMdFiles(join(VAULT_DATA, "wiki", sub))) {
-      seedNote("knowledge", ["百科", cleanName], f.filename, f.content, noteCount++)
+      copyNote(resolve(knowledgeDir, "百科", cleanName), f.filename, f.content)
+      noteCount++
     }
   }
 
   // 5. flow templates
   for (const f of readMdFiles(join(VAULT_DATA, "flow"))) {
     const target = FLOW_FILE_MAP[f.filename] || ["业务流程"]
-    seedNote("knowledge", target, f.filename, f.content, noteCount++)
+    const dir = resolve(knowledgeDir, ...target)
+    copyNote(dir, f.filename, f.content)
+    noteCount++
   }
 
-  // 7. Mock-data
+  // 6. Mock-data
   const MOCK_MAP = [
     { dir: "mock-data/00-me", folder: ["关于我"] },
     { dir: "mock-data/20-wiki", folder: ["百科"] },
@@ -178,26 +172,48 @@ export function seedVault(): { folders: number; notes: number } {
   ]
   for (const m of MOCK_MAP) {
     for (const f of readMdFiles(join(VAULT_DATA, m.dir))) {
-      seedNote("knowledge", m.folder, f.filename, f.content, noteCount++)
+      const dir = resolve(knowledgeDir, ...m.folder)
+      copyNote(dir, f.filename, f.content)
+      noteCount++
     }
   }
 
-  // 8. Notebook: raw inbox + raw guides
-  const nbFolderId = insertFolder("notebook", null, "inbox", 0)
+  // 7. Notebook: inbox
+  const notebookDir = resolve(CRAZOR_VAULT_ROOT, "notebook", "inbox")
+  mkdirSync(notebookDir, { recursive: true })
+  writeDirMeta(resolve(CRAZOR_VAULT_ROOT, "notebook"), { sort: ["inbox"] })
   for (const f of readMdFiles(join(VAULT_DATA, "mock-data/10-raw/inbox"))) {
-    const title = f.filename.replace(/\.md$/, "")
-    insertNote("notebook", nbFolderId, title, f.content, noteCount++)
+    copyNote(notebookDir, f.filename, f.content)
     noteCount++
   }
   // Raw guides → notebook inbox
   const RAW_GUIDES = ["20-raw-填写指南.md", "raw-cleaned-填写指南.md", "raw-tagged-填写指南.md"]
   for (const f of readMdFiles(join(VAULT_DATA, "root"))) {
     if (RAW_GUIDES.includes(f.filename)) {
-      const title = f.filename.replace(/\.md$/, "")
-      insertNote("notebook", nbFolderId, title, f.content, noteCount++)
+      copyNote(notebookDir, f.filename, f.content)
       noteCount++
     }
   }
 
-  return { folders: seedFolders.size + 1, notes: noteCount }
+  // Count folders
+  function countDirs(dir: string): number {
+    let count = 0
+    if (!existsSync(dir)) return 0
+    for (const entry of readdirSync(dir)) {
+      if (entry === ".DS_Store" || entry === ".obsidian" || entry === VAULT_META_FILE) continue
+      const fullPath = resolve(dir, entry)
+      try {
+        if (existsSync(fullPath) && statSync(fullPath).isDirectory()) {
+          count++
+          count += countDirs(fullPath)
+        }
+      } catch { /* ignore */ }
+    }
+    return count
+  }
+
+  const folderTotal = countDirs(knowledgeDir) + countDirs(resolve(CRAZOR_VAULT_ROOT, "notebook"))
+
+  console.log(`[seed] Vault seeded: ${folderTotal} folders, ${noteCount} notes`)
+  return { folders: folderTotal, notes: noteCount }
 }

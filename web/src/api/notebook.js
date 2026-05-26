@@ -1,5 +1,5 @@
 // Copyright (c) 2026 MeeJoy
-// Notebook / Knowledge — server-side storage (SQLite tree + filesystem .md)
+// Notebook / Knowledge — server-side storage (filesystem vault)
 
 async function request(url, options = {}) {
   const resp = await fetch(url, {
@@ -13,6 +13,12 @@ async function request(url, options = {}) {
   return resp.json()
 }
 
+// The server uses a catch-all route that reads the ID from the path.
+// We pass the ID as-is — the browser won't re-encode %2F in fetch URLs.
+function encId(id) {
+  return encodeURIComponent(id)
+}
+
 function createServerNotebookStore(scope) {
   const base = `/api/crazor/docs/${scope}`
 
@@ -23,37 +29,37 @@ function createServerNotebookStore(scope) {
       request(`${base}/folders`, { method: 'POST', body: JSON.stringify({ parentId, name }) }),
 
     renameFolder: async (folderId, name) =>
-      request(`/api/crazor/docs/folders/${folderId}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+      request(`${base}/folders-ops?id=${encId(folderId)}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
 
     deleteFolder: async (folderId) =>
-      request(`/api/crazor/docs/folders/${folderId}`, { method: 'DELETE' }),
+      request(`${base}/folders-ops?id=${encId(folderId)}`, { method: 'DELETE' }),
 
     createNote: async (folderId, title) =>
       request(`${base}/notes`, { method: 'POST', body: JSON.stringify({ folderId, title }) }),
 
     renameNote: async (noteId, title) =>
-      request(`/api/crazor/docs/notes/${noteId}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+      request(`${base}/notes-ops?id=${encId(noteId)}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
 
     deleteNote: async (noteId) =>
-      request(`/api/crazor/docs/notes/${noteId}`, { method: 'DELETE' }),
+      request(`${base}/notes-ops?id=${encId(noteId)}`, { method: 'DELETE' }),
 
-    getNote: async (noteId) => request(`/api/crazor/docs/notes/${noteId}`),
+    getNote: async (noteId) => request(`${base}/notes-ops?id=${encId(noteId)}`),
 
     updateNote: async (noteId, title, content) =>
-      request(`/api/crazor/docs/notes/${noteId}`, { method: 'PATCH', body: JSON.stringify({ title, content }) }),
+      request(`${base}/notes-ops?id=${encId(noteId)}`, { method: 'PATCH', body: JSON.stringify({ title, content }) }),
 
     searchNotes: async (query) =>
       request(`${base}/search?q=${encodeURIComponent(query)}`),
 
     moveFolder: async (folderId, parentId, targetFolderId = null, position = null) =>
-      request(`/api/crazor/docs/folders/${folderId}/move`, {
-        method: 'PATCH',
+      request(`${base}/folders-ops/move?id=${encId(folderId)}`, {
+        method: 'POST',
         body: JSON.stringify({ parentId, targetFolderId, position }),
       }),
 
     moveNote: async (noteId, folderId, targetNoteId = null, position = null) =>
-      request(`/api/crazor/docs/notes/${noteId}/move`, {
-        method: 'PATCH',
+      request(`${base}/notes-ops/move?id=${encId(noteId)}`, {
+        method: 'POST',
         body: JSON.stringify({ folderId, targetNoteId, position }),
       }),
   }
