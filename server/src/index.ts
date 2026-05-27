@@ -13,7 +13,7 @@ import {
   listFollowUps, createFollowUp, updateFollowUp, deleteFollowUp, getFollowUpReminders,
   listChannels, getChannel, createChannel, updateChannel, deleteChannel, getChannelStats,
   listChannelReferrals, createChannelReferral, listContactChannels,
-  listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats,
+  listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats, seedContentPieces,
 } from './services/crazor-db'
 import { seedFieldDefinitions, discoverCustomFields, listFieldDefinitions, getFieldDefinition, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, reorderFieldDefinitions } from './services/field-definitions'
 import * as docs from './services/crazor-docs'
@@ -1338,6 +1338,7 @@ const migrationResult = migrateVault()
 const seedResult = seedVault()
 // Seed field definitions from schema metadata
 seedFieldDefinitions()
+seedContentPieces()
 for (const entity of ['contacts', 'channels', 'transactions']) {
   discoverCustomFields(entity)
 }

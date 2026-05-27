@@ -13,19 +13,23 @@ interface FolderDef {
 }
 
 const VAULT_TREE: FolderDef[] = [
-  { name: "关于我", children: ["定位与品牌", "产品与业务", "目标客户", "账号矩阵", "目标与节奏"] },
-  { name: "百科", children: ["行业与市场", "产品知识", "客户洞察", "销售与转化", "内容与流量", "实战复盘"] },
+  { name: "00-关于我", children: ["10-定位与品牌", "20-产品与业务", "30-目标客户", "40-账号矩阵", "50-目标与节奏"] },
+  { name: "10-百科", children: ["10-行业与市场", "20-产品知识", "30-客户洞察", "40-销售与转化", "50-内容与流量", "60-实战复盘"] },
   {
-    name: "业务流程", children: [
-      { name: "公域流量", children: ["选题池", "内容管理", "数据统计", "内容资产", "素材提炼"] },
-      { name: "私域运营", children: ["朋友圈", "社群", "数据周报"] },
-      { name: "客户管理", children: ["线索管理", "成交记录"] },
-      "产品交付", "项目管理", "人事管理", "财务管理", "库存管理", "数据看板",
+    name: "20-业务流程", children: [
+      { name: "10-公域流量", children: [
+          "10-选题池", "20-内容管理", "30-数据统计", "40-内容资产", "50-素材提炼",
+          { name: "60-海外平台", children: ["YouTube", "Twitter", "Instagram"] },
+          { name: "70-跨境电商", children: ["Amazon", "TikTok", "Shopify", "物流"] },
+        ] },
+      { name: "20-私域运营", children: ["10-朋友圈", "20-社群", "30-数据周报"] },
+      { name: "30-客户管理", children: ["10-线索管理", "20-成交记录"] },
+      "40-产品交付", "45-项目管理", "50-人事管理", "55-财务管理", "60-库存管理", "70-数据看板",
     ],
   },
-  { name: "素材资产", children: ["品牌", "账号", "内容模板", "PPT模板", "报价方案", "合同"] },
-  { name: "事件", children: ["公司", "AI"] },
-  { name: "归档" },
+  { name: "30-素材资产", children: ["10-品牌", "20-账号", "30-内容模板", "40-PPT模板", "50-报价方案", "60-合同"] },
+  { name: "40-事件", children: ["10-公司", "20-AI"] },
+  { name: "99-归档" },
 ]
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -73,30 +77,30 @@ function copyNote(dirPath: string, filename: string, content: string): void {
 // ── Per-file folder mapping ──────────────────────────────────────────
 
 const FLOW_FILE_MAP: Record<string, string[]> = {
-  "CRM-填写指南.md": ["业务流程", "客户管理"],
-  "_template-客户档案.md": ["业务流程", "客户管理", "线索管理"],
-  "_template-跟进记录.md": ["业务流程", "客户管理", "线索管理"],
-  "_template-渠道档案.md": ["业务流程", "客户管理"],
-  "_template-月度业绩报表.md": ["业务流程", "客户管理", "成交记录"],
-  "公域流量-填写指南.md": ["业务流程", "公域流量"],
-  "内容资产-填写指南.md": ["业务流程", "公域流量", "内容资产"],
-  "数据统计-填写指南.md": ["业务流程", "公域流量", "数据统计"],
-  "素材提炼-填写指南.md": ["业务流程", "公域流量", "素材提炼"],
-  "朋友圈-填写指南.md": ["业务流程", "私域运营", "朋友圈"],
-  "社群-填写指南.md": ["业务流程", "私域运营", "社群"],
-  "私域运营-填写指南.md": ["业务流程", "私域运营"],
-  "数据周报模板.md": ["业务流程", "私域运营", "数据周报"],
-  "产品交付-填写指南.md": ["业务流程", "产品交付"],
-  "人事管理-填写指南.md": ["业务流程", "人事管理"],
-  "财务管理-填写指南.md": ["业务流程", "财务管理"],
-  "库存管理-填写指南.md": ["业务流程", "库存管理"],
-  "数据看板-填写指南.md": ["业务流程", "数据看板"],
-  "品牌填写指南.md": ["素材资产", "品牌"],
-  "账号填写指南.md": ["素材资产", "账号"],
-  "PPT模板填写指南.md": ["素材资产", "PPT模板"],
-  "报价方案填写指南.md": ["素材资产", "报价方案"],
-  "合同填写指南.md": ["素材资产", "合同"],
-  "客户填写指南.md": ["业务流程", "客户管理"],
+  "CRM-填写指南.md": ["20-业务流程", "30-客户管理"],
+  "_template-客户档案.md": ["20-业务流程", "30-客户管理", "10-线索管理"],
+  "_template-跟进记录.md": ["20-业务流程", "30-客户管理", "10-线索管理"],
+  "_template-渠道档案.md": ["20-业务流程", "30-客户管理"],
+  "_template-月度业绩报表.md": ["20-业务流程", "30-客户管理", "20-成交记录"],
+  "公域流量-填写指南.md": ["20-业务流程", "10-公域流量"],
+  "内容资产-填写指南.md": ["20-业务流程", "10-公域流量", "40-内容资产"],
+  "数据统计-填写指南.md": ["20-业务流程", "10-公域流量", "30-数据统计"],
+  "素材提炼-填写指南.md": ["20-业务流程", "10-公域流量", "50-素材提炼"],
+  "朋友圈-填写指南.md": ["20-业务流程", "20-私域运营", "10-朋友圈"],
+  "社群-填写指南.md": ["20-业务流程", "20-私域运营", "20-社群"],
+  "私域运营-填写指南.md": ["20-业务流程", "20-私域运营"],
+  "数据周报模板.md": ["20-业务流程", "20-私域运营", "30-数据周报"],
+  "产品交付-填写指南.md": ["20-业务流程", "40-产品交付"],
+  "人事管理-填写指南.md": ["20-业务流程", "50-人事管理"],
+  "财务管理-填写指南.md": ["20-业务流程", "55-财务管理"],
+  "库存管理-填写指南.md": ["20-业务流程", "60-库存管理"],
+  "数据看板-填写指南.md": ["20-业务流程", "70-数据看板"],
+  "品牌填写指南.md": ["30-素材资产", "10-品牌"],
+  "账号填写指南.md": ["30-素材资产", "20-账号"],
+  "PPT模板填写指南.md": ["30-素材资产", "40-PPT模板"],
+  "报价方案填写指南.md": ["30-素材资产", "50-报价方案"],
+  "合同填写指南.md": ["30-素材资产", "60-合同"],
+  "客户填写指南.md": ["20-业务流程", "30-客户管理"],
 }
 
 // ── Main seed function ───────────────────────────────────────────────
@@ -121,8 +125,8 @@ export function seedVault(): { folders: number; notes: number } {
     "20-raw-填写指南.md": [],
     "raw-cleaned-填写指南.md": [],
     "raw-tagged-填写指南.md": [],
-    "60-events-填写指南.md": ["事件"],
-    "99-archive-填写指南.md": ["归档"],
+    "60-events-填写指南.md": ["40-事件"],
+    "99-archive-填写指南.md": ["99-归档"],
   }
   for (const f of readMdFiles(join(VAULT_DATA, "root"))) {
     if (ROOT_FILE_MAP.hasOwnProperty(f.filename)) {
@@ -137,25 +141,24 @@ export function seedVault(): { folders: number; notes: number } {
     }
   }
 
-  // 3. me templates → 关于我
+  // 3. me templates → 00-关于我
   for (const f of readMdFiles(join(VAULT_DATA, "me"))) {
-    copyNote(resolve(knowledgeDir, "关于我"), f.filename, f.content)
+    copyNote(resolve(knowledgeDir, "00-关于我"), f.filename, f.content)
     noteCount++
   }
 
-  // 4. wiki templates → 百科/{section}
+  // 4. wiki templates → 10-百科/{section}
   const wikiSubdirs = ["10-行业与市场", "20-产品知识", "30-客户洞察", "40-销售与转化", "50-内容与流量", "60-实战复盘"]
   for (const sub of wikiSubdirs) {
-    const cleanName = sub.replace(/^\d+-/, "")
     for (const f of readMdFiles(join(VAULT_DATA, "wiki", sub))) {
-      copyNote(resolve(knowledgeDir, "百科", cleanName), f.filename, f.content)
+      copyNote(resolve(knowledgeDir, "10-百科", sub), f.filename, f.content)
       noteCount++
     }
   }
 
   // 5. flow templates
   for (const f of readMdFiles(join(VAULT_DATA, "flow"))) {
-    const target = FLOW_FILE_MAP[f.filename] || ["业务流程"]
+    const target = FLOW_FILE_MAP[f.filename] || ["20-业务流程"]
     const dir = resolve(knowledgeDir, ...target)
     copyNote(dir, f.filename, f.content)
     noteCount++
@@ -163,12 +166,12 @@ export function seedVault(): { folders: number; notes: number } {
 
   // 6. Mock-data
   const MOCK_MAP = [
-    { dir: "mock-data/00-me", folder: ["关于我"] },
-    { dir: "mock-data/20-wiki", folder: ["百科"] },
-    { dir: "mock-data/30-flow/10-公域流量", folder: ["业务流程", "公域流量"] },
-    { dir: "mock-data/30-flow/20-私域运营/10-朋友圈", folder: ["业务流程", "私域运营", "朋友圈"] },
-    { dir: "mock-data/30-flow/30-CRM", folder: ["业务流程", "客户管理"] },
-    { dir: "mock-data/50-projects", folder: ["业务流程", "项目管理"] },
+    { dir: "mock-data/00-me", folder: ["00-关于我"] },
+    { dir: "mock-data/20-wiki", folder: ["10-百科"] },
+    { dir: "mock-data/30-flow/10-公域流量", folder: ["20-业务流程", "10-公域流量"] },
+    { dir: "mock-data/30-flow/20-私域运营/10-朋友圈", folder: ["20-业务流程", "20-私域运营", "10-朋友圈"] },
+    { dir: "mock-data/30-flow/30-CRM", folder: ["20-业务流程", "30-客户管理"] },
+    { dir: "mock-data/50-projects", folder: ["20-业务流程", "45-项目管理"] },
   ]
   for (const m of MOCK_MAP) {
     for (const f of readMdFiles(join(VAULT_DATA, m.dir))) {

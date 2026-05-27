@@ -403,6 +403,40 @@ export function deleteContentPiece(id: string) {
   db.prepare("DELETE FROM content_pieces WHERE id = ?").run(id)
 }
 
+export function seedContentPieces() {
+  const count = (db.prepare("SELECT count(*) as c FROM content_pieces").get() as any).c
+  if (count > 0) return 0
+
+  const mockItems = [
+    // 国内平台
+    { title: "AI工具选型指南：中小企业如何避坑", platform: "公众号", form: "文章", status: "已发布", published_at: "2026-05-20", views: 2340, likes: 89, comments: 23, shares: 45, topic_source: "选题池" },
+    { title: "制造厂用AI报价，效率提升3倍", platform: "小红书", form: "图文", status: "已发布", published_at: "2026-05-18", views: 8900, likes: 312, comments: 67, shares: 128, topic_source: "选题池" },
+    { title: "30家企业AI内训真相调查", platform: "公众号", form: "文章", status: "草稿", topic_source: "选题池" },
+    { title: "AI写文案prompt模板大全", platform: "抖音", form: "口播稿", status: "拍摄中", topic_source: "选题池" },
+    { title: "制造业AI提效案例分享", platform: "视频号", form: "图文", status: "选题中", topic_source: "客户反馈" },
+    { title: "周末测评5款AI办公工具", platform: "朋友圈", form: "图文", status: "已发布", published_at: "2026-05-15", views: 560, likes: 34, comments: 12, shares: 8, topic_source: "日常" },
+    { title: "行业观点：别等了，AI不会等你", platform: "知识星球", form: "文章", status: "已发布", published_at: "2026-05-12", views: 1200, likes: 56, comments: 18, shares: 22, topic_source: "行业观察" },
+    // 海外平台
+    { title: "How SMEs Can Leverage AI Tools in 2026", platform: "YouTube", form: "Talk", status: "已发布", published_at: "2026-05-22", views: 15600, likes: 890, comments: 134, shares: 267, topic_source: "海外选题" },
+    { title: "AI Automation for Small Business - Full Guide", platform: "YouTube", form: "Talk", status: "已发布", published_at: "2026-05-10", views: 32400, likes: 1820, comments: 256, shares: 534, topic_source: "海外选题" },
+    { title: "Just shipped our AI workflow tool for SMEs 🚀", platform: "Twitter", form: "图文", status: "已发布", published_at: "2026-05-24", views: 28900, likes: 456, comments: 38, shares: 128, topic_source: "产品推广" },
+    { title: "AI tools comparison thread 🧵", platform: "Twitter", form: "图文", status: "已发布", published_at: "2026-05-19", views: 45000, likes: 1120, comments: 89, shares: 340, topic_source: "海外选题" },
+    { title: "Behind the scenes: Building AI solutions for manufacturing", platform: "Instagram", form: "图文", status: "已发布", published_at: "2026-05-21", views: 8700, likes: 620, comments: 45, shares: 89, topic_source: "品牌建设" },
+    { title: "5 AI tools every entrepreneur needs", platform: "Instagram", form: "图文", status: "草稿", topic_source: "海外选题" },
+    // 跨境电商
+    { title: "AI Training Toolkit - Enterprise Edition", platform: "Amazon", form: "文章", status: "已发布", published_at: "2026-05-16", views: 340, likes: 28, comments: 5, shares: 12, topic_source: "产品上架" },
+    { title: "AI Prompt Engineering Guide (English Edition)", platform: "Amazon", form: "文章", status: "待发布", topic_source: "产品上架" },
+    { title: "Day 1: 从0开始做TikTok AI内容", platform: "TikTok", form: "口播稿", status: "已发布", published_at: "2026-05-23", views: 128000, likes: 5600, comments: 342, shares: 1200, topic_source: "跨境选题" },
+    { title: "AI makes this $0 to $10K challenge easy", platform: "TikTok", form: "口播稿", status: "拍摄中", topic_source: "跨境选题" },
+    { title: "AI SaaS Dashboard Template Launch", platform: "Shopify", form: "文章", status: "已发布", published_at: "2026-05-14", views: 180, likes: 12, comments: 3, shares: 5, topic_source: "产品推广" },
+  ]
+
+  for (const item of mockItems) {
+    createContentPiece(item)
+  }
+  return mockItems.length
+}
+
 export function getContentPieceStats() {
   const total = (db.prepare("SELECT count(*) as c FROM content_pieces").get() as any).c
   const published = (db.prepare("SELECT count(*) as c FROM content_pieces WHERE status = '已发布'").get() as any).c

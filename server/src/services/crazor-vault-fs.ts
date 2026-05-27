@@ -1,6 +1,6 @@
 // Filesystem-driven document tree — real directories = folders, .md files = notes
 // Each directory has a _.json for sort order and optional metadata (e.g. contact_id)
-// IDs are derived from paths: "knowledge/业务流程/客户管理"
+// IDs are derived from paths: "knowledge/20-业务流程/30-客户管理"
 
 import { resolve, dirname, basename, join } from 'node:path'
 import {
@@ -452,16 +452,16 @@ export function searchNotes(scope: string, query: string): any[] {
 
 // ── Contact folder integration ──────────────────────────────
 
-// Find "业务流程/客户管理" folder
+// Find "20-业务流程/30-客户管理" folder
 function getContactParentPath(scope: string = 'knowledge'): string | null {
   const root = scopeDir(scope)
-  // Walk to find 业务流程/客户管理
+  // Walk to find 20-业务流程/30-客户管理
   for (const entry of readdirSync(root)) {
     if (isIgnored(entry)) continue
     const flowDir = resolve(root, entry)
     try { if (!statSync(flowDir).isDirectory()) continue } catch { continue }
-    if (entry !== '业务流程') continue
-    const crmDir = resolve(flowDir, '客户管理')
+    if (entry !== '20-业务流程') continue
+    const crmDir = resolve(flowDir, '30-客户管理')
     if (existsSync(crmDir)) return crmDir
   }
   return null
@@ -479,14 +479,14 @@ export function ensureContactFolder(contactId: string, contactName: string) {
       try { if (!statSync(subDir).isDirectory()) continue } catch { continue }
       const meta = readDirMeta(subDir)
       if (meta.contact_id === contactId) {
-        const id = `knowledge/业务流程/客户管理/${entry}`
+        const id = `knowledge/20-业务流程/30-客户管理/${entry}`
         return { id }
       }
     }
   }
 
   // Create new folder
-  const parentDir = crmDir || resolve(scopeDir('knowledge'), '业务流程', '客户管理')
+  const parentDir = crmDir || resolve(scopeDir('knowledge'), '20-业务流程', '30-客户管理')
   mkdirSync(parentDir, { recursive: true })
   const dirPath = resolve(parentDir, safeName)
   mkdirSync(dirPath, { recursive: true })
@@ -500,7 +500,7 @@ export function ensureContactFolder(contactId: string, contactName: string) {
   if (!parentMeta.sort.includes(safeName)) parentMeta.sort.push(safeName)
   writeDirMeta(parentDir, parentMeta)
 
-  const id = `knowledge/业务流程/客户管理/${safeName}`
+  const id = `knowledge/20-业务流程/30-客户管理/${safeName}`
   return { id }
 }
 
