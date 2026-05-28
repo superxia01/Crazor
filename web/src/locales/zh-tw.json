@@ -132,6 +132,8 @@
     "hermes": "系統設置",
     "notebook": "AI筆記",
     "contacts": "客戶管理",
+    "teamops": "協作審計",
+    "teamopsDescription": "管理團隊身份、Agent Token 與寫入審計",
     "finance": "財務中心",
     "projects": "專案看板",
     "knowledge": "知識庫",

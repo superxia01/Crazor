@@ -133,6 +133,8 @@
     "notebook": "AI笔记",
     "content": "平台流量",
     "contacts": "客户管理",
+    "teamops": "协作审计",
+    "teamopsDescription": "管理团队身份、Agent Token 与写入审计",
     "finance": "财务中心",
     "channels": "渠道管理",
     "projects": "项目看板",

@@ -133,6 +133,8 @@
     "notebook": "AI Notes",
     "content": "Content",
     "contacts": "Contacts",
+    "teamops": "Team Audit",
+    "teamopsDescription": "Manage team identities, Agent tokens, and write audit logs",
     "finance": "Finance",
     "channels": "Channels",
     "projects": "Projects",

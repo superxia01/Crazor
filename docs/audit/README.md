@@ -30,11 +30,13 @@
 
 可信 actor 来源的最小底座已接入：服务端新增团队成员与 actor token 表，REST 请求可以通过 `Authorization: Bearer` 或 `X-Crazor-Token` 派生 `human / api-token` 来源，MCP 工具调用可以派生 `agent / agent-token` 来源。
 
+协作审计的最小工作台已接入：统一 Web 入口新增“协作审计”页面，可以创建团队成员或 Agent 身份、签发/撤销 API token 和 agent token，并查看真实 `audit_logs` 写入记录。
+
 但从“团队内部真实使用”的标准看，产品仍不是完整闭环。核心差距在于：
 
 - 客户 Case 仍缺少文档直接打开/编辑、渠道转介绍和项目机会的双向关联动作。
 - 后端业务 API 与 MCP Tool 已经比较完整，前端已承接基础写入和客户 Case 最小闭环，但关联动作仍不足。
-- 多人协作所需的身份管理 API 已有最小可验证能力，但仍缺独立管理 UI、RBAC 权限拦截和强制登录边界。
+- 多人协作所需的身份管理和审计查看已经有最小 UI，但仍缺 RBAC 权限拦截、强制登录边界、token 权限范围和关键操作审批。
 - Agent Gateway 的解耦原则已有文档，但代码和 UI 里仍有较多 Hermes 私有概念。
 
 ## 本轮烟测
@@ -116,6 +118,18 @@
 | 使用 agent token 调用 MCP SSE `create_contact` | 通过，审计记录来源为 `agent-token` |
 | 使用 agent token 调用 MCP StreamableHTTP `create_contact` | 通过，统一入口 `POST /mcp` 返回 `Mcp-Session-Id`，审计记录来源为 `agent-token` |
 | 临时客户、成员、token 清理 | 通过 |
+
+## 协作审计页面烟测
+
+通过本机 Docker 暴露入口 `http://127.0.0.1:5173` 验证：
+
+| 链路 | 结果 |
+|------|------|
+| `docker compose build crazor-web` | 通过，生成 `TeamOpsView` 前端 chunk |
+| 侧边栏“协作审计”入口 | 已接入 `teamops` 视图 |
+| 页面依赖身份 API | 通过，成员创建、token 签发、token 列表不返回 `token_hash` |
+| 页面依赖审计 API | 通过，可读取 `actor_token` 审计记录 |
+| 临时成员和 token 清理 | 通过 |
 
 ## 持续审计规则
 
