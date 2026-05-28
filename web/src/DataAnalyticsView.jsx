@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
-  BarChart3Icon, BellIcon, FilterIcon, GlobeIcon, MessageSquareIcon, SparklesIcon, TrendingUpIcon, UsersIcon,
+  BarChart3Icon, BellIcon, CalendarIcon, CheckSquareIcon, FilterIcon, GlobeIcon, MessageSquareIcon, SparklesIcon, TrendingUpIcon, UsersIcon,
 } from "lucide-react"
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis,
@@ -10,8 +10,10 @@ import {
 } from "recharts"
 import { ViewFrame } from "@/components/view-frame"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 
 export default function DataAnalyticsView() {
   const [overview, setOverview] = useState(null)
@@ -27,6 +29,26 @@ export default function DataAnalyticsView() {
   }, [])
 
   useEffect(() => { void loadData() }, [loadData])
+
+  const handleCompleteReminder = useCallback(async (reminder) => {
+    try {
+      await patchJson(`/api/crazor/follow-ups/${reminder.id}`, { status: "已完成" })
+      toast.success("跟进提醒已完成")
+      await loadData()
+    } catch (error) {
+      toast.error("提醒处理失败", { description: String(error?.message || error) })
+    }
+  }, [loadData])
+
+  const handleSnoozeReminder = useCallback(async (reminder, days) => {
+    try {
+      await patchJson(`/api/crazor/follow-ups/${reminder.id}`, { date: dateDaysFromNow(days), status: "待跟进" })
+      toast.success(days >= 7 ? "已顺延到下周" : "已顺延到明天")
+      await loadData()
+    } catch (error) {
+      toast.error("提醒顺延失败", { description: String(error?.message || error) })
+    }
+  }, [loadData])
 
   const hermes = overview?.hermes || { todayConversations: 0, weekConversations: 0, toolCalls: 0, dailyTrend: [] }
   const contacts = overview?.contacts || { total: 0, active: 0, totalDeal: 0, followUpsDue: 0, byStage: {} }
@@ -209,12 +231,31 @@ export default function DataAnalyticsView() {
               {followUpReminders.length > 0 ? (
                 <div className="flex flex-col gap-2">
                   {followUpReminders.slice(0, 5).map((fu) => (
-                    <div key={fu.id} className="flex items-center justify-between rounded-lg border p-2 text-[12px]">
-                      <div>
-                        <span className="font-medium">{fu.contact_name}</span>
-                        {fu.method && <Badge variant="outline" className="ml-1.5 text-[10px] h-4">{fu.method}</Badge>}
+                    <div key={fu.id} className="rounded-lg border p-2 text-[12px]">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-medium">
+                            <span>{fu.contact_name}</span>
+                            {fu.method && <Badge variant="outline" className="ml-1.5 text-[10px] h-4">{fu.method}</Badge>}
+                          </div>
+                          {fu.content && <div className="mt-1 line-clamp-2 text-muted-foreground">{fu.content}</div>}
+                        </div>
+                        <span className="shrink-0 text-muted-foreground">{fu.date}</span>
                       </div>
-                      <span className="text-muted-foreground">{fu.date}</span>
+                      <div className="mt-2 flex flex-wrap justify-end gap-1">
+                        <Button size="xs" variant="outline" onClick={() => void handleSnoozeReminder(fu, 1)}>
+                          <CalendarIcon className="size-3" />
+                          明天
+                        </Button>
+                        <Button size="xs" variant="outline" onClick={() => void handleSnoozeReminder(fu, 7)}>
+                          <CalendarIcon className="size-3" />
+                          下周
+                        </Button>
+                        <Button size="xs" onClick={() => void handleCompleteReminder(fu)}>
+                          <CheckSquareIcon className="size-3" />
+                          完成
+                        </Button>
+                      </div>
                     </div>
                   ))}
                   {followUpReminders.length > 5 && (
@@ -345,4 +386,23 @@ function MiniStat({ label, value }) {
       <div className="mt-0.5 text-[15px] font-semibold">{value}</div>
     </div>
   )
+}
+
+function dateDaysFromNow(days) {
+  const date = new Date()
+  date.setDate(date.getDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+async function patchJson(url, payload) {
+  const resp = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  const body = await resp.json().catch(() => null)
+  if (!resp.ok) {
+    throw new Error(body?.error || body?.message || `请求失败：${resp.status}`)
+  }
+  return body
 }

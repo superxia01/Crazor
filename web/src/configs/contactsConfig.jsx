@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
+  BellIcon,
   Building2Icon,
   DownloadIcon,
   DollarSignIcon,
@@ -101,6 +102,7 @@ const TASK_PRIORITY_LABELS = {
   medium: "中",
   low: "低",
 }
+const REMINDER_DONE_STATUS = "已完成"
 
 function buildTaskFields(projects) {
   return [
@@ -452,6 +454,31 @@ export default {
       }
     }
 
+    const handleCompleteReminder = async (followUp) => {
+      try {
+        await patchJson(`/api/crazor/follow-ups/${followUp.id}`, { status: REMINDER_DONE_STATUS })
+        toast.success("跟进提醒已完成")
+        await load()
+        await onReload?.()
+      } catch (error) {
+        toast.error("提醒处理失败", { description: String(error?.message || error) })
+      }
+    }
+
+    const handleSnoozeReminder = async (followUp, days) => {
+      const nextDate = dateDaysFromNow(days)
+      try {
+        await patchJson(`/api/crazor/follow-ups/${followUp.id}`, { date: nextDate, status: "待跟进" })
+        const updatedContact = await patchJson(`/api/crazor/contacts/${item.id}`, { next_follow_up: nextDate })
+        onItemUpdate?.(updatedContact)
+        toast.success(days >= 7 ? "已顺延到下周" : "已顺延到明天")
+        await load()
+        await onReload?.()
+      } catch (error) {
+        toast.error("提醒顺延失败", { description: String(error?.message || error) })
+      }
+    }
+
     const handleSearchDocs = async () => {
       const q = docSearchQuery.trim()
       if (!q) {
@@ -627,6 +654,7 @@ export default {
     }
 
     const visibleDocs = docSearchActive ? docSearchResults : docs
+    const dueFollowUps = followUps.filter(isDueFollowUpReminder)
 
     if (loading) return <div className="text-[11px] text-muted-foreground border-t pt-3">加载中...</div>
 
@@ -728,6 +756,41 @@ export default {
               submitLabel="创建任务"
             />
           </ActionForm>
+        )}
+
+        {dueFollowUps.length > 0 && (
+          <CaseSection title={`待处理提醒 (${dueFollowUps.length})`}>
+            {dueFollowUps.map((f) => (
+              <div key={f.id} className="rounded-md border border-rose-500/20 bg-rose-500/5 px-2.5 py-2 text-[12px]">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 font-medium text-rose-700 dark:text-rose-300">
+                      <BellIcon className="size-3.5 shrink-0" />
+                      <span>{isPastDate(f.date) ? "已逾期" : "今日跟进"}</span>
+                      {f.method && <Badge variant="outline" className="h-4 text-[10px]">{f.method}</Badge>}
+                    </div>
+                    {f.content && <div className="mt-1 line-clamp-2 leading-5">{f.content}</div>}
+                    {f.next_step && <div className="mt-1 text-muted-foreground">下一步：{f.next_step}</div>}
+                    <div className="mt-1 text-[11px] text-muted-foreground">计划日期：{f.date || "-"}</div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-1">
+                    <Button size="xs" variant="outline" onClick={() => void handleSnoozeReminder(f, 1)}>
+                      <CalendarIcon className="size-3" />
+                      明天
+                    </Button>
+                    <Button size="xs" variant="outline" onClick={() => void handleSnoozeReminder(f, 7)}>
+                      <CalendarIcon className="size-3" />
+                      下周
+                    </Button>
+                    <Button size="xs" onClick={() => void handleCompleteReminder(f)}>
+                      <CheckSquareIcon className="size-3" />
+                      完成
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CaseSection>
         )}
 
         <CaseSection title={`跟进记录 (${followUps.length})`}>
@@ -927,6 +990,20 @@ export default {
 
 function today() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function dateDaysFromNow(days) {
+  const date = new Date()
+  date.setDate(date.getDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+function isDueFollowUpReminder(followUp) {
+  return followUp?.status === "待跟进" && Boolean(followUp.date) && String(followUp.date) <= today()
+}
+
+function isPastDate(value) {
+  return Boolean(value) && String(value) < today()
 }
 
 function formatFileSize(value) {

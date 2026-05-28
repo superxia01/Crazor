@@ -34,7 +34,7 @@ graph TD
 | 定时任务 | `cron` | `/api/cron/*` | Hermes jobs | Hermes jobs | 可用性依赖 Hermes |
 | 记忆管理 | `hermes-memory` / `memory` | `/api/memories` | Hermes memory | Hermes memory | 可用性依赖 Hermes |
 | Agent 管理 | `hermes-agents` | `/api/agents`、`/api/status` | Provider state | Hermes provider | 监控型页面为主 |
-| 客户管理 | `contacts` | `/api/crazor/contacts`、`/api/crazor/follow-ups`、`/api/crazor/contacts/:id/docs`、`/api/crazor/contacts/:id/docs/search`、`/api/crazor/attachments/policy`、`/api/crazor/contacts/:id/attachments`、`/api/crazor/contacts/:id/attachments/:filename/preview`、`/api/crazor/docs/knowledge/notes-ops`、`/api/crazor/transactions`、`/api/crazor/channels/:id/referrals`、`/api/crazor/projects`、`/api/crazor/tasks?contact_id=:id` | `contacts`、`follow_ups`、`transactions`、Markdown Vault、`attachments/contacts`、`channel_referrals`、`projects`、`tasks` | CRM MCP tools + 文档 MCP tools + 渠道/项目/任务 MCP tools | 客户详情深链路、项目任务联动、文档搜索跳转、附件归档、附件策略和文本/图片预览可用；提醒和客户级权限待补 |
+| 客户管理 | `contacts` | `/api/crazor/contacts`、`/api/crazor/follow-ups`、`/api/crazor/follow-up-reminders`、`/api/crazor/contacts/:id/docs`、`/api/crazor/contacts/:id/docs/search`、`/api/crazor/attachments/policy`、`/api/crazor/contacts/:id/attachments`、`/api/crazor/contacts/:id/attachments/:filename/preview`、`/api/crazor/docs/knowledge/notes-ops`、`/api/crazor/transactions`、`/api/crazor/channels/:id/referrals`、`/api/crazor/projects`、`/api/crazor/tasks?contact_id=:id` | `contacts`、`follow_ups`、`transactions`、Markdown Vault、`attachments/contacts`、`channel_referrals`、`projects`、`tasks` | CRM MCP tools + 文档 MCP tools + 渠道/项目/任务 MCP tools | 客户详情深链路、待跟进提醒处理、项目任务联动、文档搜索跳转、附件归档、附件策略和文本/图片预览可用；跨模块提醒规则和客户级权限待补 |
 | 渠道管理 | `channels` | `/api/crazor/channels` | `channels`、`channel_referrals` | 渠道 MCP tools | 渠道新增/编辑/删除基础闭环可用；客户侧转介绍关系已接入，渠道侧批量运营待补 |
 | 财务中心 | `finance` | `/api/crazor/transactions`、`/api/crazor/analytics/*` | `transactions` | 财务 MCP tools | 流水新增可用，API 更新/删除通过；编辑入口需按财务权限继续评估 |
 | 项目看板 | `projects` | `/api/crazor/projects`、`/api/crazor/tasks` | `projects`、`tasks` | 项目/任务 MCP tools | 项目创建、任务创建、任务拖拽/删除可用；项目编辑归档待补 |
@@ -72,7 +72,7 @@ sequenceDiagram
   UI->>DB: 通过 REST API 读取客户、财务、分析数据
 ```
 
-当前判断：Agent 写入链路相对完整，前端客户基础新增/编辑已接入，客户详情已能直接记录跟进、登记成交、沉淀并编辑客户需求文档，搜索客户文档正文，按策略归档客户附件并预览文本/图片，且可建立渠道转介绍、从客户生成项目机会、从项目拆解任务。下一步要补关键客户动作提醒、附件扫描和客户级权限边界。
+当前判断：Agent 写入链路相对完整，前端客户基础新增/编辑已接入，客户详情已能直接记录跟进、完成/顺延待跟进提醒、登记成交、沉淀并编辑客户需求文档，搜索客户文档正文，按策略归档客户附件并预览文本/图片，且可建立渠道转介绍、从客户生成项目机会、从项目拆解任务。下一步要补跨模块提醒规则、附件扫描和客户级权限边界。
 
 ### 内容生产到数据回收
 
@@ -153,6 +153,7 @@ graph TD
 | 项目 | `/api/crazor/projects` | 通过 | 创建、更新、删除 |
 | 任务 | `/api/crazor/tasks` | 通过 | 创建、更新、删除 |
 | 客户跟进 | `/api/crazor/follow-ups` | 通过 | 创建并在客户详情读回 |
+| 客户待跟进提醒处理 | `/api/crazor/follow-up-reminders` + `/api/crazor/follow-ups/:id` | 通过 | 客户详情和数据分析页可完成或顺延今日到期/逾期提醒，更新进入 `follow_up` 审计 |
 | 客户需求文档 | `/api/crazor/contacts/:id/docs` | 通过 | 创建并从客户文档列表读回 |
 | 客户文档编辑 | `/api/crazor/docs/knowledge/notes-ops` | 通过 | 从客户详情打开、保存并读回正文 |
 | 客户成交 | `/api/crazor/transactions` + `/api/crazor/contacts/:id` | 通过 | 创建流水并回写客户阶段/金额 |
