@@ -22,7 +22,7 @@ import * as skillCatalog from './services/skill-catalog'
 import { seedVault } from './services/seed-vault'
 import { seedSkills } from './services/seed-skills'
 import { migrateVault } from './services/migrate-vault'
-import { handleSSEConnect, handleSSEMessage } from './services/crazor-mcp'
+import { handleSSEConnect, handleSSEMessage, handleStreamableHTTP } from './services/crazor-mcp'
 import { CRAZOR_SKILLS_DIR } from './services/crazor-config'
 
 const app = new Hono()
@@ -85,17 +85,21 @@ async function safeDashboardJson<T>(c: any, path: string, options: RequestInit =
 }
 
 // --- Middleware ---
+const CORS_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+  : ['http://localhost:5173', 'http://localhost:5174']
+
 app.use('*', cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174'],
+  origin: CORS_ORIGINS,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-  exposeHeaders: ['X-Hermes-Session-Id'],
+  allowHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id'],
+  exposeHeaders: ['X-Hermes-Session-Id', 'Mcp-Session-Id'],
 }))
 
 // --- Health ---
 app.get('/api/health', (c) => c.json({ status: 'ok', service: 'crazor-api' }))
 
-// --- MCP SSE endpoint ---
+// --- MCP SSE endpoint (legacy, for SSE-only clients) ---
 app.get('/mcp/sse', (c) => handleSSEConnect())
 app.post('/mcp/sse', async (c) => {
   const body = await c.req.json()
@@ -103,6 +107,23 @@ app.post('/mcp/sse', async (c) => {
   const response = await handleSSEMessage(body, sessionIdParam)
   if (response === null) return c.json({})
   return c.json(response)
+})
+
+// --- MCP StreamableHTTP endpoint (for Hermes Agent / MCP SDK clients) ---
+app.post('/mcp', async (c) => {
+  const body = await c.req.json()
+  const sessionHeader = c.req.header('mcp-session-id') || null
+  return handleStreamableHTTP(body, sessionHeader)
+})
+
+// Handle DELETE for session cleanup (optional, MCP spec)
+app.delete('/mcp', async (c) => {
+  const sessionHeader = c.req.header('mcp-session-id')
+  if (sessionHeader) {
+    // Session cleanup would go here if needed
+    return c.json({ ok: true })
+  }
+  return c.json({ ok: true })
 })
 
 // --- Hermes Gateway Proxy (port 8642) ---
