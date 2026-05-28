@@ -4,21 +4,23 @@
 
 ## 当前高优先级问题
 
-### P0：团队协作缺少可信身份和权限控制
+### P0：身份可信来源已补，权限闭环仍未完成
 
 **现象**
 
 - REST 和 MCP 写入已经会记录 `audit_logs`，包含 `actor_type`、`actor_id`、`source`、`action`、`entity`、`entity_id`、`payload_hash`、`created_at`。
-- 但当前 `actor_id` 仍来自请求头或 MCP 参数，没有登录态、签名、token 校验或 RBAC。
-- 服务端仍没有业务用户、团队成员、角色权限表。
+- 服务端已新增 `team_members` 与 `actor_tokens`，API token 和 agent token 只保存 SHA-256 hash。
+- REST 请求可通过 `Authorization: Bearer` 或 `X-Crazor-Token` 派生 `human / api-token` 来源。
+- MCP 工具调用可通过 token 派生 `agent / agent-token` 来源。
+- 但当前还没有身份管理 UI、登录态、RBAC 权限拦截、token 权限范围和关键操作审批。
 
 **影响**
 
-现在可以回答“这次写入声称来自哪个 actor/source”，但还不能可信地证明“这个 actor 真的是谁、是否有权限”。多 agent、多成员协作时，这仍会影响真实业务可信度和客户演示。
+现在可以回答“这次写入由哪个已登记成员或 agent token 发起”，但还不能回答“这个成员或 agent 是否有权限执行该动作”。多 agent、多成员协作时，仍需要补权限边界，避免任意 token 调用所有写入接口。
 
 **建议**
 
-下一步补最小身份层：团队成员表、API token、agent token、角色权限、服务端从 token 派生 actor，而不是信任前端传入的 actor。
+下一步补权限闭环：身份管理页面、token 创建/撤销入口、角色权限矩阵、接口级 RBAC 中间件、关键写入操作的审计查看页。
 
 ### P1：客户 Case 仍缺文档打开编辑与双向关联动作
 
@@ -96,7 +98,7 @@
 
 ## 修复优先级建议
 
-1. 建最小身份层：团队成员、API token、agent token、角色权限和服务端 actor 派生。
+1. 补身份管理 UI、角色权限矩阵、接口级 RBAC 和关键写入审计查看页。
 2. 补客户文档打开/编辑、渠道转介绍创建、客户生成项目机会入口。
 3. 收敛 Agent Provider 能力抽象，减少 UI 对 Hermes 私有概念的硬依赖。
 4. 补内容作品详情到知识库正文 `doc_id` 的打开链路。
@@ -117,6 +119,7 @@
 | 客户文档创建后列表读不回 | 已修复，客户文档列表已合并知识库树与旧目录 |
 | 客户 Case 缺少跟进/文档/成交最小入口 | 已修复，客户详情已接入跟进、需求文档和成交登记 |
 | REST/MCP 写入缺少最小审计日志 | 已修复，写入会记录到 `audit_logs` 并可通过 `/api/crazor/audit-logs` 查询 |
+| REST/MCP 审计 actor 只能信任请求头或 MCP 参数 | 已修复，服务端可从 API token / agent token 派生 actor |
 
 ## 本轮验证记录
 
@@ -128,3 +131,4 @@
 | 客户 Case API 烟测 | 临时客户、跟进、需求文档、成交流水创建验证后已清理 |
 | 页面级轻量核验 | 客户新增、项目新增、内容作品新增、客户详情 Case 操作入口均可见 |
 | REST/MCP 审计烟测 | 人类来源和 agent 来源写入均生成审计日志，`payload_hash` 为 64 位 SHA-256 |
+| 身份 token 烟测 | API token 创建客户记录 `human / api-token`，agent token 调 MCP 记录 `agent / agent-token`，无效 token 不回落到伪造 header |

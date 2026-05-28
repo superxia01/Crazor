@@ -2,7 +2,7 @@
 // Crazor business data — SQLite via Bun built-in
 
 import { Database } from "bun:sqlite"
-import { createHash } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { resolve } from "path"
 import { CRAZOR_DB_PATH, HERMES_HOME } from "./crazor-config"
 
@@ -188,6 +188,31 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity, entity_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_type, actor_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS team_members (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    actor_type TEXT NOT NULL DEFAULT 'human',
+    role TEXT NOT NULL DEFAULT 'member',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS actor_tokens (
+    id TEXT PRIMARY KEY,
+    member_id TEXT NOT NULL REFERENCES team_members(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    token_prefix TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL DEFAULT '',
+    token_type TEXT NOT NULL DEFAULT 'api',
+    status TEXT NOT NULL DEFAULT 'active',
+    last_used_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_actor_tokens_member ON actor_tokens(member_id, status);
 `)
 
 // ── Schema migrations (idempotent) ──────────────────────────
@@ -246,6 +271,14 @@ function hashPayload(payload: unknown): string {
   if (payload === undefined || payload === null || payload === "") return ""
   const text = typeof payload === "string" ? payload : JSON.stringify(payload)
   return createHash("sha256").update(text).digest("hex")
+}
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex")
+}
+
+function tokenPrefix(token: string): string {
+  return token.slice(0, 12)
 }
 
 function mapContact(row: any) {
@@ -1062,6 +1095,112 @@ export function listAuditLogs(filter?: { entity?: string; entity_id?: string; ac
   sql += " ORDER BY created_at DESC LIMIT ?"
   params.push(limit)
   return db.prepare(sql).all(...params)
+}
+
+// ── Identity / actor tokens ─────────────────────────────────
+
+export function createTeamMember(data: { name: string; actor_type?: string; role?: string; status?: string }) {
+  const row = {
+    id: id(),
+    name: data.name,
+    actor_type: data.actor_type || "human",
+    role: data.role || "member",
+    status: data.status || "active",
+    created_at: now(),
+    updated_at: now(),
+  }
+  db.prepare("INSERT INTO team_members (id,name,actor_type,role,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)")
+    .run(row.id, row.name, row.actor_type, row.role, row.status, row.created_at, row.updated_at)
+  return row
+}
+
+export function listTeamMembers() {
+  return db.prepare("SELECT * FROM team_members ORDER BY created_at DESC").all()
+}
+
+export function getTeamMember(id: string) {
+  return db.prepare("SELECT * FROM team_members WHERE id = ?").get(id) as any
+}
+
+export function updateTeamMember(id: string, data: Partial<{ name: string; actor_type: string; role: string; status: string }>) {
+  const sets: string[] = []
+  const params: any[] = []
+  for (const key of ["name", "actor_type", "role", "status"]) {
+    if ((data as any)[key] !== undefined) { sets.push(`${key} = ?`); params.push((data as any)[key]) }
+  }
+  if (sets.length === 0) return getTeamMember(id)
+  sets.push("updated_at = ?"); params.push(now()); params.push(id)
+  db.prepare(`UPDATE team_members SET ${sets.join(", ")} WHERE id = ?`).run(...params)
+  return getTeamMember(id)
+}
+
+export function deleteTeamMember(id: string) {
+  db.prepare("DELETE FROM team_members WHERE id = ?").run(id)
+}
+
+export function createActorToken(data: { member_id: string; label?: string; token_type?: string }) {
+  const member = getTeamMember(data.member_id)
+  if (!member) throw new Error(`成员不存在: ${data.member_id}`)
+
+  const tokenType = data.token_type === "agent" || member.actor_type === "agent" ? "agent" : "api"
+  const token = `czr_${tokenType}_${randomBytes(24).toString("base64url")}`
+  const row = {
+    id: id(),
+    member_id: data.member_id,
+    token_hash: hashToken(token),
+    token_prefix: tokenPrefix(token),
+    label: data.label || "",
+    token_type: tokenType,
+    status: "active",
+    last_used_at: null as string | null,
+    created_at: now(),
+    updated_at: now(),
+  }
+  db.prepare(`INSERT INTO actor_tokens (id,member_id,token_hash,token_prefix,label,token_type,status,last_used_at,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(row.id, row.member_id, row.token_hash, row.token_prefix, row.label, row.token_type, row.status, row.last_used_at, row.created_at, row.updated_at)
+  return { ...sanitizeActorToken(row), token }
+}
+
+export function listActorTokens(filter?: { member_id?: string; status?: string }) {
+  let sql = `SELECT t.id,t.member_id,t.token_prefix,t.label,t.token_type,t.status,t.last_used_at,t.created_at,t.updated_at,
+    m.name as member_name,m.actor_type,m.role as member_role,m.status as member_status
+    FROM actor_tokens t LEFT JOIN team_members m ON m.id = t.member_id WHERE 1=1`
+  const params: any[] = []
+  if (filter?.member_id) { sql += " AND t.member_id = ?"; params.push(filter.member_id) }
+  if (filter?.status) { sql += " AND t.status = ?"; params.push(filter.status) }
+  sql += " ORDER BY t.created_at DESC"
+  return db.prepare(sql).all(...params)
+}
+
+export function revokeActorToken(id: string) {
+  db.prepare("UPDATE actor_tokens SET status = 'revoked', updated_at = ? WHERE id = ?").run(now(), id)
+  return db.prepare("SELECT id,member_id,token_prefix,label,token_type,status,last_used_at,created_at,updated_at FROM actor_tokens WHERE id = ?").get(id)
+}
+
+export function resolveActorToken(token: string) {
+  if (!token) return null
+  const tokenHash = hashToken(token.trim())
+  const row = db.prepare(`SELECT t.id as token_id,t.member_id,t.token_prefix,t.label,t.token_type,t.status as token_status,
+      m.name as actor_name,m.actor_type,m.role,m.status as member_status
+    FROM actor_tokens t JOIN team_members m ON m.id = t.member_id
+    WHERE t.token_hash = ?`).get(tokenHash) as any
+  if (!row || row.token_status !== "active" || row.member_status !== "active") return null
+  db.prepare("UPDATE actor_tokens SET last_used_at = ?, updated_at = ? WHERE id = ?").run(now(), now(), row.token_id)
+  return {
+    actor_type: row.actor_type || (row.token_type === "agent" ? "agent" : "human"),
+    actor_id: row.member_id,
+    actor_name: row.actor_name,
+    role: row.role,
+    source: row.token_type === "agent" ? "agent-token" : "api-token",
+    token_id: row.token_id,
+    token_label: row.label,
+  }
+}
+
+function sanitizeActorToken(row: any) {
+  const safe = { ...row }
+  delete safe.token_hash
+  return safe
 }
 
 // ── Agent sessions analytics (Hermes-compatible state.db) ────

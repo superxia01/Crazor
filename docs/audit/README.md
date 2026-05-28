@@ -28,11 +28,13 @@
 
 操作审计的最小底座已接入：REST 和 MCP 写入会记录到 `audit_logs`，包含操作者类型、操作者 ID、来源、动作、实体、实体 ID、payload hash 和创建时间。
 
+可信 actor 来源的最小底座已接入：服务端新增团队成员与 actor token 表，REST 请求可以通过 `Authorization: Bearer` 或 `X-Crazor-Token` 派生 `human / api-token` 来源，MCP 工具调用可以派生 `agent / agent-token` 来源。
+
 但从“团队内部真实使用”的标准看，产品仍不是完整闭环。核心差距在于：
 
 - 客户 Case 仍缺少文档直接打开/编辑、渠道转介绍和项目机会的双向关联动作。
 - 后端业务 API 与 MCP Tool 已经比较完整，前端已承接基础写入和客户 Case 最小闭环，但关联动作仍不足。
-- 多人协作所需的身份认证、权限控制、可信操作者身份仍处于待建设阶段；当前审计日志中的 actor 仍来自请求头或 MCP 参数。
+- 多人协作所需的身份管理 API 已有最小可验证能力，但仍缺独立管理 UI、RBAC 权限拦截和强制登录边界。
 - Agent Gateway 的解耦原则已有文档，但代码和 UI 里仍有较多 Hermes 私有概念。
 
 ## 本轮烟测
@@ -55,6 +57,9 @@
 | `/api/crazor/channels` | 200，当前为空数组 |
 | `/api/crazor/analytics/overview` | 200 |
 | `/api/crazor/docs/knowledge/tree` | 200 |
+| `/api/crazor/identity/me` | 200 |
+| `/api/crazor/identity/members` | 200 |
+| `/api/crazor/identity/tokens` | 200 |
 | `/api/workspaces` | 200 |
 | `/api/sessions` | 200 |
 
@@ -91,10 +96,24 @@
 
 | 链路 | 结果 |
 |------|------|
-| REST 写入记录 `audit_logs` | 通过，记录 `human / ui-test` 来源 |
-| MCP 工具写入记录 `audit_logs` | 通过，记录 `agent / mcp-tool` 来源 |
+| REST 写入记录 `audit_logs` | 通过，基础 header 场景和 API token 场景均可记录 |
+| MCP 工具写入记录 `audit_logs` | 通过，基础 MCP 场景和 agent token 场景均可记录 |
 | `payload_hash` | 通过，生成 64 位 SHA-256 |
 | `/api/crazor/audit-logs` 查询 | 通过 |
+
+## 身份 Token 烟测
+
+通过本机 Docker 暴露入口 `http://127.0.0.1:5173` 验证，临时成员、token 和客户数据创建后已全部删除：
+
+| 链路 | 结果 |
+|------|------|
+| 创建团队成员与 API token | 通过 |
+| `Authorization: Bearer` 解析 `/api/crazor/identity/me` | 通过，返回 `human` actor |
+| 无效 token 防冒名 | 通过，不回落到伪造 actor/source header |
+| 使用 API token 创建客户 | 通过，审计记录来源为 `api-token` |
+| 创建 agent 成员与 agent token | 通过 |
+| 使用 agent token 调用 MCP `create_contact` | 通过，审计记录来源为 `agent-token` |
+| 临时客户、成员、token 清理 | 通过 |
 
 ## 持续审计规则
 

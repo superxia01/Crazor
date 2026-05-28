@@ -761,9 +761,16 @@ const TOOLS: any[] = [
 
 // ── Tool execution ───────────────────────────────────────────
 
-async function executeTool(name: string, args: any): Promise<any> {
+type ToolActor = {
+  actor_type?: string
+  actor_id?: string
+  source?: string
+  role?: string
+}
+
+async function executeTool(name: string, args: any, actor?: ToolActor): Promise<any> {
   const result = await executeToolAction(name, args)
-  recordMcpAudit(name, args, result)
+  recordMcpAudit(name, args, result, actor)
   return result
 }
 
@@ -886,15 +893,15 @@ async function executeToolAction(name: string, args: any): Promise<any> {
   }
 }
 
-function recordMcpAudit(name: string, args: any, result: any) {
+function recordMcpAudit(name: string, args: any, result: any, actor?: ToolActor) {
   const audit = deriveMcpAudit(name, args, result)
   if (!audit) return
 
   try {
     createAuditLog({
-      actor_type: "agent",
-      actor_id: String(args?.actor_id || args?.agent_id || "mcp-client"),
-      source: "mcp-tool",
+      actor_type: actor?.actor_type || "agent",
+      actor_id: String(actor?.actor_id || args?.actor_id || args?.agent_id || "mcp-client"),
+      source: actor?.source || "mcp-tool",
       action: audit.action,
       entity: audit.entity,
       entity_id: audit.entity_id,
@@ -944,7 +951,7 @@ function auditMeta(action: string, entity: string, entityId: unknown) {
 
 // ── JSON-RPC message handler ─────────────────────────────────
 
-async function handleMessage(message: any): Promise<any> {
+async function handleMessage(message: any, actor?: ToolActor): Promise<any> {
   const { id, method, params } = message
 
   switch (method) {
@@ -966,7 +973,7 @@ async function handleMessage(message: any): Promise<any> {
       const toolName = params?.name
       const toolArgs = params?.arguments || {}
       try {
-        const result = await executeTool(toolName, toolArgs)
+        const result = await executeTool(toolName, toolArgs, actor)
         return jsonRpcResult(id, {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         })
@@ -1010,7 +1017,7 @@ export function handleSSEConnect(): Response {
   })
 }
 
-export async function handleSSEMessage(body: any, sessionIdParam: string | null): Promise<any> {
+export async function handleSSEMessage(body: any, sessionIdParam: string | null, actor?: ToolActor): Promise<any> {
   // For notifications (no id), return null (no response)
   if (!body.id && body.method === "notifications/initialized") {
     const session = sessionIdParam ? sessions.get(sessionIdParam) : null
@@ -1018,7 +1025,7 @@ export async function handleSSEMessage(body: any, sessionIdParam: string | null)
     return null
   }
 
-  const response = await handleMessage(body)
+  const response = await handleMessage(body, actor)
 
   // Also send via SSE stream if session exists
   if (sessionIdParam && response) {

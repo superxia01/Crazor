@@ -15,6 +15,8 @@ import {
   listChannelReferrals, createChannelReferral, listContactChannels,
   listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats, seedContentPieces,
   createAuditLog, listAuditLogs,
+  createTeamMember, listTeamMembers, updateTeamMember, deleteTeamMember,
+  createActorToken, listActorTokens, revokeActorToken, resolveActorToken,
 } from './services/crazor-db'
 import { seedFieldDefinitions, discoverCustomFields, listFieldDefinitions, getFieldDefinition, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, reorderFieldDefinitions } from './services/field-definitions'
 import * as docs from './services/crazor-docs'
@@ -316,7 +318,7 @@ function normalizeGatewaySessionList(payload: unknown): Record<string, unknown>[
 app.use('*', cors({
   origin: ['http://localhost:5173', 'http://localhost:5174'],
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Crazor-Actor-Type', 'X-Crazor-Actor-Id', 'X-Crazor-Source'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Crazor-Token', 'X-Crazor-Actor-Type', 'X-Crazor-Actor-Id', 'X-Crazor-Source'],
   exposeHeaders: ['X-Hermes-Session-Id'],
 }))
 
@@ -328,6 +330,7 @@ app.use('/api/crazor/*', async (c, next) => {
   const requestText = shouldAudit
     ? await c.req.raw.clone().text().catch(() => '')
     : ''
+  const actor = shouldAudit ? resolveRequestActor(c, { actor_type: 'human', actor_id: 'anonymous', source: 'rest-api' }) : null
 
   await next()
 
@@ -338,9 +341,9 @@ app.use('/api/crazor/*', async (c, next) => {
   const audit = deriveRestAudit(method, url.pathname, responseBody, url.searchParams)
   try {
     createAuditLog({
-      actor_type: c.req.header('X-Crazor-Actor-Type') || 'human',
-      actor_id: c.req.header('X-Crazor-Actor-Id') || 'anonymous',
-      source: c.req.header('X-Crazor-Source') || 'rest-api',
+      actor_type: actor?.actor_type || 'human',
+      actor_id: actor?.actor_id || 'anonymous',
+      source: actor?.source || c.req.header('X-Crazor-Source') || 'rest-api',
       action: audit.action,
       entity: audit.entity,
       entity_id: audit.entity_id,
@@ -351,6 +354,30 @@ app.use('/api/crazor/*', async (c, next) => {
     console.error('[audit] failed to record REST write:', err)
   }
 })
+
+function resolveRequestActor(c: any, fallback = { actor_type: 'human', actor_id: 'anonymous', source: 'rest-api' }) {
+  const token = extractActorToken(c)
+  if (token) {
+    const actor = resolveActorToken(token)
+    if (actor) return actor
+    return {
+      actor_type: fallback.actor_type,
+      actor_id: 'invalid-token',
+      source: 'invalid-token',
+    }
+  }
+  return {
+    actor_type: c.req.header('X-Crazor-Actor-Type') || fallback.actor_type,
+    actor_id: c.req.header('X-Crazor-Actor-Id') || fallback.actor_id,
+    source: c.req.header('X-Crazor-Source') || fallback.source,
+  }
+}
+
+function extractActorToken(c: any): string {
+  const auth = c.req.header('Authorization') || ''
+  const match = auth.match(/^Bearer\s+(.+)$/i)
+  return (match?.[1] || c.req.header('X-Crazor-Token') || '').trim()
+}
 
 function deriveRestAudit(method: string, path: string, responseBody: any, searchParams: URLSearchParams) {
   const segments = path.replace(/^\/api\/crazor\/?/, '').split('/').filter(Boolean)
@@ -386,6 +413,8 @@ function deriveAuditEntity(segments: string[]) {
     return 'doc'
   }
   if (segments[0] === 'schema') return 'field_definition'
+  if (segments[0] === 'identity' && segments[1] === 'members') return 'team_member'
+  if (segments[0] === 'identity' && segments[1] === 'tokens') return 'actor_token'
   if (segments[0] === 'skills') return 'skill'
 
   const entityMap: Record<string, string> = {
@@ -413,7 +442,7 @@ app.get('/mcp/sse', (c) => handleSSEConnect())
 app.post('/mcp/sse', async (c) => {
   const body = await c.req.json()
   const sessionIdParam = c.req.query('sessionId')
-  const response = await handleSSEMessage(body, sessionIdParam)
+  const response = await handleSSEMessage(body, sessionIdParam, resolveRequestActor(c, { actor_type: 'agent', actor_id: 'mcp-client', source: 'mcp-tool' }))
   if (response === null) return c.json({})
   return c.json(response)
 })
@@ -1443,6 +1472,66 @@ app.get('/api/crazor/audit-logs', (c) => {
     actor_id: actor_id || undefined,
     limit,
   }))
+})
+
+app.get('/api/crazor/identity/me', (c) => {
+  return c.json(resolveRequestActor(c))
+})
+
+app.get('/api/crazor/identity/members', (c) => {
+  return c.json(listTeamMembers())
+})
+
+app.post('/api/crazor/identity/members', async (c) => {
+  const body = await c.req.json()
+  if (!body.name) return c.json({ error: 'name is required' }, 400)
+  return c.json(createTeamMember({
+    name: body.name,
+    actor_type: body.actor_type || 'human',
+    role: body.role || 'member',
+    status: body.status || 'active',
+  }), 201)
+})
+
+app.patch('/api/crazor/identity/members/:id', async (c) => {
+  const body = await c.req.json()
+  const updated = updateTeamMember(c.req.param('id'), body)
+  if (!updated) return c.json({ error: 'not found' }, 404)
+  return c.json(updated)
+})
+
+app.delete('/api/crazor/identity/members/:id', (c) => {
+  deleteTeamMember(c.req.param('id'))
+  return c.json({ ok: true, id: c.req.param('id') })
+})
+
+app.get('/api/crazor/identity/tokens', (c) => {
+  const member_id = c.req.query('member_id')
+  const status = c.req.query('status')
+  return c.json(listActorTokens({
+    member_id: member_id || undefined,
+    status: status || undefined,
+  }))
+})
+
+app.post('/api/crazor/identity/tokens', async (c) => {
+  const body = await c.req.json()
+  if (!body.member_id) return c.json({ error: 'member_id is required' }, 400)
+  try {
+    return c.json(createActorToken({
+      member_id: body.member_id,
+      label: body.label || '',
+      token_type: body.token_type || 'api',
+    }), 201)
+  } catch (err: any) {
+    return c.json({ error: err?.message || 'failed to create token' }, 404)
+  }
+})
+
+app.delete('/api/crazor/identity/tokens/:id', (c) => {
+  const revoked = revokeActorToken(c.req.param('id'))
+  if (!revoked) return c.json({ error: 'not found' }, 404)
+  return c.json(revoked)
 })
 
 // --- Contacts ---
