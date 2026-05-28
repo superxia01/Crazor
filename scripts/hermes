@@ -23,6 +23,7 @@ usage() {
   ./scripts/hermes status               查看 Compose 服务状态
   ./scripts/hermes health               检查 Hermes 健康状态
   ./scripts/hermes smoke                运行 Crazor Docker MVP 烟测
+  ./scripts/hermes smoke-strict         临时开启严格认证后运行烟测，结束后恢复
   ./scripts/hermes backup               备份 data/hermes/state
   ./scripts/hermes regen-api-key        重新生成 Agent Gateway API Key
 
@@ -192,6 +193,25 @@ health() {
   printf '\n'
 }
 
+smoke_strict() {
+  need docker
+  need node
+
+  local status=0
+
+  printf '临时开启严格认证边界并重建后端...\n'
+  CRAZOR_REQUIRE_WRITE_TOKEN=true \
+  CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true \
+    compose up -d --no-deps --force-recreate crazor-server
+
+  CRAZOR_SMOKE_STRICT_AUTH=1 node "$PROJECT_ROOT/scripts/crazor-smoke.mjs" "$@" || status=$?
+
+  printf '恢复 Compose 默认后端配置...\n'
+  compose up -d --no-deps --force-recreate crazor-server || status=$?
+
+  return "$status"
+}
+
 cmd="${1:-help}"
 if [[ $# -gt 0 ]]; then
   shift || true
@@ -238,6 +258,9 @@ case "$cmd" in
   smoke)
     need node
     node "$PROJECT_ROOT/scripts/crazor-smoke.mjs" "$@"
+    ;;
+  smoke-strict)
+    smoke_strict "$@"
     ;;
   backup)
     backup

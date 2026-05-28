@@ -350,6 +350,14 @@ http://局域网IP:5173
 CRAZOR_SMOKE_BASE_URL=http://局域网IP:5173 ./scripts/hermes smoke
 ```
 
+验证严格认证边界：
+
+```bash
+./scripts/hermes smoke-strict
+```
+
+该命令会临时开启写入认证和业务只读认证，确认匿名 REST/MCP 写入被拒绝，结束后恢复 Compose 默认后端配置。
+
 Docker 环境会启动：
 
 - `crazor-web`：Web 统一入口，反代 `/api/*` 和 `/mcp/*`。

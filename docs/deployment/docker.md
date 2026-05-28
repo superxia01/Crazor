@@ -79,6 +79,14 @@ CRAZOR_SMOKE_BASE_URL=http://局域网IP:5173 ./scripts/hermes smoke
 CRAZOR_SMOKE_SKIP_HERMES=1 ./scripts/hermes smoke
 ```
 
+验证严格认证边界：
+
+```bash
+./scripts/hermes smoke-strict
+```
+
+该命令会临时以 `CRAZOR_REQUIRE_WRITE_TOKEN=true` 和 `CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true` 重建后端，运行严格认证烟测，确认匿名业务读取、匿名 REST 写入和匿名 MCP 写入被拒绝；烟测结束后会恢复 Compose 默认后端配置。
+
 ## 写入认证边界
 
 内部演示或单机调试可以保持默认：

@@ -85,11 +85,13 @@
 | `node --check scripts/crazor-smoke.mjs` | 通过 |
 | `bash -n scripts/hermes` | 通过 |
 | `./scripts/hermes smoke` | 通过 |
+| `./scripts/hermes smoke-strict` | 通过，临时开启严格认证后完成烟测并恢复默认后端配置 |
 | 后端健康检查 | 通过 |
 | Hermes Provider 状态代理 | 通过 |
 | 准备可审计烟测身份 | 通过 |
 | MCP StreamableHTTP Agent 工具链路 | 通过，`initialize` 返回 `Mcp-Session-Id`，`tools/list` 返回 `create_contact` 与 `get_task_reminders`，`create_contact` 审计来源为 `agent-token` |
 | 业务只读边界探测 | 通过 |
+| 严格认证匿名写入边界 | 通过，匿名 REST 写入返回 401，匿名 MCP 写入返回 `isError=true` 且拒绝信息包含 `contact:create` |
 | 只读 token 可访问业务数据 | 通过 |
 | 客户 Case 基础链路 | 通过 |
 | 跟进提醒处理链路 | 通过 |

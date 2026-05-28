@@ -2,6 +2,7 @@
 
 const baseUrl = normalizeBaseUrl(process.env.CRAZOR_SMOKE_BASE_URL || "http://127.0.0.1:5173")
 const skipHermes = truthy(process.env.CRAZOR_SMOKE_SKIP_HERMES)
+const strictAuth = truthy(process.env.CRAZOR_SMOKE_STRICT_AUTH)
 let authToken = (process.env.CRAZOR_SMOKE_TOKEN || "").trim()
 
 const cleanupStack = []
@@ -24,6 +25,10 @@ function unique(prefix) {
 
 function today() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function nextWeek() {
@@ -100,6 +105,19 @@ async function step(name, fn) {
   summary.push(name)
   console.log("通过")
   return result
+}
+
+async function waitForHealth() {
+  let lastError = null
+  for (let i = 0; i < 60; i += 1) {
+    try {
+      return await request("/api/health", { auth: false })
+    } catch (error) {
+      lastError = error
+      await sleep(500)
+    }
+  }
+  throw lastError || new Error("/api/health 等待超时")
 }
 
 function trackCleanup(label, fn) {
@@ -236,7 +254,7 @@ async function createAgentToken() {
 }
 
 async function mcpRpc(method, params = undefined, options = {}) {
-  const token = options.token || mcpAgentToken || authToken
+  const token = options.auth === false ? "" : (options.token || mcpAgentToken || authToken)
   const headers = {
     Accept: "application/json",
     "Content-Type": "application/json",
@@ -317,7 +335,7 @@ async function main() {
   log(`Crazor Docker MVP 烟测开始：${baseUrl}`)
 
   await step("后端健康检查", async () => {
-    const health = await request("/api/health", { auth: false })
+    const health = await waitForHealth()
     assert(health.status === 200, "/api/health 未返回 200", health.data)
   })
 
@@ -374,9 +392,43 @@ async function main() {
     if (probe.status === 401) {
       assert(probe.data?.required_scope === "contact:read", "业务只读严格模式返回的 required_scope 不正确", probe.data)
     } else {
+      assert(!strictAuth, "严格认证模式下匿名业务读取仍然放行", probe.data)
       assert(Array.isArray(probe.data), "默认业务读取未返回数组", probe.data)
     }
   })
+
+  if (strictAuth) {
+    await step("严格认证匿名写入边界", async () => {
+      const anonymousWrite = await request("/api/crazor/contacts", {
+        method: "POST",
+        auth: false,
+        body: { name: unique("严禁匿名客户"), source: "strict-smoke" },
+        expect: [401, 403, 201],
+      })
+      if (anonymousWrite.data?.id) {
+        trackCleanup("误放行匿名客户", () => deleteIfExists(`/api/crazor/contacts/${encodeURIComponent(anonymousWrite.data.id)}`))
+      }
+      assert(
+        anonymousWrite.status === 401,
+        "严格认证模式下匿名 REST 写入未返回 401",
+        anonymousWrite.data,
+      )
+      assert(anonymousWrite.data?.required_scope === "contact:create", "匿名 REST 写入 required_scope 不正确", anonymousWrite.data)
+
+      const mcpAnonymous = await mcpRpc("tools/call", {
+        name: "create_contact",
+        arguments: { name: unique("严禁匿名MCP客户"), source: "strict-smoke" },
+      }, { auth: false })
+      if (!mcpAnonymous.data?.result?.isError) {
+        const created = parseMcpToolResult(mcpAnonymous, "create_contact")
+        if (created?.id) {
+          trackCleanup("误放行匿名 MCP 客户", () => deleteIfExists(`/api/crazor/contacts/${encodeURIComponent(created.id)}`))
+        }
+      }
+      assert(mcpAnonymous.data?.result?.isError === true, "严格认证模式下匿名 MCP 写入未被拒绝", mcpAnonymous.data)
+      assert(JSON.stringify(mcpAnonymous.data).includes("contact:create"), "匿名 MCP 写入拒绝信息缺少 contact:create", mcpAnonymous.data)
+    })
+  }
 
   await step("只读 token 可访问业务数据", async () => {
     const viewerToken = await createViewerToken()

@@ -187,4 +187,4 @@
 | 敏感只读保护烟测 | 严格模式下无 token/无效 token/非 admin 读取敏感接口被拒绝；admin 可读；普通业务只读保持可用；拒绝进入 `deny_read` 审计 |
 | 业务只读保护烟测 | 开启 `CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true` 后，无 token 读取客户列表返回 401；`read:*` token 可读客户和分析数据；拒绝进入 `deny_read contact` 审计 |
 | 协作审计页面烟测 | Web Docker 构建通过；身份 API、token API、审计 API 均通过统一入口验证 |
-| 自动交付烟测脚本 | `node --check scripts/crazor-smoke.mjs`、`bash -n scripts/hermes`、`./scripts/hermes smoke` 均通过；MCP initialize/tools/list/create_contact/get_task_reminders 通过；临时客户、MCP 客户、文档、附件、渠道、流水、项目、任务、内容和身份已清理 |
+| 自动交付烟测脚本 | `node --check scripts/crazor-smoke.mjs`、`bash -n scripts/hermes`、`./scripts/hermes smoke`、`./scripts/hermes smoke-strict` 均通过；严格模式匿名 REST/MCP 写入被拒绝；MCP initialize/tools/list/create_contact/get_task_reminders 通过；临时客户、MCP 客户、文档、附件、渠道、流水、项目、任务、内容和身份已清理 |

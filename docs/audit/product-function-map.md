@@ -176,7 +176,7 @@ graph TD
 | 敏感只读保护 | `CRAZOR_REQUIRE_WRITE_TOKEN=true` + `/api/crazor/audit-logs` + `/api/crazor/identity/*` | 通过 | 无 token/无效 token/非 admin 读取敏感接口被拒绝；拒绝记录 `deny_read`；普通业务只读保持可读 |
 | 业务只读保护 | `CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true` + `/api/crazor/contacts` + `/api/crazor/analytics/overview` | 通过 | 无 token 读取业务数据被拒绝；viewer + `read:*` token 可读客户和分析；拒绝记录 `deny_read contact` |
 | 协作审计页面 | `teamops` | 通过 | 侧边栏入口、身份列表、当前访问 token、token 列表、审计日志查看 |
-| 自动交付烟测 | `./scripts/hermes smoke` | 通过 | 脚本化验证健康、Hermes 状态、MCP StreamableHTTP、身份 token、客户 Case、文档附件、渠道流水、项目任务、内容发布、分析和审计日志，并自动清理临时数据 |
+| 自动交付烟测 | `./scripts/hermes smoke`、`./scripts/hermes smoke-strict` | 通过 | 脚本化验证健康、Hermes 状态、MCP StreamableHTTP、身份 token、严格认证边界、客户 Case、文档附件、渠道流水、项目任务、内容发布、分析和审计日志，并自动清理临时数据 |
 | REST 操作审计 | `/api/crazor/audit-logs` | 通过 | API token 写入记录 actor/source/action/entity/payload_hash |
 | MCP SSE 操作审计 | `/mcp/sse` + `/api/crazor/audit-logs` | 通过 | Agent token 工具写入记录 actor/source/action/entity/payload_hash |
 | MCP StreamableHTTP 操作审计 | `POST /mcp` + `/api/crazor/audit-logs` | 通过 | Agent token 工具写入记录 actor/source/action/entity/payload_hash |
