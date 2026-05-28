@@ -34,7 +34,7 @@ graph TD
 | 定时任务 | `cron` | `/api/cron/*` | Hermes jobs | Hermes jobs | 可用性依赖 Hermes |
 | 记忆管理 | `hermes-memory` / `memory` | `/api/memories` | Hermes memory | Hermes memory | 可用性依赖 Hermes |
 | Agent 管理 | `hermes-agents` | `/api/agents`、`/api/status` | Provider state | Hermes provider | 监控型页面为主 |
-| 客户管理 | `contacts` | `/api/crazor/contacts`、`/api/crazor/follow-ups`、`/api/crazor/contacts/:id/docs`、`/api/crazor/docs/knowledge/notes-ops`、`/api/crazor/transactions`、`/api/crazor/channels/:id/referrals`、`/api/crazor/projects`、`/api/crazor/tasks?contact_id=:id` | `contacts`、`follow_ups`、`transactions`、Markdown Vault、`channel_referrals`、`projects`、`tasks` | CRM MCP tools + 文档 MCP tools + 渠道/项目/任务 MCP tools | 客户详情深链路和项目任务联动可用；附件归档、搜索跳转待补 |
+| 客户管理 | `contacts` | `/api/crazor/contacts`、`/api/crazor/follow-ups`、`/api/crazor/contacts/:id/docs`、`/api/crazor/contacts/:id/docs/search`、`/api/crazor/contacts/:id/attachments`、`/api/crazor/docs/knowledge/notes-ops`、`/api/crazor/transactions`、`/api/crazor/channels/:id/referrals`、`/api/crazor/projects`、`/api/crazor/tasks?contact_id=:id` | `contacts`、`follow_ups`、`transactions`、Markdown Vault、`attachments/contacts`、`channel_referrals`、`projects`、`tasks` | CRM MCP tools + 文档 MCP tools + 渠道/项目/任务 MCP tools | 客户详情深链路、项目任务联动、文档搜索跳转和附件归档可用；附件预览/策略和提醒待补 |
 | 渠道管理 | `channels` | `/api/crazor/channels` | `channels`、`channel_referrals` | 渠道 MCP tools | 渠道新增/编辑/删除基础闭环可用；客户侧转介绍关系已接入，渠道侧批量运营待补 |
 | 财务中心 | `finance` | `/api/crazor/transactions`、`/api/crazor/analytics/*` | `transactions` | 财务 MCP tools | 流水新增可用，API 更新/删除通过；编辑入口需按财务权限继续评估 |
 | 项目看板 | `projects` | `/api/crazor/projects`、`/api/crazor/tasks` | `projects`、`tasks` | 项目/任务 MCP tools | 项目创建、任务创建、任务拖拽/删除可用；项目编辑归档待补 |
@@ -72,7 +72,7 @@ sequenceDiagram
   UI->>DB: 通过 REST API 读取客户、财务、分析数据
 ```
 
-当前判断：Agent 写入链路相对完整，前端客户基础新增/编辑已接入，客户详情已能直接记录跟进、登记成交、沉淀并编辑客户需求文档，且可建立渠道转介绍、从客户生成项目机会、从项目拆解任务。下一步要补附件归档、客户文档搜索跳转和权限边界。
+当前判断：Agent 写入链路相对完整，前端客户基础新增/编辑已接入，客户详情已能直接记录跟进、登记成交、沉淀并编辑客户需求文档，搜索客户文档正文，归档客户附件，且可建立渠道转介绍、从客户生成项目机会、从项目拆解任务。下一步要补附件预览/类型策略、关键客户动作提醒和权限边界。
 
 ### 内容生产到数据回收
 
@@ -97,7 +97,7 @@ graph TD
   Agent["Agent"] --> MCP
 ```
 
-当前判断：文件系统驱动的知识库可用，旧路径兼容和缺失文档兜底已补，客户关联文档创建、读回、打开编辑已验证，内容正文 `doc_id` 打开与保存链路已验证。下一步要审计“搜索结果跳转、附件归档”的完整体验。
+当前判断：文件系统驱动的知识库可用，旧路径兼容和缺失文档兜底已补，客户关联文档创建、读回、打开编辑、按客户搜索跳转已验证，内容正文 `doc_id` 打开与保存链路已验证。下一步要审计跨模块搜索结果跳转、附件预览和知识库权限策略。
 
 ## 数据边界
 
@@ -106,6 +106,7 @@ graph TD
 | 客户姓名、阶段、来源、预算、成交金额 | 是 | 否 |
 | 客户背景长文、访谈纪要、复盘 | 可存摘要 | 是 |
 | 跟进记录日期、方式、下一步 | 是 | 重要长文可同步 |
+| 客户附件文件、合同、课件、访谈录音 | 元数据可进 DB，当前用文件系统列表 | 原文件进入 `CRAZOR_HOME/attachments/contacts/:id` |
 | 交易金额、回款状态、发票状态 | 是 | 否 |
 | 项目状态、任务、负责人、截止日期 | 是 | 项目方案正文可进文档 |
 | 内容标题、平台、状态、数据指标 | 是 | 正文、脚本、素材进入文档 |
@@ -158,6 +159,8 @@ graph TD
 | 客户渠道转介绍 | `/api/crazor/channels/:id/referrals` + `/api/crazor/contacts/:id/channels` | 通过 | 从客户详情建立关系并从客户侧读回 |
 | 客户生成项目机会 | `/api/crazor/projects` | 通过 | 项目记录保持 `contact_id` 关联 |
 | 客户项目任务联动 | `/api/crazor/tasks` + `/api/crazor/tasks?contact_id=:id` | 通过 | 从客户项目拆解任务，并按客户读回关联项目下任务 |
+| 客户文档搜索跳转 | `/api/crazor/contacts/:id/docs/search` + `/api/crazor/docs/knowledge/notes-ops` | 通过 | 客户详情可搜索需求文档正文，并直接打开编辑结果 |
+| 客户附件归档 | `/api/crazor/contacts/:id/attachments` | 通过 | 客户详情可上传、列表、下载、删除附件，并记录 `contact_attachment` 审计 |
 | 内容正文关联 | `/api/crazor/content-pieces` + `/api/crazor/docs/knowledge/notes-ops` | 通过 | 内容详情可创建正文、回填 `doc_id`、打开和保存正文 |
 | 团队成员 | `/api/crazor/identity/members` | 通过 | 创建、查询、删除临时成员 |
 | actor token | `/api/crazor/identity/tokens` | 通过 | 创建、查询、撤销临时 token |

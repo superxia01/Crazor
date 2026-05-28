@@ -30,8 +30,8 @@ const ROLE_READ_SCOPE_POLICIES: Record<string, string[]> = {
 }
 
 const ENTITY_GROUPS: Record<string, string[]> = {
-  crm: ["contact", "follow_up", "transaction", "channel", "channel_referral", "contact_doc"],
-  docs: ["doc", "doc_note", "doc_folder", "doc_file", "contact_doc"],
+  crm: ["contact", "follow_up", "transaction", "channel", "channel_referral", "contact_doc", "contact_attachment"],
+  docs: ["doc", "doc_note", "doc_folder", "doc_file", "contact_doc", "contact_attachment"],
   project: ["project", "task"],
   projects: ["project", "task"],
   content: ["content_piece"],

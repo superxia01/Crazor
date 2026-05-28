@@ -2,8 +2,9 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { stream } from 'hono/streaming'
 import { HTTPException } from 'hono/http-exception'
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { Buffer } from 'node:buffer'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
 import {
   listContacts, getContact, createContact, updateContact, deleteContact,
   listTransactions, createTransaction, updateTransaction, deleteTransaction,
@@ -26,7 +27,7 @@ import { seedVault } from './services/seed-vault'
 import { seedSkills } from './services/seed-skills'
 import { migrateVault } from './services/migrate-vault'
 import { handleSSEConnect, handleSSEMessage, handleStreamableHTTP } from './services/crazor-mcp'
-import { CRAZOR_SKILLS_DIR } from './services/crazor-config'
+import { CRAZOR_HOME, CRAZOR_SKILLS_DIR } from './services/crazor-config'
 import {
   AGENT_DASHBOARD_URL,
   AGENT_GATEWAY_URL,
@@ -45,6 +46,7 @@ const CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN = truthyEnv(
   process.env.CRAZOR_REQUIRE_WRITE_TOKEN ||
   process.env.CRAZOR_REQUIRE_TOKEN_AUTH,
 )
+const CRAZOR_CONTACT_ATTACHMENTS_ROOT = resolve(CRAZOR_HOME, 'attachments', 'contacts')
 
 // --- Dashboard session token management ---
 let _dashboardToken: string | null = null
@@ -523,6 +525,7 @@ function deriveAuditAction(method: string, lastSegment: string) {
 
 function deriveAuditEntity(segments: string[]) {
   if (segments[0] === 'contacts' && segments[2] === 'docs') return 'contact_doc'
+  if (segments[0] === 'contacts' && segments[2] === 'attachments') return 'contact_attachment'
   if (segments[0] === 'channels' && segments[2] === 'referrals') return 'channel_referral'
   if (segments[0] === 'doc-files') return 'doc_file'
   if (segments[0] === 'docs') {
@@ -550,6 +553,76 @@ function deriveAuditEntity(segments: string[]) {
 function stringOrEmpty(value: unknown): string {
   if (value === null || value === undefined) return ''
   return String(value)
+}
+
+function contactAttachmentsDir(contactId: string): string {
+  const safeContactId = sanitizePathSegment(contactId)
+  const dir = resolve(CRAZOR_CONTACT_ATTACHMENTS_ROOT, safeContactId)
+  if (!dir.startsWith(`${CRAZOR_CONTACT_ATTACHMENTS_ROOT}/`) && dir !== CRAZOR_CONTACT_ATTACHMENTS_ROOT) {
+    throw new Error('invalid contact attachment path')
+  }
+  return dir
+}
+
+function sanitizePathSegment(value: unknown): string {
+  return String(value || '').trim().replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown'
+}
+
+function sanitizeAttachmentFilename(value: unknown): string {
+  const source = basename(String(value || 'attachment'))
+  const cleaned = source.replace(/[\\/:*?"<>|\x00-\x1f]+/g, '-').replace(/\s+/g, ' ').trim()
+  return cleaned || 'attachment'
+}
+
+function uniqueAttachmentName(dir: string, filename: string): string {
+  const dotIndex = filename.lastIndexOf('.')
+  const baseName = dotIndex > 0 ? filename.slice(0, dotIndex) : filename
+  const ext = dotIndex > 0 ? filename.slice(dotIndex) : ''
+  let candidate = filename
+  let index = 2
+  while (existsSync(resolve(dir, candidate))) {
+    candidate = `${baseName}-${index}${ext}`
+    index += 1
+  }
+  return candidate
+}
+
+function listContactAttachments(contactId: string) {
+  const dir = contactAttachmentsDir(contactId)
+  if (!existsSync(dir)) return []
+  return readdirSync(dir)
+    .filter((name) => name !== '.DS_Store')
+    .flatMap((name) => {
+      const filePath = resolve(dir, name)
+      try {
+        const stat = statSync(filePath)
+        if (!stat.isFile()) return []
+        return [{
+          id: name,
+          name,
+          path: `attachments/contacts/${sanitizePathSegment(contactId)}/${name}`,
+          size: stat.size,
+          created_at: stat.birthtime.toISOString(),
+          updated_at: stat.mtime.toISOString(),
+          download_url: `/api/crazor/contacts/${encodeURIComponent(contactId)}/attachments/${encodeURIComponent(name)}`,
+        }]
+      } catch {
+        return []
+      }
+    })
+    .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))
+}
+
+function buildDocSearchSnippet(content: string, query: string): string {
+  const text = String(content || '').replace(/\s+/g, ' ').trim()
+  if (!text) return ''
+  const q = query.trim().toLowerCase()
+  if (!q) return text.slice(0, 160)
+  const index = text.toLowerCase().indexOf(q)
+  if (index < 0) return text.slice(0, 160)
+  const start = Math.max(0, index - 50)
+  const end = Math.min(text.length, index + q.length + 90)
+  return `${start > 0 ? '...' : ''}${text.slice(start, end)}${end < text.length ? '...' : ''}`
 }
 
 // --- Health ---
@@ -1705,6 +1778,42 @@ app.delete('/api/crazor/contacts/:id', (c) => {
 })
 
 // --- Contact docs (Markdown) ---
+app.get('/api/crazor/contacts/:id/docs/search', (c) => {
+  const contactId = c.req.param('id')
+  const q = (c.req.query('q') || '').trim()
+  const lower = q.toLowerCase()
+
+  const treeDocs = docTree.listNotesByContact('knowledge', contactId).flatMap((note: any) => {
+    const fullNote = docTree.getNote(note.id)
+    if (!fullNote) return []
+    const title = String(fullNote.title || note.title || '')
+    const content = String(fullNote.content || '')
+    if (lower && !title.toLowerCase().includes(lower) && !content.toLowerCase().includes(lower)) return []
+    return [{
+      ...note,
+      title,
+      source: 'knowledge',
+      snippet: buildDocSearchSnippet(content, q),
+      updated_at: fullNote.updated_at || note.updated_at,
+    }]
+  })
+
+  const legacyDocs = docs.listContactDocs(contactId).flatMap((doc: any) => {
+    const content = docs.readDoc(doc.path) || ''
+    const title = String(doc.name?.replace(/\.md$/, '') || doc.path || '')
+    if (lower && !title.toLowerCase().includes(lower) && !content.toLowerCase().includes(lower)) return []
+    return [{
+      ...doc,
+      id: `legacy:${doc.path}`,
+      title,
+      source: 'legacy',
+      snippet: buildDocSearchSnippet(content, q),
+    }]
+  })
+
+  return c.json([...treeDocs, ...legacyDocs].slice(0, 30))
+})
+
 app.get('/api/crazor/contacts/:id/docs', (c) => {
   const contactId = c.req.param('id')
   const treeDocs = docTree.listNotesByContact('knowledge', contactId).map((note: any) => ({
@@ -1729,6 +1838,68 @@ app.post('/api/crazor/contacts/:id/docs', async (c) => {
   // Create the doc in tree + filesystem
   const note = docTree.createContactNote(contactId, body.filename, body.content || '')
   return c.json(note || docs.createContactDoc(contactId, body.filename, body.content || ''), 201)
+})
+
+// --- Contact attachments ---
+app.get('/api/crazor/contacts/:id/attachments', (c) => {
+  const contactId = c.req.param('id')
+  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
+  return c.json(listContactAttachments(contactId))
+})
+
+app.post('/api/crazor/contacts/:id/attachments', async (c) => {
+  const contactId = c.req.param('id')
+  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
+
+  const body = await c.req.parseBody() as Record<string, any>
+  const rawFile = Array.isArray(body.file) ? body.file[0] : body.file
+  if (!rawFile || typeof rawFile.arrayBuffer !== 'function') {
+    return c.json({ error: 'file is required' }, 400)
+  }
+
+  const dir = contactAttachmentsDir(contactId)
+  mkdirSync(dir, { recursive: true })
+
+  const originalName = sanitizeAttachmentFilename(rawFile.name || body.filename || 'attachment')
+  const filename = uniqueAttachmentName(dir, originalName)
+  const filePath = resolve(dir, filename)
+  const arrayBuffer = await rawFile.arrayBuffer()
+  writeFileSync(filePath, Buffer.from(arrayBuffer))
+
+  const stat = statSync(filePath)
+  return c.json({
+    id: filename,
+    name: filename,
+    path: `attachments/contacts/${sanitizePathSegment(contactId)}/${filename}`,
+    size: stat.size,
+    created_at: stat.birthtime.toISOString(),
+    updated_at: stat.mtime.toISOString(),
+    download_url: `/api/crazor/contacts/${encodeURIComponent(contactId)}/attachments/${encodeURIComponent(filename)}`,
+  }, 201)
+})
+
+app.get('/api/crazor/contacts/:id/attachments/:filename', (c) => {
+  const contactId = c.req.param('id')
+  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
+  const filename = sanitizeAttachmentFilename(c.req.param('filename'))
+  const filePath = resolve(contactAttachmentsDir(contactId), filename)
+  if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
+  return new Response(readFileSync(filePath), {
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    },
+  })
+})
+
+app.delete('/api/crazor/contacts/:id/attachments/:filename', (c) => {
+  const contactId = c.req.param('id')
+  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
+  const filename = sanitizeAttachmentFilename(c.req.param('filename'))
+  const filePath = resolve(contactAttachmentsDir(contactId), filename)
+  if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
+  rmSync(filePath)
+  return c.json({ ok: true, id: filename })
 })
 
 // --- Content Pieces ---

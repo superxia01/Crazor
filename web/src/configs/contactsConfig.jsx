@@ -1,28 +1,35 @@
 // Copyright (c) 2026 MeeJoy
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Building2Icon,
+  DownloadIcon,
   DollarSignIcon,
   FileTextIcon,
   GlobeIcon,
   ExternalLinkIcon,
   MailIcon,
   MessageSquareIcon,
+  PaperclipIcon,
   PhoneIcon,
   PlusIcon,
   PencilIcon,
   KanbanSquareIcon,
+  SearchIcon,
   TagIcon,
   TrendingUpIcon,
+  Trash2Icon,
+  UploadIcon,
   UserIcon,
   UsersIcon,
   CalendarIcon,
   CheckSquareIcon,
+  XIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { DataForm } from "@/components/data-view"
 import { BadgeCell, CurrencyCell } from "@/components/data-view/DataGrid"
 
@@ -328,26 +335,35 @@ export default {
     const [channels, setChannels] = useState([])
     const [followUps, setFollowUps] = useState([])
     const [docs, setDocs] = useState([])
+    const [docSearchQuery, setDocSearchQuery] = useState("")
+    const [docSearchResults, setDocSearchResults] = useState([])
+    const [docSearchActive, setDocSearchActive] = useState(false)
+    const [docSearchLoading, setDocSearchLoading] = useState(false)
+    const [attachments, setAttachments] = useState([])
+    const [uploadingAttachment, setUploadingAttachment] = useState(false)
     const [projects, setProjects] = useState([])
     const [tasks, setTasks] = useState([])
     const [loading, setLoading] = useState(true)
     const [activeForm, setActiveForm] = useState(null)
     const [activeDoc, setActiveDoc] = useState(null)
     const [activeTaskProjectId, setActiveTaskProjectId] = useState("")
+    const fileInputRef = useRef(null)
 
     const load = useCallback(async () => {
       setLoading(true)
       try {
-        const [channelsResp, followUpsResp, docsResp, projectsResp, tasksResp] = await Promise.all([
+        const [channelsResp, followUpsResp, docsResp, attachmentsResp, projectsResp, tasksResp] = await Promise.all([
           fetch(`/api/crazor/contacts/${item.id}/channels`),
           fetch(`/api/crazor/follow-ups?contact_id=${encodeURIComponent(item.id)}`),
           fetch(`/api/crazor/contacts/${item.id}/docs`),
+          fetch(`/api/crazor/contacts/${item.id}/attachments`),
           fetch("/api/crazor/projects"),
           fetch(`/api/crazor/tasks?contact_id=${encodeURIComponent(item.id)}`),
         ])
         setChannels(channelsResp.ok ? await channelsResp.json() : [])
         setFollowUps(followUpsResp.ok ? await followUpsResp.json() : [])
         setDocs(docsResp.ok ? await docsResp.json() : [])
+        setAttachments(attachmentsResp.ok ? await attachmentsResp.json() : [])
         const allProjects = projectsResp.ok ? await projectsResp.json() : []
         setProjects(allProjects.filter((project) => project.contact_id === item.id))
         setTasks(tasksResp.ok ? await tasksResp.json() : [])
@@ -427,6 +443,65 @@ export default {
         await load()
       } catch (error) {
         toast.error("需求文档保存失败", { description: String(error?.message || error) })
+      }
+    }
+
+    const handleSearchDocs = async () => {
+      const q = docSearchQuery.trim()
+      if (!q) {
+        setDocSearchResults([])
+        setDocSearchActive(false)
+        return
+      }
+      setDocSearchLoading(true)
+      try {
+        const results = await getJson(`/api/crazor/contacts/${item.id}/docs/search?q=${encodeURIComponent(q)}`)
+        setDocSearchResults(Array.isArray(results) ? results : [])
+        setDocSearchActive(true)
+      } catch (error) {
+        toast.error("文档搜索失败", { description: String(error?.message || error) })
+      } finally {
+        setDocSearchLoading(false)
+      }
+    }
+
+    const handleClearDocSearch = () => {
+      setDocSearchQuery("")
+      setDocSearchResults([])
+      setDocSearchActive(false)
+    }
+
+    const handleUploadAttachment = async (event) => {
+      const file = event.target.files?.[0]
+      if (!file) return
+      setUploadingAttachment(true)
+      try {
+        const formData = new FormData()
+        formData.append("file", file)
+        const resp = await fetch(`/api/crazor/contacts/${item.id}/attachments`, {
+          method: "POST",
+          body: formData,
+        })
+        await parseJsonResponse(resp)
+        toast.success("附件已归档")
+        await load()
+      } catch (error) {
+        toast.error("附件上传失败", { description: String(error?.message || error) })
+      } finally {
+        setUploadingAttachment(false)
+        event.target.value = ""
+      }
+    }
+
+    const handleDeleteAttachment = async (attachment) => {
+      if (!attachment?.download_url) return
+      try {
+        const resp = await fetch(attachment.download_url, { method: "DELETE" })
+        await parseJsonResponse(resp)
+        toast.success("附件已删除")
+        await load()
+      } catch (error) {
+        toast.error("附件删除失败", { description: String(error?.message || error) })
       }
     }
 
@@ -525,6 +600,8 @@ export default {
       }
     }
 
+    const visibleDocs = docSearchActive ? docSearchResults : docs
+
     if (loading) return <div className="text-[11px] text-muted-foreground border-t pt-3">加载中...</div>
 
     return (
@@ -554,6 +631,11 @@ export default {
             <CheckSquareIcon className="size-3.5" />
             拆任务
           </Button>
+          <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploadingAttachment}>
+            <UploadIcon className="size-3.5" />
+            {uploadingAttachment ? "上传中" : "上传附件"}
+          </Button>
+          <input ref={fileInputRef} type="file" className="hidden" onChange={handleUploadAttachment} />
         </div>
 
         {activeForm === "follow-up" && (
@@ -644,10 +726,36 @@ export default {
         </CaseSection>
 
         <CaseSection title={`需求文档 (${docs.length})`}>
-          {docs.length === 0 ? (
-            <EmptyLine>暂无关联文档</EmptyLine>
+          <div className="flex items-center gap-1.5">
+            <div className="relative min-w-0 flex-1">
+              <SearchIcon className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={docSearchQuery}
+                onChange={(event) => setDocSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault()
+                    void handleSearchDocs()
+                  }
+                }}
+                placeholder="搜索需求文档正文"
+                className="h-8 pl-7 text-[12px]"
+              />
+            </div>
+            <Button size="sm" variant="outline" onClick={() => void handleSearchDocs()} disabled={docSearchLoading} className="h-8">
+              <SearchIcon className="size-3" />
+              {docSearchLoading ? "搜索中" : "搜索"}
+            </Button>
+            {docSearchActive && (
+              <Button size="icon-sm" variant="ghost" onClick={handleClearDocSearch} aria-label="清除文档搜索">
+                <XIcon className="size-3.5" />
+              </Button>
+            )}
+          </div>
+          {visibleDocs.length === 0 ? (
+            <EmptyLine>{docSearchActive ? "没有匹配文档" : "暂无关联文档"}</EmptyLine>
           ) : (
-            docs.map((doc) => (
+            visibleDocs.map((doc) => (
               <div key={doc.id || doc.path || doc.name} className="rounded-md border px-2.5 py-2 text-[12px]">
                 <div className="flex items-start justify-between gap-2">
                   <button type="button" onClick={() => handleOpenDoc(doc)} className="flex min-w-0 items-center gap-1.5 text-left font-medium hover:text-primary">
@@ -663,6 +771,39 @@ export default {
                   )}
                 </div>
                 <div className="mt-1 truncate text-[11px] text-muted-foreground">{doc.id || doc.path}</div>
+                {doc.snippet && <div className="mt-1 line-clamp-2 text-[11px] leading-5 text-muted-foreground">{doc.snippet}</div>}
+              </div>
+            ))
+          )}
+        </CaseSection>
+
+        <CaseSection title={`附件归档 (${attachments.length})`}>
+          {attachments.length === 0 ? (
+            <EmptyLine>暂无归档附件</EmptyLine>
+          ) : (
+            attachments.map((attachment) => (
+              <div key={attachment.id || attachment.name} className="rounded-md border px-2.5 py-2 text-[12px]">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-start gap-1.5">
+                    <PaperclipIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{attachment.name}</div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        {formatFileSize(attachment.size)} · {formatDateTime(attachment.updated_at)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button asChild size="icon-xs" variant="ghost" aria-label="下载附件">
+                      <a href={attachment.download_url} download={attachment.name}>
+                        <DownloadIcon className="size-3" />
+                      </a>
+                    </Button>
+                    <Button size="icon-xs" variant="ghost" onClick={() => void handleDeleteAttachment(attachment)} aria-label="删除附件">
+                      <Trash2Icon className="size-3" />
+                    </Button>
+                  </div>
+                </div>
               </div>
             ))
           )}
@@ -747,6 +888,27 @@ export default {
 
 function today() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function formatFileSize(value) {
+  const size = Number(value || 0)
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+function formatDateTime(value) {
+  if (!value) return "-"
+  try {
+    return new Date(value).toLocaleString("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  } catch {
+    return String(value)
+  }
 }
 
 async function postJson(url, payload) {
