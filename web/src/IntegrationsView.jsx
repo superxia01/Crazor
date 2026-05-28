@@ -45,6 +45,11 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { getEnvVars, setEnvVar, deleteEnvVar, revealEnvVar } from "@/api/dashboard"
+import {
+  buildConnectorEnvMap,
+  getConnectorStatus,
+  parseConnectorFields,
+} from "@/integrations-utils"
 import { cn } from "@/lib/utils"
 
 // ── Preset Connectors ──────────────────────────────────────
@@ -250,16 +255,6 @@ const CONNECTOR_CATEGORIES = [
   { label: "知识笔记", ids: ["getbiji"] },
 ]
 
-// ── Helpers ────────────────────────────────────────────────
-
-function getConnectorStatus(connector, envMap) {
-  const vals = connector.fields.map((f) => envMap[f])
-  const filled = vals.filter(Boolean).length
-  if (filled === 0) return "disconnected"
-  if (filled === connector.fields.length) return "connected"
-  return "partial"
-}
-
 const STATUS_CONFIG = {
   connected: { label: "凭证完整", dot: "bg-emerald-500", badge: "bg-emerald-100 text-emerald-700" },
   partial: { label: "部分填写", dot: "bg-amber-500", badge: "bg-amber-100 text-amber-700" },
@@ -278,13 +273,13 @@ function ConnectorDialog({ connector, open, onClose, envMap, onRefresh }) {
     if (!open || !connector) return
     const initial = {}
     const revealPromises = connector.fields.map(async (key) => {
-      initial[key] = envMap[key] || ""
+      initial[key] = ""
       if (envMap[key]) {
         try {
           const real = await revealEnvVar(key)
           initial[key] = real?.value || real || envMap[key] || ""
         } catch {
-          initial[key] = envMap[key]
+          initial[key] = ""
         }
       }
     })
@@ -301,8 +296,6 @@ function ConnectorDialog({ connector, open, onClose, envMap, onRefresh }) {
         const val = (values[key] || "").trim()
         if (val) {
           await setEnvVar(key, val)
-        } else if (envMap[key]) {
-          await deleteEnvVar(key)
         }
       }
       await onRefresh()
@@ -340,7 +333,7 @@ function ConnectorDialog({ connector, open, onClose, envMap, onRefresh }) {
                   type={revealed[key] ? "text" : "password"}
                   value={values[key] || ""}
                   onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
-                  placeholder={`输入 ${key}...`}
+                  placeholder={envMap[key] ? "留空则保留当前配置" : `输入 ${key}...`}
                   className="text-[12px] h-8"
                 />
                 <Button
@@ -523,6 +516,8 @@ export default function IntegrationsView() {
       const match = key.match(/^CONNECTOR_(.+)_FIELDS$/)
       if (!match) continue
       const id = match[1].toLowerCase()
+      const fields = parseConnectorFields(value)
+      if (fields.length === 0) continue
       const name = id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
       result.push({
         id: `custom-${id}`,
@@ -530,7 +525,7 @@ export default function IntegrationsView() {
         description: "自定义连接器",
         icon: PlugIcon,
         color: "bg-primary/10 text-primary",
-        fields: value.split(",").filter(Boolean),
+        fields,
       })
     }
     return result
@@ -539,13 +534,7 @@ export default function IntegrationsView() {
   const refresh = useCallback(async () => {
     try {
       const vars = await getEnvVars()
-      const map = {}
-      if (Array.isArray(vars)) {
-        for (const v of vars) {
-          if (v.key && v.value !== undefined) map[v.key] = v.value
-        }
-      }
-      setEnvMap(map)
+      setEnvMap(buildConnectorEnvMap(vars))
     } catch {
       setEnvMap({})
     } finally {

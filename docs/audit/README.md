@@ -44,7 +44,7 @@
 - 内容作品已打通追踪记录到知识库正文、正文搜索关联、发布动作、指标回收和复盘模板写入链路；下一步要补外部平台真实发布回执、自动采集指标和内容级权限边界。
 - 后端业务 API 与 MCP Tool 已经比较完整，前端已承接基础写入和客户 Case 深链路，下一步要补更细的协作权限和跨模块上下文。
 - 多人协作所需的身份管理、当前访问 token、token scope、强制写入认证、角色级写入上限、敏感只读保护、业务只读保护和审计查看已经有最小 UI 与服务端拦截，但仍缺完整登录态、细粒度 RBAC 策略和关键操作审批。
-- 连接器页面目前是外部服务凭证配置面板，本轮已把状态文案从“已连接”收敛为“凭证完整/部分填写”，并修复 Dashboard 端口保存与技能市场代理入口；下一步要补真实外部平台连通性、Webhook 和同步任务审计。
+- 连接器页面目前是外部服务凭证配置面板，本轮已把状态文案从“已连接”收敛为“凭证完整/部分填写”，并修复 Dashboard 端口保存、技能市场代理入口、`/api/env` 对象型返回读回和留空保存误删凭证风险；下一步要补真实外部平台连通性、Webhook 和同步任务审计。
 - Agent Gateway 的解耦原则已有文档，但代码和 UI 里仍有较多 Hermes 私有概念。
 
 ## 本轮烟测
@@ -87,7 +87,7 @@
 | `bash -n scripts/hermes` | 通过 |
 | `./scripts/hermes smoke` | 通过 |
 | `./scripts/hermes smoke-strict` | 通过，临时开启严格认证后完成烟测并恢复默认后端配置 |
-| `node --test web/src/api/browser-utils.test.js web/src/integrations-status.test.js` | 通过 |
+| `node --test web/src/api/browser-utils.test.js web/src/integrations-status.test.js` | 通过，覆盖连接器凭证状态、`/api/env` metadata 读回、留空保留配置和技能市场代理 |
 | `docker compose build crazor-web` | 通过，运行中 Web 容器已替换为最新镜像 |
 | 后端健康检查 | 通过 |
 | Hermes Provider 状态代理 | 通过 |
