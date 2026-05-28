@@ -28,11 +28,11 @@ graph TD
 | 定时任务 | `cron` | `/api/cron/*` | Hermes jobs | Hermes jobs | 可用性依赖 Hermes |
 | 记忆管理 | `hermes-memory` / `memory` | `/api/memories` | Hermes memory | Hermes memory | 可用性依赖 Hermes |
 | Agent 管理 | `hermes-agents` | `/api/agents`、`/api/status` | Provider state | Hermes provider | 监控型页面为主 |
-| 客户管理 | `contacts` | `/api/crazor/contacts`、`/api/crazor/follow-ups` | `contacts`、`follow_ups`、`channel_referrals` | CRM MCP tools | 后端/MCP 较完整，UI 写入闭环缺失 |
-| 渠道管理 | `channels` | `/api/crazor/channels` | `channels`、`channel_referrals` | 渠道 MCP tools | 后端/MCP 较完整，UI 新增/编辑缺失 |
-| 财务中心 | `finance` | `/api/crazor/transactions`、`/api/crazor/analytics/*` | `transactions` | 财务 MCP tools | 后端可写，UI 新增入口缺失 |
-| 项目看板 | `projects` | `/api/crazor/projects`、`/api/crazor/tasks` | `projects`、`tasks` | 项目/任务 MCP tools | 任务看板可拖拽，项目创建/任务创建 UI 不完整 |
-| 平台流量 | `content` | `/api/crazor/content-pieces` | `content_pieces` | 内容 MCP tools | 后端/MCP 可用，UI 新增/编辑缺失 |
+| 客户管理 | `contacts` | `/api/crazor/contacts`、`/api/crazor/follow-ups` | `contacts`、`follow_ups`、`channel_referrals` | CRM MCP tools | 客户基础新增/编辑可用；跟进、文档、成交一体化仍缺 |
+| 渠道管理 | `channels` | `/api/crazor/channels` | `channels`、`channel_referrals` | 渠道 MCP tools | 渠道新增/编辑/删除基础闭环可用；转介绍关系仍需 UI 化 |
+| 财务中心 | `finance` | `/api/crazor/transactions`、`/api/crazor/analytics/*` | `transactions` | 财务 MCP tools | 流水新增可用，API 更新/删除通过；编辑入口需按财务权限继续评估 |
+| 项目看板 | `projects` | `/api/crazor/projects`、`/api/crazor/tasks` | `projects`、`tasks` | 项目/任务 MCP tools | 项目创建、任务创建、任务拖拽/删除可用；项目编辑归档待补 |
+| 平台流量 | `content` | `/api/crazor/content-pieces` | `content_pieces` | 内容 MCP tools | 内容作品新增/编辑/删除基础闭环可用；正文文档跳转待补 |
 | 知识库 | `knowledge` | `/api/crazor/docs/knowledge/*` | Markdown Vault | 文档 MCP tools | 可读写，已补旧路径和空白文档兜底 |
 | AI 笔记 | `notebook` | `/api/crazor/docs/notebook/*` | Markdown Vault | 文档 MCP tools | 可读写，编辑体验需持续核验 |
 | 文件管理 | `files` | `/api/files/*` | Hermes workspace files | Provider 文件能力 | 依赖 workspace 配置 |
@@ -64,7 +64,7 @@ sequenceDiagram
   UI->>DB: 通过 REST API 读取客户、财务、分析数据
 ```
 
-当前判断：Agent 写入链路相对完整，前端读取链路存在；但前端直接新增客户、记录跟进、登记成交的操作闭环不足。
+当前判断：Agent 写入链路相对完整，前端客户基础新增/编辑已接入；但前端直接记录跟进、登记成交、沉淀客户需求文档的 Case 闭环仍不足。
 
 ### 内容生产到数据回收
 
@@ -77,7 +77,7 @@ graph LR
   Metrics --> Analytics["内容统计"]
 ```
 
-当前判断：数据边界清楚，后端和 MCP 有记录与指标更新能力；UI 目前偏展示与拖拽，新增作品、关联正文、回收数据的人类操作链路不足。
+当前判断：数据边界清楚，后端和 MCP 有记录与指标更新能力；UI 已补内容作品新增/编辑，关联正文和从详情打开 `doc_id` 的链路仍不足。
 
 ### 知识库与文档协作
 
@@ -105,7 +105,7 @@ graph TD
 
 ## 接口可用性快照
 
-本轮只做只读烟测，不写入正式业务数据：
+本轮同时完成只读接口和临时写入烟测；临时写入数据已删除，不进入正式业务数据：
 
 | API | 状态 | 说明 |
 |-----|------|------|
@@ -124,3 +124,14 @@ graph TD
 | `/api/crazor/docs/knowledge/tree` | 200 | 知识库树可读 |
 | `/api/workspaces` | 200 | 工作区可读 |
 | `/api/sessions` | 200 | 会话列表可读 |
+
+## 写入接口快照
+
+| 对象 | API | 烟测结果 | 说明 |
+|------|-----|----------|------|
+| 客户 | `/api/crazor/contacts` | 通过 | 创建、更新、删除 |
+| 渠道 | `/api/crazor/channels` | 通过 | 创建、更新、删除 |
+| 财务流水 | `/api/crazor/transactions` | 通过 | 创建、更新、删除 |
+| 内容作品 | `/api/crazor/content-pieces` | 通过 | 创建、更新、删除 |
+| 项目 | `/api/crazor/projects` | 通过 | 创建、更新、删除 |
+| 任务 | `/api/crazor/tasks` | 通过 | 创建、更新、删除 |

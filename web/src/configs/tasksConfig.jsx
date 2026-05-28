@@ -9,6 +9,13 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { DataForm } from "@/components/data-view"
 import { BadgeCell } from "@/components/data-view/DataGrid"
 import { cn } from "@/lib/utils"
@@ -31,6 +38,15 @@ const FORM_FIELDS = [
   { key: "due_date", label: "截止日期", type: "date" },
 ]
 
+const PROJECT_FORM_FIELDS = [
+  { key: "name", label: "项目名称", required: true, placeholder: "项目名称 *" },
+  { key: "description", label: "项目说明", type: "textarea", placeholder: "项目说明", fullWidth: true },
+  { key: "budget", label: "预算", type: "number" },
+  { key: "team", label: "团队成员", placeholder: "团队成员" },
+  { key: "start_date", label: "开始日期", type: "date" },
+  { key: "deadline", label: "截止日期", type: "date" },
+]
+
 export default {
   apiBase: "/api/crazor/tasks",
   icon: KanbanSquareIcon,
@@ -41,6 +57,7 @@ export default {
   createDialogTitle: "新建任务",
   createDialogDesc: "添加到当前项目",
   createToast: "任务已创建",
+  createDisabledMessage: "请先新建或选择一个项目",
   searchable: false,
   editable: false,
   deletable: true,
@@ -54,9 +71,9 @@ export default {
   },
 
   // Project selector in header actions
-  headerActions: ({ extraData }) => {
+  headerActions: ({ extraData, reload }) => {
     const projects = extraData?.projects || []
-    return h(ProjectSelector, { projects })
+    return h(ProjectSelector, { projects, reload })
   },
 
   // extraParams: add project_id to API request
@@ -183,6 +200,8 @@ export default {
 
   formFields: FORM_FIELDS,
 
+  canCreate: () => Boolean(typeof window !== "undefined" && window.__activeProject),
+
   // Inject project_id into create
   beforeCreate: (data) => ({
     ...data,
@@ -211,8 +230,9 @@ export default {
 }
 
 // Project selector component rendered in header
-function ProjectSelector({ projects }) {
+function ProjectSelector({ projects, reload }) {
   const [active, setActive] = useState(null)
+  const [createOpen, setCreateOpen] = useState(false)
 
   useEffect(() => {
     if (!active && projects.length > 0) {
@@ -227,8 +247,6 @@ function ProjectSelector({ projects }) {
     // Trigger DataView reload by dispatching a custom event
     window.dispatchEvent(new CustomEvent("dataview-reload"))
   }, [])
-
-  if (projects.length === 0) return null
 
   return (
     <div className="flex items-center gap-1">
@@ -246,6 +264,49 @@ function ProjectSelector({ projects }) {
           {p.name}
         </Button>
       ))}
+      {projects.length === 0 ? (
+        <span className="text-[12px] text-muted-foreground">暂无项目</span>
+      ) : null}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setCreateOpen(true)}
+        className="h-7 rounded-md px-2.5 text-[12px]"
+      >
+        <PlusIcon className="size-3.5" />
+        新增项目
+      </Button>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>新建项目</DialogTitle>
+            <DialogDescription>项目创建后会自动作为当前任务看板。</DialogDescription>
+          </DialogHeader>
+          <DataForm
+            fields={PROJECT_FORM_FIELDS}
+            onSubmit={async (data) => {
+              const resp = await fetch("/api/crazor/projects", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  ...data,
+                  budget: data.budget ? Number(data.budget) : 0,
+                }),
+              })
+              if (!resp.ok) throw new Error("项目创建失败")
+              const project = await resp.json()
+              setActive(project.id)
+              window.__activeProject = project.id
+              setCreateOpen(false)
+              await reload?.()
+              window.dispatchEvent(new CustomEvent("dataview-reload"))
+            }}
+            onCancel={() => setCreateOpen(false)}
+            submitLabel="创建项目"
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

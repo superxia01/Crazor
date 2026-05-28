@@ -43,6 +43,24 @@ const STATUS_COLORS = {
   "关闭": "bg-zinc-100 text-zinc-500",
 }
 
+const PLATFORMS = ["公众号", "小红书", "抖音", "视频号", "知识星球", "朋友圈", "YouTube", "Twitter", "Instagram", "Amazon", "TikTok", "Shopify"]
+const FORMS = ["文章", "图文", "口播稿", "Talk"]
+const STATUSES = ["选题中", "草稿", "拍摄中", "待发布", "已发布", "关闭"]
+
+const FORM_FIELDS = [
+  { key: "title", label: "标题", required: true, placeholder: "标题 *", fullWidth: true },
+  { key: "platform", label: "平台", type: "select", options: PLATFORMS, defaultValue: "公众号" },
+  { key: "form", label: "形式", type: "select", options: FORMS, defaultValue: "文章" },
+  { key: "status", label: "状态", type: "select", options: STATUSES, defaultValue: "选题中" },
+  { key: "published_at", label: "发布日期", type: "date" },
+  { key: "topic_source", label: "选题来源", placeholder: "选题来源" },
+  { key: "doc_id", label: "知识库文档ID", placeholder: "knowledge/..." },
+  { key: "views", label: "阅读量", type: "number" },
+  { key: "likes", label: "点赞", type: "number" },
+  { key: "comments", label: "评论", type: "number" },
+  { key: "shares", label: "转发/收藏", type: "number" },
+]
+
 export default {
   apiBase: "/api/crazor/content-pieces",
   icon: MegaphoneIcon,
@@ -50,6 +68,11 @@ export default {
   title: "平台流量",
   description: "管理各平台内容作品的状态追踪与数据回收",
   searchPlaceholder: "搜索标题...",
+  createLabel: "新增作品",
+  createDialogTitle: "新增内容作品",
+  createDialogDesc: "记录内容标题、平台、状态和数据指标。",
+  createToast: "内容作品已创建",
+  updateToast: "内容作品已保存",
   filterParam: "platform",
   editable: true,
   deletable: true,
@@ -171,6 +194,11 @@ export default {
     ),
   },
 
+  formFields: FORM_FIELDS,
+
+  beforeCreate: (data) => normalizeContentPayload(data),
+  beforeUpdate: (data) => normalizeContentPayload(data),
+
   detail: {
     detailMaxWidth: "max-w-2xl",
     detailTitleKey: "title",
@@ -200,4 +228,15 @@ export default {
       { key: "shares", label: "转发/收藏", icon: Share2Icon, render: (v) => v || "-" },
     ],
   },
+}
+
+function normalizeContentPayload(data) {
+  return {
+    ...data,
+    status: data.status || "选题中",
+    views: data.views ? Number(data.views) : 0,
+    likes: data.likes ? Number(data.likes) : 0,
+    comments: data.comments ? Number(data.comments) : 0,
+    shares: data.shares ? Number(data.shares) : 0,
+  }
 }

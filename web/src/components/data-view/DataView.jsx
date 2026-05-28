@@ -10,14 +10,23 @@ import {
 import {
   Grid3x3Icon,
   KanbanIcon,
+  PlusIcon,
   SearchIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { ViewFrame } from "@/components/view-frame"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
+import DataForm from "./DataForm"
 import DataGrid from "./DataGrid"
 import DataKanban from "./DataKanban"
 import DataDetail from "./DataDetail"
@@ -35,6 +44,15 @@ export default function DataView({ config }) {
   const [filter, setFilter] = useState("all")
   const [selectedItem, setSelectedItem] = useState(null)
   const [extraData, setExtraData] = useState(null)
+  const [formState, setFormState] = useState({
+    open: false,
+    mode: "create",
+    item: null,
+  })
+
+  const canCreate = Boolean(config.createFormExtra || config.formFields?.length)
+  const canEdit = Boolean(config.editable && config.formFields?.length)
+  const createAllowed = config.canCreate ? Boolean(config.canCreate({ items, extraData })) : true
 
   // Fetch main data
   const loadItems = useCallback(async () => {
@@ -69,6 +87,10 @@ export default function DataView({ config }) {
     void Promise.all([loadItems(), loadExtra()])
   }, [loadItems, loadExtra])
 
+  const reloadAll = useCallback(async () => {
+    await Promise.all([loadItems(), loadExtra()])
+  }, [loadItems, loadExtra])
+
   // Listen for external reload triggers (e.g. project selector change)
   useEffect(() => {
     const handler = () => {
@@ -87,9 +109,9 @@ export default function DataView({ config }) {
     })
     if (resp.ok) {
       toast.success("状态已更新")
-      await Promise.all([loadItems(), loadExtra()])
+      await reloadAll()
     }
-  }, [config, loadItems, loadExtra])
+  }, [config, reloadAll])
 
   // Delete
   const handleDelete = useCallback(async (item) => {
@@ -97,9 +119,78 @@ export default function DataView({ config }) {
     const resp = await fetch(`${config.apiBase}/${item.id}`, { method: "DELETE" })
     if (resp.ok) {
       toast.success("已删除")
-      await Promise.all([loadItems(), loadExtra()])
+      await reloadAll()
     }
-  }, [config, loadItems, loadExtra])
+  }, [config, reloadAll])
+
+  const openCreateForm = useCallback(() => {
+    if (!canCreate || !createAllowed) return
+    setFormState({ open: true, mode: "create", item: null })
+  }, [canCreate, createAllowed])
+
+  const openEditForm = useCallback((item) => {
+    if (!canEdit) return
+    setFormState({ open: true, mode: "edit", item })
+  }, [canEdit])
+
+  const closeForm = useCallback(() => {
+    setFormState((current) => ({ ...current, open: false }))
+  }, [])
+
+  const parseErrorMessage = useCallback(async (resp) => {
+    const body = await resp.json().catch(() => null)
+    return body?.error || body?.message || `请求失败：${resp.status}`
+  }, [])
+
+  const handleCreate = useCallback(async (data) => {
+    const payload = config.beforeCreate ? config.beforeCreate(data) : data
+    const resp = await fetch(config.apiBase, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+
+    if (!resp.ok) {
+      throw new Error(await parseErrorMessage(resp))
+    }
+
+    toast.success(config.createToast || "已创建")
+    closeForm()
+    await reloadAll()
+  }, [closeForm, config, parseErrorMessage, reloadAll])
+
+  const handleUpdate = useCallback(async (data) => {
+    if (!formState.item?.id) return
+
+    const payload = config.beforeUpdate ? config.beforeUpdate(data, formState.item) : data
+    const resp = await fetch(`${config.apiBase}/${formState.item.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+
+    if (!resp.ok) {
+      throw new Error(await parseErrorMessage(resp))
+    }
+
+    toast.success(config.updateToast || "已保存")
+    closeForm()
+    await reloadAll()
+  }, [closeForm, config, formState.item, parseErrorMessage, reloadAll])
+
+  const handleFormSubmit = useCallback(async (data) => {
+    try {
+      if (formState.mode === "edit") {
+        await handleUpdate(data)
+      } else {
+        await handleCreate(data)
+      }
+    } catch (error) {
+      toast.error(formState.mode === "edit" ? "保存失败" : "创建失败", {
+        description: String(error?.message || error),
+      })
+    }
+  }, [formState.mode, handleCreate, handleUpdate])
 
   // TanStack Table
   const columns = useMemo(() => config.columns, [config])
@@ -117,7 +208,24 @@ export default function DataView({ config }) {
   const kanbanConfig = config.kanban
 
   // Allow config to inject extra actions next to view switcher
-  const headerActions = config.headerActions ? config.headerActions({ items, extraData, stats }) : null
+  const headerActions = config.headerActions ? config.headerActions({ items, extraData, stats, reload: reloadAll }) : null
+  const formTitle = formState.mode === "edit"
+    ? config.editDialogTitle || `编辑${config.title || "记录"}`
+    : config.createDialogTitle || config.createLabel || `新增${config.title || "记录"}`
+  const formDescription = formState.mode === "edit"
+    ? config.editDialogDesc || "修改后保存即可同步到业务数据。"
+    : config.createDialogDesc || "填写必要信息后保存。"
+  const formContent = formState.mode === "create" && config.createFormExtra
+    ? config.createFormExtra({ onSubmit: handleFormSubmit, onCancel: closeForm })
+    : (
+      <DataForm
+        fields={config.formFields || []}
+        initial={formState.mode === "edit" ? formState.item : undefined}
+        onSubmit={handleFormSubmit}
+        onCancel={closeForm}
+        submitLabel={formState.mode === "edit" ? "保存" : (config.createSubmitLabel || "创建")}
+      />
+    )
 
   return (
     <ViewFrame
@@ -139,6 +247,18 @@ export default function DataView({ config }) {
             </div>
           )}
           {headerActions}
+          {canCreate && (
+            <Button
+              size="sm"
+              onClick={openCreateForm}
+              disabled={!createAllowed}
+              title={!createAllowed ? config.createDisabledMessage || "当前条件下不能新增" : undefined}
+              className="h-8 rounded-md px-2.5 text-[12px]"
+            >
+              <PlusIcon className="size-3.5" />
+              {config.createLabel || "新增"}
+            </Button>
+          )}
           {/* View switcher */}
           <div className="flex rounded-lg border p-0.5">
             {VIEW_MODES.map((vm) => (
@@ -199,6 +319,7 @@ export default function DataView({ config }) {
           <DataGrid
             table={table}
             onView={(item) => setSelectedItem(item)}
+            onEdit={canEdit ? openEditForm : undefined}
             onDelete={config.deletable ? handleDelete : undefined}
           />
         )}
@@ -228,6 +349,16 @@ export default function DataView({ config }) {
         item={selectedItem}
         config={config.detail}
       />
+
+      <Dialog open={formState.open} onOpenChange={(open) => !open && closeForm()}>
+        <DialogContent className="max-h-[86vh] overflow-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{formTitle}</DialogTitle>
+            <DialogDescription>{formDescription}</DialogDescription>
+          </DialogHeader>
+          {formContent}
+        </DialogContent>
+      </Dialog>
     </ViewFrame>
   )
 }
