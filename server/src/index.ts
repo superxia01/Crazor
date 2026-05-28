@@ -8,7 +8,7 @@ import {
   listContacts, getContact, createContact, updateContact, deleteContact,
   listTransactions, createTransaction, updateTransaction, deleteTransaction,
   getMonthlyRevenue, listProjects, createProject, updateProject, deleteProject,
-  listTasks, createTask, updateTask, deleteTask, moveTask,
+  listTasks, listTasksByContact, createTask, updateTask, deleteTask, moveTask,
   getContactStats, getFinanceStats, getProjectStats, getHermesSessionStats,
   listFollowUps, createFollowUp, updateFollowUp, deleteFollowUp, getFollowUpReminders,
   listChannels, getChannel, createChannel, updateChannel, deleteChannel, getChannelStats,
@@ -1916,6 +1916,8 @@ app.delete('/api/crazor/projects/:id', (c) => {
 // --- Tasks ---
 app.get('/api/crazor/tasks', (c) => {
   const project = c.req.query('project')
+  const contactId = c.req.query('contact_id')
+  if (contactId) return c.json(listTasksByContact(contactId))
   return c.json(listTasks(project || undefined))
 })
 

@@ -18,6 +18,7 @@ import {
   UserIcon,
   UsersIcon,
   CalendarIcon,
+  CheckSquareIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
@@ -71,6 +72,47 @@ const PROJECT_FIELDS = [
   { key: "deadline", label: "截止日期", type: "date" },
   { key: "description", label: "项目说明", type: "textarea", placeholder: "交付范围、客户目标、约束条件", fullWidth: true },
 ]
+
+const TASK_PRIORITIES = [
+  { value: "high", label: "高" },
+  { value: "medium", label: "中" },
+  { value: "low", label: "低" },
+]
+const TASK_STATUSES = [
+  { value: "todo", label: "待办" },
+  { value: "in_progress", label: "进行中" },
+  { value: "done", label: "完成" },
+]
+const TASK_STATUS_LABELS = {
+  todo: "待办",
+  in_progress: "进行中",
+  done: "完成",
+}
+const TASK_PRIORITY_LABELS = {
+  high: "高",
+  medium: "中",
+  low: "低",
+}
+
+function buildTaskFields(projects) {
+  return [
+    {
+      key: "project_id",
+      label: "所属项目",
+      type: "select",
+      required: true,
+      options: projects.map((project) => ({ value: project.id, label: project.name })),
+      placeholder: "选择项目 *",
+    },
+    { key: "title", label: "任务标题", required: true, placeholder: "任务标题 *" },
+    { key: "priority", label: "优先级", type: "select", options: TASK_PRIORITIES, defaultValue: "medium" },
+    { key: "status", label: "状态", type: "select", options: TASK_STATUSES, defaultValue: "todo" },
+    { key: "assignee", label: "负责人", placeholder: "负责人" },
+    { key: "due_date", label: "截止日期", type: "date" },
+    { key: "estimated_hours", label: "预估工时", type: "number", defaultValue: 0 },
+    { key: "description", label: "任务说明", type: "textarea", placeholder: "交付动作、验收标准或依赖事项", fullWidth: true },
+  ]
+}
 
 const DOC_EDIT_FIELDS = [
   { key: "title", label: "文档标题", required: true, placeholder: "文档标题 *" },
@@ -287,24 +329,28 @@ export default {
     const [followUps, setFollowUps] = useState([])
     const [docs, setDocs] = useState([])
     const [projects, setProjects] = useState([])
+    const [tasks, setTasks] = useState([])
     const [loading, setLoading] = useState(true)
     const [activeForm, setActiveForm] = useState(null)
     const [activeDoc, setActiveDoc] = useState(null)
+    const [activeTaskProjectId, setActiveTaskProjectId] = useState("")
 
     const load = useCallback(async () => {
       setLoading(true)
       try {
-        const [channelsResp, followUpsResp, docsResp, projectsResp] = await Promise.all([
+        const [channelsResp, followUpsResp, docsResp, projectsResp, tasksResp] = await Promise.all([
           fetch(`/api/crazor/contacts/${item.id}/channels`),
           fetch(`/api/crazor/follow-ups?contact_id=${encodeURIComponent(item.id)}`),
           fetch(`/api/crazor/contacts/${item.id}/docs`),
           fetch("/api/crazor/projects"),
+          fetch(`/api/crazor/tasks?contact_id=${encodeURIComponent(item.id)}`),
         ])
         setChannels(channelsResp.ok ? await channelsResp.json() : [])
         setFollowUps(followUpsResp.ok ? await followUpsResp.json() : [])
         setDocs(docsResp.ok ? await docsResp.json() : [])
         const allProjects = projectsResp.ok ? await projectsResp.json() : []
         setProjects(allProjects.filter((project) => project.contact_id === item.id))
+        setTasks(tasksResp.ok ? await tasksResp.json() : [])
       } catch { /* ignore */ }
       setLoading(false)
     }, [item.id])
@@ -449,6 +495,36 @@ export default {
       }
     }
 
+    const handleOpenTaskForm = (projectId = "") => {
+      if (projects.length === 0) {
+        toast.error("请先从客户生成项目机会")
+        return
+      }
+      setActiveTaskProjectId(projectId || projects[0]?.id || "")
+      setActiveForm(activeForm === "task" && (!projectId || projectId === activeTaskProjectId) ? null : "task")
+    }
+
+    const handleCreateTask = async (data) => {
+      try {
+        if (!data.project_id) throw new Error("请选择所属项目")
+        await postJson("/api/crazor/tasks", {
+          ...data,
+          title: data.title,
+          project_id: data.project_id,
+          priority: data.priority || "medium",
+          status: data.status || "todo",
+          estimated_hours: Number(data.estimated_hours || 0),
+        })
+        toast.success("项目任务已拆解")
+        setActiveForm(null)
+        setActiveTaskProjectId("")
+        await load()
+        await onReload?.()
+      } catch (error) {
+        toast.error("项目任务创建失败", { description: String(error?.message || error) })
+      }
+    }
+
     if (loading) return <div className="text-[11px] text-muted-foreground border-t pt-3">加载中...</div>
 
     return (
@@ -473,6 +549,10 @@ export default {
           <Button size="sm" variant={activeForm === "project" ? "default" : "outline"} onClick={() => setActiveForm(activeForm === "project" ? null : "project")}>
             <KanbanSquareIcon className="size-3.5" />
             生成项目
+          </Button>
+          <Button size="sm" variant={activeForm === "task" ? "default" : "outline"} onClick={() => handleOpenTaskForm()}>
+            <CheckSquareIcon className="size-3.5" />
+            拆任务
           </Button>
         </div>
 
@@ -519,6 +599,25 @@ export default {
               onSubmit={handleCreateProject}
               onCancel={() => setActiveForm(null)}
               submitLabel="创建项目"
+            />
+          </ActionForm>
+        )}
+
+        {activeForm === "task" && (
+          <ActionForm title="从客户项目拆解任务">
+            <DataForm
+              key={activeTaskProjectId || projects[0]?.id || "task"}
+              fields={buildTaskFields(projects)}
+              initial={{
+                project_id: activeTaskProjectId || projects[0]?.id || "",
+                priority: "medium",
+                status: "todo",
+                assignee: item.sales_person || "",
+                estimated_hours: 0,
+              }}
+              onSubmit={handleCreateTask}
+              onCancel={() => { setActiveForm(null); setActiveTaskProjectId("") }}
+              submitLabel="创建任务"
             />
           </ActionForm>
         )}
@@ -593,22 +692,52 @@ export default {
           {projects.length === 0 ? (
             <EmptyLine>暂无关联项目</EmptyLine>
           ) : (
-            projects.map((project) => (
-              <div key={project.id} className="rounded-md border px-2.5 py-2 text-[12px]">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-1.5 font-medium">
-                    <KanbanSquareIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{project.name}</span>
+            projects.map((project) => {
+              const projectTasks = tasks.filter((task) => task.project_id === project.id)
+              return (
+                <div key={project.id} className="rounded-md border px-2.5 py-2 text-[12px]">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-1.5 font-medium">
+                      <KanbanSquareIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{project.name}</span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {Number(project.budget || 0) > 0 && (
+                        <span className="text-primary font-medium">
+                          ¥{Number(project.budget) >= 10000 ? (Number(project.budget) / 10000).toFixed(1) + "万" : Number(project.budget).toLocaleString()}
+                        </span>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={() => handleOpenTaskForm(project.id)} className="h-6 rounded-md px-2 text-[11px]">
+                        <CheckSquareIcon className="size-3" />
+                        拆任务
+                      </Button>
+                    </div>
                   </div>
-                  {Number(project.budget || 0) > 0 && (
-                    <span className="shrink-0 text-primary font-medium">
-                      ¥{Number(project.budget) >= 10000 ? (Number(project.budget) / 10000).toFixed(1) + "万" : Number(project.budget).toLocaleString()}
-                    </span>
-                  )}
+                  {project.description && <div className="mt-1 line-clamp-2 text-muted-foreground">{project.description}</div>}
+                  <div className="mt-2 border-t pt-2">
+                    {projectTasks.length === 0 ? (
+                      <div className="text-[11px] text-muted-foreground">暂无任务</div>
+                    ) : (
+                      <div className="flex flex-col gap-1.5">
+                        {projectTasks.map((task) => (
+                          <div key={task.id} className="flex flex-col gap-1 text-[11px] sm:grid sm:grid-cols-[1fr_auto] sm:items-center sm:gap-2">
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <CheckSquareIcon className="size-3 shrink-0 text-muted-foreground" />
+                              <span className="truncate">{task.title}</span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Badge variant="outline" className="h-4 text-[10px]">{TASK_STATUS_LABELS[task.status] || task.status}</Badge>
+                              <Badge variant="outline" className="h-4 text-[10px]">{TASK_PRIORITY_LABELS[task.priority] || task.priority}</Badge>
+                              {task.due_date && <span className="text-muted-foreground">{task.due_date}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                {project.description && <div className="mt-1 line-clamp-2 text-muted-foreground">{project.description}</div>}
-              </div>
-            ))
+              )
+            })
           )}
         </CaseSection>
       </div>

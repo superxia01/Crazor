@@ -34,7 +34,7 @@ graph TD
 | 定时任务 | `cron` | `/api/cron/*` | Hermes jobs | Hermes jobs | 可用性依赖 Hermes |
 | 记忆管理 | `hermes-memory` / `memory` | `/api/memories` | Hermes memory | Hermes memory | 可用性依赖 Hermes |
 | Agent 管理 | `hermes-agents` | `/api/agents`、`/api/status` | Provider state | Hermes provider | 监控型页面为主 |
-| 客户管理 | `contacts` | `/api/crazor/contacts`、`/api/crazor/follow-ups`、`/api/crazor/contacts/:id/docs`、`/api/crazor/docs/knowledge/notes-ops`、`/api/crazor/transactions`、`/api/crazor/channels/:id/referrals`、`/api/crazor/projects` | `contacts`、`follow_ups`、`transactions`、Markdown Vault、`channel_referrals`、`projects` | CRM MCP tools + 文档 MCP tools + 渠道/项目 MCP tools | 客户详情深链路可用；附件归档、项目任务联动、搜索跳转待补 |
+| 客户管理 | `contacts` | `/api/crazor/contacts`、`/api/crazor/follow-ups`、`/api/crazor/contacts/:id/docs`、`/api/crazor/docs/knowledge/notes-ops`、`/api/crazor/transactions`、`/api/crazor/channels/:id/referrals`、`/api/crazor/projects`、`/api/crazor/tasks?contact_id=:id` | `contacts`、`follow_ups`、`transactions`、Markdown Vault、`channel_referrals`、`projects`、`tasks` | CRM MCP tools + 文档 MCP tools + 渠道/项目/任务 MCP tools | 客户详情深链路和项目任务联动可用；附件归档、搜索跳转待补 |
 | 渠道管理 | `channels` | `/api/crazor/channels` | `channels`、`channel_referrals` | 渠道 MCP tools | 渠道新增/编辑/删除基础闭环可用；客户侧转介绍关系已接入，渠道侧批量运营待补 |
 | 财务中心 | `finance` | `/api/crazor/transactions`、`/api/crazor/analytics/*` | `transactions` | 财务 MCP tools | 流水新增可用，API 更新/删除通过；编辑入口需按财务权限继续评估 |
 | 项目看板 | `projects` | `/api/crazor/projects`、`/api/crazor/tasks` | `projects`、`tasks` | 项目/任务 MCP tools | 项目创建、任务创建、任务拖拽/删除可用；项目编辑归档待补 |
@@ -72,7 +72,7 @@ sequenceDiagram
   UI->>DB: 通过 REST API 读取客户、财务、分析数据
 ```
 
-当前判断：Agent 写入链路相对完整，前端客户基础新增/编辑已接入，客户详情已能直接记录跟进、登记成交、沉淀并编辑客户需求文档，且可建立渠道转介绍、从客户生成项目机会。下一步要补附件归档、项目任务联动、客户文档搜索跳转和权限边界。
+当前判断：Agent 写入链路相对完整，前端客户基础新增/编辑已接入，客户详情已能直接记录跟进、登记成交、沉淀并编辑客户需求文档，且可建立渠道转介绍、从客户生成项目机会、从项目拆解任务。下一步要补附件归档、客户文档搜索跳转和权限边界。
 
 ### 内容生产到数据回收
 
@@ -157,6 +157,7 @@ graph TD
 | 客户成交 | `/api/crazor/transactions` + `/api/crazor/contacts/:id` | 通过 | 创建流水并回写客户阶段/金额 |
 | 客户渠道转介绍 | `/api/crazor/channels/:id/referrals` + `/api/crazor/contacts/:id/channels` | 通过 | 从客户详情建立关系并从客户侧读回 |
 | 客户生成项目机会 | `/api/crazor/projects` | 通过 | 项目记录保持 `contact_id` 关联 |
+| 客户项目任务联动 | `/api/crazor/tasks` + `/api/crazor/tasks?contact_id=:id` | 通过 | 从客户项目拆解任务，并按客户读回关联项目下任务 |
 | 团队成员 | `/api/crazor/identity/members` | 通过 | 创建、查询、删除临时成员 |
 | actor token | `/api/crazor/identity/tokens` | 通过 | 创建、查询、撤销临时 token |
 | REST token scope | `/api/crazor/*` + `/api/crazor/audit-logs` | 通过 | `contact:create` token 可创建客户，创建项目被 403 拒绝并记录 `deny_create` |

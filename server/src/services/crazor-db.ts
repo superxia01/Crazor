@@ -624,6 +624,16 @@ export function listTasks(projectId?: string) {
   return db.prepare("SELECT * FROM tasks ORDER BY project_id, status, sort_order").all()
 }
 
+export function listTasksByContact(contactId: string) {
+  return db.prepare(`
+    SELECT t.*, p.name as project_name, p.contact_id
+    FROM tasks t
+    JOIN projects p ON p.id = t.project_id
+    WHERE p.contact_id = ?
+    ORDER BY p.updated_at DESC, t.status, t.sort_order
+  `).all(contactId)
+}
+
 export function createTask(data: Partial<any>) {
   const t = {
     id: id(), project_id: data.project_id, title: data.title || "", description: data.description || "",
