@@ -1,17 +1,24 @@
 // Copyright (c) 2026 MeeJoy
 
+import { useState } from "react"
 import {
   CalendarIcon,
   EyeIcon,
+  ExternalLinkIcon,
   FileTextIcon,
   HeartIcon,
   MegaphoneIcon,
   MessageSquareIcon,
+  PencilIcon,
+  PlusIcon,
   NewspaperIcon,
   Share2Icon,
   TagIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { DataForm } from "@/components/data-view"
 import { BadgeCell } from "@/components/data-view/DataGrid"
 
 const PLATFORM_COLORS = {
@@ -59,6 +66,12 @@ const FORM_FIELDS = [
   { key: "likes", label: "点赞", type: "number" },
   { key: "comments", label: "评论", type: "number" },
   { key: "shares", label: "转发/收藏", type: "number" },
+]
+
+const CONTENT_DOC_FOLDER_ID = "knowledge/20-业务流程/10-公域流量/40-内容资产"
+const DOC_EDIT_FIELDS = [
+  { key: "title", label: "正文标题", required: true, placeholder: "正文标题 *" },
+  { key: "content", label: "正文内容", type: "textarea", placeholder: "内容正文、脚本或素材说明", fullWidth: true },
 ]
 
 export default {
@@ -227,7 +240,156 @@ export default {
       { key: "comments", label: "评论", icon: MessageSquareIcon, render: (v) => v || "-" },
       { key: "shares", label: "转发/收藏", icon: Share2Icon, render: (v) => v || "-" },
     ],
+    detailExtra: function ContentDocPanel({ item, onReload, onItemUpdate }) {
+      const [activeDoc, setActiveDoc] = useState(null)
+      const [loading, setLoading] = useState(false)
+
+      const openDoc = async () => {
+        if (!item.doc_id) {
+          toast.error("当前内容作品还没有关联正文")
+          return
+        }
+        setLoading(true)
+        try {
+          const note = await getJson(`/api/crazor/docs/knowledge/notes-ops?id=${encodeURIComponent(item.doc_id)}`)
+          setActiveDoc(note)
+        } catch (error) {
+          toast.error("正文读取失败", { description: String(error?.message || error) })
+        } finally {
+          setLoading(false)
+        }
+      }
+
+      const createDoc = async () => {
+        setLoading(true)
+        try {
+          const note = await postJson("/api/crazor/docs/knowledge/notes", {
+            folderId: CONTENT_DOC_FOLDER_ID,
+            title: item.title || "内容正文",
+            content: buildDefaultContentDoc(item),
+          })
+          const updated = await patchJson(`/api/crazor/content-pieces/${item.id}`, { doc_id: note.id })
+          onItemUpdate?.(updated)
+          await onReload?.()
+          const fullNote = await getJson(`/api/crazor/docs/knowledge/notes-ops?id=${encodeURIComponent(note.id)}`)
+          setActiveDoc(fullNote)
+          toast.success("内容正文已创建")
+        } catch (error) {
+          toast.error("内容正文创建失败", { description: String(error?.message || error) })
+        } finally {
+          setLoading(false)
+        }
+      }
+
+      const saveDoc = async (data) => {
+        if (!activeDoc?.id) return
+        setLoading(true)
+        try {
+          await patchJson(`/api/crazor/docs/knowledge/notes-ops?id=${encodeURIComponent(activeDoc.id)}`, {
+            title: data.title,
+            content: data.content || "",
+          })
+          const note = await getJson(`/api/crazor/docs/knowledge/notes-ops?id=${encodeURIComponent(activeDoc.id)}`)
+          setActiveDoc(note)
+          toast.success("内容正文已保存")
+        } catch (error) {
+          toast.error("内容正文保存失败", { description: String(error?.message || error) })
+        } finally {
+          setLoading(false)
+        }
+      }
+
+      return (
+        <div className="border-t pt-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-[12px] font-medium">知识库正文</div>
+              <div className="mt-0.5 max-w-full truncate text-[11px] text-muted-foreground">{item.doc_id || "尚未关联正文文档"}</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {item.doc_id ? (
+                <Button size="sm" variant="outline" onClick={openDoc} disabled={loading}>
+                  <ExternalLinkIcon className="size-3.5" />
+                  打开正文
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" onClick={createDoc} disabled={loading}>
+                  <PlusIcon className="size-3.5" />
+                  创建正文
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {activeDoc && (
+            <div className="rounded-md border bg-muted/20 p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium">
+                <PencilIcon className="size-3.5 text-muted-foreground" />
+                编辑正文
+              </div>
+              <DataForm
+                key={activeDoc.id}
+                fields={DOC_EDIT_FIELDS}
+                initial={activeDoc}
+                onSubmit={saveDoc}
+                onCancel={() => setActiveDoc(null)}
+                submitLabel="保存正文"
+              />
+            </div>
+          )}
+        </div>
+      )
+    },
   },
+}
+
+async function getJson(url) {
+  const resp = await fetch(url)
+  return parseJsonResponse(resp)
+}
+
+async function postJson(url, payload) {
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  return parseJsonResponse(resp)
+}
+
+async function patchJson(url, payload) {
+  const resp = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  return parseJsonResponse(resp)
+}
+
+async function parseJsonResponse(resp) {
+  const body = await resp.json().catch(() => null)
+  if (!resp.ok) {
+    throw new Error(body?.error || body?.message || `请求失败：${resp.status}`)
+  }
+  return body
+}
+
+function buildDefaultContentDoc(item) {
+  return [
+    `# ${item.title || "内容正文"}`,
+    "",
+    `- 平台：${item.platform || ""}`,
+    `- 形式：${item.form || ""}`,
+    `- 状态：${item.status || ""}`,
+    `- 选题来源：${item.topic_source || ""}`,
+    "",
+    "## 核心观点",
+    "",
+    "## 正文 / 脚本",
+    "",
+    "## 发布复盘",
+    "",
+  ].join("\n")
 }
 
 function normalizeContentPayload(data) {

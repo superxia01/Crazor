@@ -38,7 +38,7 @@ graph TD
 | 渠道管理 | `channels` | `/api/crazor/channels` | `channels`、`channel_referrals` | 渠道 MCP tools | 渠道新增/编辑/删除基础闭环可用；客户侧转介绍关系已接入，渠道侧批量运营待补 |
 | 财务中心 | `finance` | `/api/crazor/transactions`、`/api/crazor/analytics/*` | `transactions` | 财务 MCP tools | 流水新增可用，API 更新/删除通过；编辑入口需按财务权限继续评估 |
 | 项目看板 | `projects` | `/api/crazor/projects`、`/api/crazor/tasks` | `projects`、`tasks` | 项目/任务 MCP tools | 项目创建、任务创建、任务拖拽/删除可用；项目编辑归档待补 |
-| 平台流量 | `content` | `/api/crazor/content-pieces` | `content_pieces` | 内容 MCP tools | 内容作品新增/编辑/删除基础闭环可用；正文文档跳转待补 |
+| 平台流量 | `content` | `/api/crazor/content-pieces`、`/api/crazor/docs/knowledge/notes`、`/api/crazor/docs/knowledge/notes-ops` | `content_pieces`、Markdown Vault | 内容 MCP tools + 文档 MCP tools | 内容作品新增/编辑/删除与正文创建/打开/保存可用；内容复盘和搜索跳转待补 |
 | 知识库 | `knowledge` | `/api/crazor/docs/knowledge/*` | Markdown Vault | 文档 MCP tools | 可读写，已补旧路径和空白文档兜底 |
 | AI 笔记 | `notebook` | `/api/crazor/docs/notebook/*` | Markdown Vault | 文档 MCP tools | 可读写，编辑体验需持续核验 |
 | 文件管理 | `files` | `/api/files/*` | Hermes workspace files | Provider 文件能力 | 依赖 workspace 配置 |
@@ -85,7 +85,7 @@ graph LR
   Metrics --> Analytics["内容统计"]
 ```
 
-当前判断：数据边界清楚，后端和 MCP 有记录与指标更新能力；UI 已补内容作品新增/编辑，关联正文和从详情打开 `doc_id` 的链路仍不足。
+当前判断：数据边界清楚，后端和 MCP 有记录与指标更新能力；UI 已补内容作品新增/编辑，也能从详情创建正文、回填 `doc_id`、打开并保存知识库正文。下一步要补内容搜索结果跳转、发布复盘模板和指标回收体验。
 
 ### 知识库与文档协作
 
@@ -97,7 +97,7 @@ graph TD
   Agent["Agent"] --> MCP
 ```
 
-当前判断：文件系统驱动的知识库可用，旧路径兼容和缺失文档兜底已补，客户关联文档创建、读回、打开编辑已验证。下一步要审计“内容正文 doc_id、搜索结果跳转、附件归档”的完整体验。
+当前判断：文件系统驱动的知识库可用，旧路径兼容和缺失文档兜底已补，客户关联文档创建、读回、打开编辑已验证，内容正文 `doc_id` 打开与保存链路已验证。下一步要审计“搜索结果跳转、附件归档”的完整体验。
 
 ## 数据边界
 
@@ -158,6 +158,7 @@ graph TD
 | 客户渠道转介绍 | `/api/crazor/channels/:id/referrals` + `/api/crazor/contacts/:id/channels` | 通过 | 从客户详情建立关系并从客户侧读回 |
 | 客户生成项目机会 | `/api/crazor/projects` | 通过 | 项目记录保持 `contact_id` 关联 |
 | 客户项目任务联动 | `/api/crazor/tasks` + `/api/crazor/tasks?contact_id=:id` | 通过 | 从客户项目拆解任务，并按客户读回关联项目下任务 |
+| 内容正文关联 | `/api/crazor/content-pieces` + `/api/crazor/docs/knowledge/notes-ops` | 通过 | 内容详情可创建正文、回填 `doc_id`、打开和保存正文 |
 | 团队成员 | `/api/crazor/identity/members` | 通过 | 创建、查询、删除临时成员 |
 | actor token | `/api/crazor/identity/tokens` | 通过 | 创建、查询、撤销临时 token |
 | REST token scope | `/api/crazor/*` + `/api/crazor/audit-logs` | 通过 | `contact:create` token 可创建客户，创建项目被 403 拒绝并记录 `deny_create` |

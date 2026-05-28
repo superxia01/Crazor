@@ -1827,7 +1827,7 @@ app.post('/api/crazor/docs/:scope/folders-ops/move', async (c) => {
 app.post('/api/crazor/docs/:scope/notes', async (c) => {
   const scope = c.req.param('scope')
   const body = await c.req.json()
-  return c.json(docTree.createNote(scope, body.folderId || null, body.title || '未命名笔记'), 201)
+  return c.json(docTree.createNote(scope, body.folderId || null, body.title || '未命名笔记', body.content || '', body.contact_id || null), 201)
 })
 
 app.get('/api/crazor/docs/:scope/notes-ops', (c) => {

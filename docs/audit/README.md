@@ -26,6 +26,8 @@
 
 客户 Case 的最小工作台也已接入并完成深链路验证：客户详情可以新增跟进记录、新建需求文档、打开/编辑客户文档、登记成交、建立渠道转介绍，从客户生成项目机会，并从客户项目直接拆解任务。
 
+内容作品到知识库正文的闭环已接入：内容详情可以在没有 `doc_id` 时创建正文并回填关联，已有 `doc_id` 时可以打开并编辑知识库正文。
+
 操作审计的最小底座已接入：REST 和 MCP 写入会记录到 `audit_logs`，包含操作者类型、操作者 ID、来源、动作、实体、实体 ID、payload hash 和创建时间。
 
 可信 actor 来源与最小权限边界已接入：服务端新增团队成员与 actor token 表，REST 请求可以通过 `Authorization: Bearer` 或 `X-Crazor-Token` 派生 `human / api-token` 来源，MCP 工具调用可以派生 `agent / agent-token` 来源；token 已支持 `scopes`，REST/MCP 写入都会校验 scope，并被成员角色写入上限二次裁剪。开启 `CRAZOR_REQUIRE_WRITE_TOKEN=true` 后，无 token 写入会被拒绝；已有 active token 后，审计日志、成员列表、token 列表等敏感只读接口也会要求有权限的 token。越权写入和敏感只读拒绝会记录 `deny_*` 审计日志。
@@ -35,6 +37,7 @@
 但从“团队内部真实使用”的标准看，产品仍不是完整闭环。核心差距在于：
 
 - 客户 Case 已打通第一层业务深链路和项目任务联动，但附件归档、客户文档搜索跳转仍需继续补齐。
+- 内容作品已打通追踪记录到知识库正文的打开/编辑链路，下一步要继续核验内容检索、复盘和指标回收体验。
 - 后端业务 API 与 MCP Tool 已经比较完整，前端已承接基础写入和客户 Case 深链路，下一步要补更细的协作权限和跨模块上下文。
 - 多人协作所需的身份管理、当前访问 token、token scope、强制写入认证、角色级写入上限、敏感只读保护和审计查看已经有最小 UI 与服务端拦截，但仍缺完整登录态、业务只读接口保护策略、细粒度 RBAC 策略和关键操作审批。
 - Agent Gateway 的解耦原则已有文档，但代码和 UI 里仍有较多 Hermes 私有概念。
@@ -128,6 +131,21 @@
 | 另一客户查询任务 | 通过，不会读到该客户任务 |
 | `/api/crazor/audit-logs` 记录 `task` 创建 | 通过 |
 | 临时客户、项目、任务、客户目录清理 | 通过 |
+
+## 内容正文关联烟测
+
+通过本机 Docker 暴露入口 `http://127.0.0.1:5173` 验证，临时内容作品和正文文档创建后已全部删除：
+
+| 链路 | 结果 |
+|------|------|
+| `docker compose build crazor-server crazor-web` | 通过 |
+| `POST /api/crazor/content-pieces` 创建内容作品 | 通过，初始无 `doc_id` |
+| `POST /api/crazor/docs/knowledge/notes` 创建内容正文 | 通过，接口已保留初始 `content` |
+| `PATCH /api/crazor/content-pieces/:id` 回填 `doc_id` | 通过 |
+| `GET /api/crazor/docs/knowledge/notes-ops` 打开正文 | 通过，可读回初始正文 |
+| `PATCH /api/crazor/docs/knowledge/notes-ops` 保存正文 | 通过，保存后可读回 |
+| `/api/crazor/audit-logs` 记录 `doc_note` 创建/更新和 `content_piece` 更新 | 通过 |
+| 临时内容作品和正文文档清理 | 通过 |
 
 ## 审计日志烟测
 
