@@ -4,7 +4,7 @@
 
 ## 当前高优先级问题
 
-### P0：身份与审计工作台已补，权限闭环仍未完成
+### P0：Token scope 已补，强制登录、角色级 RBAC 和审批仍未完成
 
 **现象**
 
@@ -12,16 +12,18 @@
 - 服务端已新增 `team_members` 与 `actor_tokens`，API token 和 agent token 只保存 SHA-256 hash。
 - REST 请求可通过 `Authorization: Bearer` 或 `X-Crazor-Token` 派生 `human / api-token` 来源。
 - MCP 工具调用可通过 token 派生 `agent / agent-token` 来源。
-- 统一入口已新增“协作审计”页面，可以创建团队成员或 Agent 身份、签发/撤销 token、查看审计日志。
-- 但当前还没有登录态、RBAC 权限拦截、token 权限范围和关键操作审批。
+- `actor_tokens` 已新增 `scopes`，REST 和 MCP 写入会对 token scope 做服务端校验。
+- 越权 REST 写入会返回 403，越权 MCP 工具调用会返回 `isError=true`，两者都会记录 `deny_*` 审计日志。
+- 统一入口已新增“协作审计”页面，可以创建团队成员或 Agent 身份、按权限范围签发/撤销 token、查看审计日志。
+- 但当前还没有强制登录态、角色级 RBAC 权限矩阵和关键操作审批。
 
 **影响**
 
-现在可以在页面上回答“这次写入由哪个已登记成员或 agent token 发起”，但还不能回答“这个成员或 agent 是否有权限执行该动作”。多 agent、多成员协作时，仍需要补权限边界，避免任意 token 调用所有写入接口。
+现在可以回答“这个 token 是否有权限执行该写入动作”，也能审计越权尝试；但无 token 的内部演示路径仍允许匿名写入，角色与接口的统一权限矩阵也尚未形成。
 
 **建议**
 
-下一步补权限闭环：角色权限矩阵、接口级 RBAC 中间件、强制登录边界、token scope、关键写入操作审批。
+下一步补强制登录边界、角色权限矩阵、接口级 RBAC 策略生成、关键写入操作审批和高风险操作二次确认。
 
 ### P1：客户 Case 已补深链路，附件归档和项目任务联动仍待补
 
@@ -98,7 +100,7 @@
 
 ## 修复优先级建议
 
-1. 补角色权限矩阵、接口级 RBAC、强制登录边界和关键写入审批。
+1. 补强制登录边界、角色权限矩阵、关键写入审批和高风险操作二次确认。
 2. 补客户附件归档、项目任务联动、客户文档搜索跳转。
 3. 收敛 Agent Provider 能力抽象，减少 UI 对 Hermes 私有概念的硬依赖。
 4. 补内容作品详情到知识库正文 `doc_id` 的打开链路。
@@ -121,6 +123,7 @@
 | 客户详情缺少文档打开编辑、渠道转介绍、项目机会入口 | 已修复，客户详情已接入文档编辑、渠道转介绍和生成项目机会 |
 | REST/MCP 写入缺少最小审计日志 | 已修复，写入会记录到 `audit_logs` 并可通过 `/api/crazor/audit-logs` 查询 |
 | REST/MCP 审计 actor 只能信任请求头或 MCP 参数 | 已修复，服务端可从 API token / agent token 派生 actor |
+| API token / agent token 没有写入权限范围 | 已修复，`actor_tokens.scopes` 已接入 REST/MCP 写入校验和越权拒绝审计 |
 | 统一 Web 入口 `POST /mcp` 被 Nginx 301 到丢失端口的 `/mcp/` | 已修复，新增精确代理规则，StreamableHTTP 可直接返回 `Mcp-Session-Id` |
 | 团队身份、token 与审计日志没有统一页面 | 已修复，新增“协作审计”页面 |
 
@@ -136,4 +139,5 @@
 | 页面级轻量核验 | 客户新增、项目新增、内容作品新增、客户详情 Case 操作入口均可见 |
 | REST/MCP 审计烟测 | 人类来源和 agent 来源写入均生成审计日志，`payload_hash` 为 64 位 SHA-256 |
 | 身份 token 烟测 | API token 创建客户记录 `human / api-token`，agent token 调 MCP SSE 与 StreamableHTTP 均记录 `agent / agent-token`，无效 token 不回落到伪造 header |
+| Token scope 权限烟测 | `contact:create` API token 和 agent token 可创建客户；越权创建项目分别被 REST 403 和 MCP `isError=true` 拒绝，并记录 `deny_create` 审计 |
 | 协作审计页面烟测 | Web Docker 构建通过；身份 API、token API、审计 API 均通过统一入口验证 |

@@ -11,12 +11,15 @@ graph TD
   Web --> HermesDashboard["Hermes Dashboard 代理能力"]
   Server --> DB["SQLite 业务数据"]
   Server --> Identity["team_members / actor_tokens"]
+  Server --> Permission["Token Scope 权限校验"]
   Server --> Audit["audit_logs 操作审计"]
   Server --> Vault["Markdown Vault 知识库"]
   Server --> MCP["Crazor MCP Server"]
   Hermes["Hermes Agent Provider"] --> MCP
   Hermes --> Server
   Server --> HermesGateway["Hermes Gateway / Agent Gateway"]
+  Identity --> Permission
+  Permission --> Audit
   Identity --> Audit
 ```
 
@@ -41,8 +44,8 @@ graph TD
 | 文件管理 | `files` | `/api/files/*` | Hermes workspace files | Provider 文件能力 | 依赖 workspace 配置 |
 | 终端 | `terminal` | `/api/terminal/sessions/*` | Hermes workspace | Provider 终端能力 | 可用性依赖 Hermes |
 | 工作区 | 侧边栏工作区 | `/api/workspaces/*` | Hermes/Crazor 配置 | 影响文件、终端、会话 | 基础可用，需要权限和隔离策略 |
-| 团队身份与接入凭证 | `teamops` 协作审计 | `/api/crazor/identity/me`、`/api/crazor/identity/members`、`/api/crazor/identity/tokens` | `team_members`、`actor_tokens` | REST/MCP 可通过 token 派生 actor | 最小 UI 与 API 可用；RBAC、强制登录和 token scope 待补 |
-| 操作审计 | `teamops` 协作审计 | `/api/crazor/audit-logs` | `audit_logs` | MCP 写入自动记录 | REST/MCP 写入最小审计可用；审计查看页已接入，权限拦截待补 |
+| 团队身份与接入凭证 | `teamops` 协作审计 | `/api/crazor/identity/me`、`/api/crazor/identity/members`、`/api/crazor/identity/tokens` | `team_members`、`actor_tokens.scopes` | REST/MCP 可通过 token 派生 actor 并校验 scope | 最小 UI 与 API 可用；token scope 已接入，强制登录、角色级 RBAC 和审批待补 |
+| 操作审计 | `teamops` 协作审计 | `/api/crazor/audit-logs` | `audit_logs` | MCP 写入和越权拒绝自动记录 | REST/MCP 写入和 `deny_*` 拒绝审计可用；审批流待补 |
 | 数据分析 | `analytics` | `/api/crazor/analytics/*` | 聚合 DB | 间接依赖 | 可展示，需补业务指标定义 |
 | 集成 | `integrations` | 待核验 | 待核验 | 待核验 | 需要继续审计 |
 | 3D 办公室 | `office` | 前端状态为主 | 本地状态 | 暂无关键业务闭环 | 演示型能力 |
@@ -109,7 +112,7 @@ graph TD
 | SOP、话术、培训材料 | 否 | 是 |
 | 操作者、来源、动作、实体、payload hash | 是，进入 `audit_logs` | 否 |
 | 团队成员、agent 身份、角色、状态 | 是，进入 `team_members` | 否 |
-| API token、agent token | 是，只保存 SHA-256 hash 和前缀 | 否 |
+| API token、agent token | 是，只保存 SHA-256 hash、前缀和 scopes | 否 |
 
 ## 接口可用性快照
 
@@ -132,7 +135,7 @@ graph TD
 | `/api/crazor/audit-logs` | 200 | 审计日志可读 |
 | `/api/crazor/identity/me` | 200 | 可从 token 派生当前 actor |
 | `/api/crazor/identity/members` | 200 | 团队成员 API 可读写 |
-| `/api/crazor/identity/tokens` | 200 | actor token API 可读写，明文 token 只在创建时返回 |
+| `/api/crazor/identity/tokens` | 200 | actor token API 可读写，明文 token 只在创建时返回，可配置 scopes |
 | `POST /mcp` | 200 | MCP StreamableHTTP 统一入口可用，返回 `Mcp-Session-Id` |
 | `/api/crazor/docs/knowledge/tree` | 200 | 知识库树可读 |
 | `/api/workspaces` | 200 | 工作区可读 |
@@ -156,6 +159,8 @@ graph TD
 | 客户生成项目机会 | `/api/crazor/projects` | 通过 | 项目记录保持 `contact_id` 关联 |
 | 团队成员 | `/api/crazor/identity/members` | 通过 | 创建、查询、删除临时成员 |
 | actor token | `/api/crazor/identity/tokens` | 通过 | 创建、查询、撤销临时 token |
+| REST token scope | `/api/crazor/*` + `/api/crazor/audit-logs` | 通过 | `contact:create` token 可创建客户，创建项目被 403 拒绝并记录 `deny_create` |
+| MCP token scope | `POST /mcp` + `/api/crazor/audit-logs` | 通过 | `contact:create` agent token 可调 `create_contact`，调 `create_project` 返回 `isError=true` 并记录 `deny_create` |
 | 协作审计页面 | `teamops` | 通过 | 侧边栏入口、身份列表、token 列表、审计日志查看 |
 | REST 操作审计 | `/api/crazor/audit-logs` | 通过 | API token 写入记录 actor/source/action/entity/payload_hash |
 | MCP SSE 操作审计 | `/mcp/sse` + `/api/crazor/audit-logs` | 通过 | Agent token 工具写入记录 actor/source/action/entity/payload_hash |

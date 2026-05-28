@@ -20,6 +20,7 @@ import {
 } from "./crazor-db"
 import { listFieldDefinitions, createFieldDefinition, discoverCustomFields } from "./field-definitions"
 import * as docTree from "./crazor-doc-tree"
+import { evaluateWritePermission } from "./crazor-permissions"
 
 // ── SSE session management ───────────────────────────────────
 
@@ -766,12 +767,37 @@ type ToolActor = {
   actor_id?: string
   source?: string
   role?: string
+  scopes?: unknown
 }
 
 async function executeTool(name: string, args: any, actor?: ToolActor): Promise<any> {
+  assertMcpWriteAllowed(name, args, actor)
   const result = await executeToolAction(name, args)
   recordMcpAudit(name, args, result, actor)
   return result
+}
+
+function assertMcpWriteAllowed(name: string, args: any, actor?: ToolActor) {
+  const audit = deriveMcpAudit(name, args, null)
+  if (!audit) return
+  const permission = evaluateWritePermission(actor, audit.action, audit.entity)
+  if (!permission.allowed) {
+    try {
+      createAuditLog({
+        actor_type: actor?.actor_type || "agent",
+        actor_id: String(actor?.actor_id || "invalid-token"),
+        source: actor?.source || "permission-denied",
+        action: `deny_${audit.action}`,
+        entity: audit.entity,
+        entity_id: audit.entity_id,
+        payload: args,
+        summary: `MCP ${name} denied: ${permission.required_scope}`,
+      })
+    } catch (err) {
+      console.error("[audit] failed to record MCP permission denial:", err)
+    }
+    throw new Error(`${permission.error}: required scope ${permission.required_scope}`)
+  }
 }
 
 async function executeToolAction(name: string, args: any): Promise<any> {

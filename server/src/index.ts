@@ -32,6 +32,7 @@ import {
   AGENT_GATEWAY_URL,
   agentGatewayHeaders,
 } from './services/agent-gateway'
+import { evaluateWritePermission } from './services/crazor-permissions'
 
 const app = new Hono()
 
@@ -331,17 +332,43 @@ const AUDIT_WRITE_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
 app.use('/api/crazor/*', async (c, next) => {
   const method = c.req.method.toUpperCase()
   const shouldAudit = AUDIT_WRITE_METHODS.has(method)
+  const url = new URL(c.req.url)
   const requestText = shouldAudit
     ? await c.req.raw.clone().text().catch(() => '')
     : ''
   const actor = shouldAudit ? resolveRequestActor(c, { actor_type: 'human', actor_id: 'anonymous', source: 'rest-api' }) : null
+
+  if (shouldAudit && extractActorToken(c)) {
+    const audit = deriveRestAudit(method, url.pathname, null, url.searchParams)
+    const permission = evaluateWritePermission(actor, audit.action, audit.entity)
+    if (!permission.allowed) {
+      try {
+        createAuditLog({
+          actor_type: actor?.actor_type || 'human',
+          actor_id: actor?.actor_id || 'invalid-token',
+          source: actor?.source || 'permission-denied',
+          action: `deny_${audit.action}`,
+          entity: audit.entity,
+          entity_id: audit.entity_id,
+          payload: requestText,
+          summary: `${method} ${url.pathname} denied: ${permission.required_scope}`,
+        })
+      } catch (err) {
+        console.error('[audit] failed to record permission denial:', err)
+      }
+      return c.json({
+        error: permission.error,
+        required_scope: permission.required_scope,
+        actor_id: actor?.actor_id || '',
+      }, permission.status || 403)
+    }
+  }
 
   await next()
 
   if (!shouldAudit || c.res.status < 200 || c.res.status >= 400) return
 
   const responseBody = await c.res.clone().json().catch(() => null)
-  const url = new URL(c.req.url)
   const audit = deriveRestAudit(method, url.pathname, responseBody, url.searchParams)
   try {
     createAuditLog({
@@ -1543,6 +1570,7 @@ app.post('/api/crazor/identity/tokens', async (c) => {
       member_id: body.member_id,
       label: body.label || '',
       token_type: body.token_type || 'api',
+      scopes: body.scopes,
     }), 201)
   } catch (err: any) {
     return c.json({ error: err?.message || 'failed to create token' }, 404)

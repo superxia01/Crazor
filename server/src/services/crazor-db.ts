@@ -5,6 +5,7 @@ import { Database } from "bun:sqlite"
 import { createHash, randomBytes } from "node:crypto"
 import { resolve } from "path"
 import { CRAZOR_DB_PATH, HERMES_HOME } from "./crazor-config"
+import { normalizeScopes, serializeScopes } from "./crazor-permissions"
 
 const db = new Database(CRAZOR_DB_PATH)
 db.exec("PRAGMA journal_mode = WAL")
@@ -206,6 +207,7 @@ db.exec(`
     token_prefix TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT '',
     token_type TEXT NOT NULL DEFAULT 'api',
+    scopes TEXT NOT NULL DEFAULT '*',
     status TEXT NOT NULL DEFAULT 'active',
     last_used_at TEXT,
     created_at TEXT NOT NULL,
@@ -252,6 +254,7 @@ const migrations = [
   "ALTER TABLE contacts ADD COLUMN custom_data TEXT DEFAULT '{}'",
   "ALTER TABLE transactions ADD COLUMN custom_data TEXT DEFAULT '{}'",
   "ALTER TABLE channels ADD COLUMN custom_data TEXT DEFAULT '{}'",
+  "ALTER TABLE actor_tokens ADD COLUMN scopes TEXT NOT NULL DEFAULT '*'",
 ]
 for (const sql of migrations) {
   try { db.exec(sql) } catch { /* column already exists */ }
@@ -1138,7 +1141,7 @@ export function deleteTeamMember(id: string) {
   db.prepare("DELETE FROM team_members WHERE id = ?").run(id)
 }
 
-export function createActorToken(data: { member_id: string; label?: string; token_type?: string }) {
+export function createActorToken(data: { member_id: string; label?: string; token_type?: string; scopes?: unknown }) {
   const member = getTeamMember(data.member_id)
   if (!member) throw new Error(`成员不存在: ${data.member_id}`)
 
@@ -1151,36 +1154,38 @@ export function createActorToken(data: { member_id: string; label?: string; toke
     token_prefix: tokenPrefix(token),
     label: data.label || "",
     token_type: tokenType,
+    scopes: serializeScopes(data.scopes),
     status: "active",
     last_used_at: null as string | null,
     created_at: now(),
     updated_at: now(),
   }
-  db.prepare(`INSERT INTO actor_tokens (id,member_id,token_hash,token_prefix,label,token_type,status,last_used_at,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(row.id, row.member_id, row.token_hash, row.token_prefix, row.label, row.token_type, row.status, row.last_used_at, row.created_at, row.updated_at)
-  return { ...sanitizeActorToken(row), token }
+  db.prepare(`INSERT INTO actor_tokens (id,member_id,token_hash,token_prefix,label,token_type,scopes,status,last_used_at,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(row.id, row.member_id, row.token_hash, row.token_prefix, row.label, row.token_type, row.scopes, row.status, row.last_used_at, row.created_at, row.updated_at)
+  return { ...sanitizeActorToken(row), scopes: normalizeScopes(row.scopes), token }
 }
 
 export function listActorTokens(filter?: { member_id?: string; status?: string }) {
-  let sql = `SELECT t.id,t.member_id,t.token_prefix,t.label,t.token_type,t.status,t.last_used_at,t.created_at,t.updated_at,
+  let sql = `SELECT t.id,t.member_id,t.token_prefix,t.label,t.token_type,t.scopes,t.status,t.last_used_at,t.created_at,t.updated_at,
     m.name as member_name,m.actor_type,m.role as member_role,m.status as member_status
     FROM actor_tokens t LEFT JOIN team_members m ON m.id = t.member_id WHERE 1=1`
   const params: any[] = []
   if (filter?.member_id) { sql += " AND t.member_id = ?"; params.push(filter.member_id) }
   if (filter?.status) { sql += " AND t.status = ?"; params.push(filter.status) }
   sql += " ORDER BY t.created_at DESC"
-  return db.prepare(sql).all(...params)
+  return (db.prepare(sql).all(...params) as any[]).map((row) => ({ ...row, scopes: normalizeScopes(row.scopes) }))
 }
 
 export function revokeActorToken(id: string) {
   db.prepare("UPDATE actor_tokens SET status = 'revoked', updated_at = ? WHERE id = ?").run(now(), id)
-  return db.prepare("SELECT id,member_id,token_prefix,label,token_type,status,last_used_at,created_at,updated_at FROM actor_tokens WHERE id = ?").get(id)
+  const row = db.prepare("SELECT id,member_id,token_prefix,label,token_type,scopes,status,last_used_at,created_at,updated_at FROM actor_tokens WHERE id = ?").get(id) as any
+  return row ? { ...row, scopes: normalizeScopes(row.scopes) } : row
 }
 
 export function resolveActorToken(token: string) {
   if (!token) return null
   const tokenHash = hashToken(token.trim())
-  const row = db.prepare(`SELECT t.id as token_id,t.member_id,t.token_prefix,t.label,t.token_type,t.status as token_status,
+  const row = db.prepare(`SELECT t.id as token_id,t.member_id,t.token_prefix,t.label,t.token_type,t.scopes,t.status as token_status,
       m.name as actor_name,m.actor_type,m.role,m.status as member_status
     FROM actor_tokens t JOIN team_members m ON m.id = t.member_id
     WHERE t.token_hash = ?`).get(tokenHash) as any
@@ -1191,6 +1196,7 @@ export function resolveActorToken(token: string) {
     actor_id: row.member_id,
     actor_name: row.actor_name,
     role: row.role,
+    scopes: normalizeScopes(row.scopes),
     source: row.token_type === "agent" ? "agent-token" : "api-token",
     token_id: row.token_id,
     token_label: row.label,

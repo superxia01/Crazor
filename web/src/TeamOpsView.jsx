@@ -38,6 +38,15 @@ const STATUS_LABELS = {
   disabled: "停用",
 }
 
+const TOKEN_SCOPE_PRESETS = [
+  { value: "*", label: "全部写入" },
+  { value: "crm:* docs:* project:create", label: "客户协作" },
+  { value: "docs:*", label: "文档知识库" },
+  { value: "project:* task:*", label: "项目交付" },
+  { value: "content:* docs:*", label: "内容运营" },
+  { value: "identity:*", label: "身份管理" },
+]
+
 const ENTITY_LABELS = {
   contact: "客户",
   team_member: "团队成员",
@@ -95,6 +104,17 @@ function statusBadgeClass(status) {
   return "border-amber-200 bg-amber-50 text-amber-700"
 }
 
+function formatScopes(scopes) {
+  const values = Array.isArray(scopes)
+    ? scopes
+    : String(scopes || "")
+      .split(/[\s,，]+/)
+      .filter(Boolean)
+  if (values.length === 0) return "-"
+  if (values.includes("*")) return "全部写入"
+  return values.join(" · ")
+}
+
 export default function TeamOpsView() {
   const [members, setMembers] = useState([])
   const [tokens, setTokens] = useState([])
@@ -115,6 +135,7 @@ export default function TeamOpsView() {
     member_id: "",
     token_type: "api",
     label: "",
+    scopes: "*",
   })
   const [auditFilter, setAuditFilter] = useState({
     entity: "",
@@ -309,7 +330,7 @@ export default function TeamOpsView() {
           <StatusPill label="身份来源" value="Token 派生" state="已接入" tone="emerald" />
           <StatusPill label="Token 存储" value="SHA-256 hash" state="已接入" tone="emerald" />
           <StatusPill label="统一入口" value="REST / MCP" state="已验证" tone="blue" />
-          <StatusPill label="RBAC 拦截" value="接口级权限" state="待接入" tone="amber" />
+          <StatusPill label="权限范围" value="Token Scope" state="已接入" tone="emerald" />
         </div>
 
         <Tabs defaultValue="identity" className="flex min-h-0 flex-1 flex-col">
@@ -413,6 +434,18 @@ export default function TeamOpsView() {
                           className="h-9 rounded-[8px] text-[13px]"
                         />
                       </div>
+                      <select
+                        value={tokenForm.scopes}
+                        onChange={(event) =>
+                          setTokenForm((current) => ({ ...current, scopes: event.target.value }))
+                        }
+                        className={fieldClassName}>
+                        {TOKEN_SCOPE_PRESETS.map((preset) => (
+                          <option key={preset.value} value={preset.value}>
+                            {preset.label} · {preset.value}
+                          </option>
+                        ))}
+                      </select>
                       <Button type="submit" disabled={tokenSaving || activeMembers.length === 0} className="h-9 rounded-[8px]">
                         {tokenSaving ? "签发中" : "签发 Token"}
                       </Button>
@@ -430,6 +463,9 @@ export default function TeamOpsView() {
                         <code className="block break-all rounded-[7px] bg-white px-2 py-1.5 text-[11px]">
                           {tokenResult.token}
                         </code>
+                        <div className="mt-2 text-[11px]">
+                          权限：{formatScopes(tokenResult.scopes)}
+                        </div>
                       </div>
                     )}
                   </CardContent>
@@ -499,11 +535,12 @@ export default function TeamOpsView() {
                       <table className="w-full table-fixed text-left text-[12px]">
                         <thead className="bg-muted/55 text-muted-foreground">
                           <tr>
-                            <th className="w-[30%] px-3 py-2 font-medium">归属</th>
-                            <th className="w-[26%] px-3 py-2 font-medium">前缀</th>
-                            <th className="w-[18%] px-3 py-2 font-medium">类型</th>
-                            <th className="w-[16%] px-3 py-2 font-medium">状态</th>
-                            <th className="w-[10%] px-2 py-2 font-medium" />
+                            <th className="w-[28%] px-3 py-2 font-medium">归属</th>
+                            <th className="w-[20%] px-3 py-2 font-medium">前缀</th>
+                            <th className="w-[16%] px-3 py-2 font-medium">类型</th>
+                            <th className="w-[20%] px-3 py-2 font-medium">权限</th>
+                            <th className="w-[10%] px-3 py-2 font-medium">状态</th>
+                            <th className="w-[6%] px-2 py-2 font-medium" />
                           </tr>
                         </thead>
                         <tbody>
@@ -515,6 +552,7 @@ export default function TeamOpsView() {
                               </td>
                               <td className="px-3 py-2 font-mono text-[11px]">{token.token_prefix}</td>
                               <td className="px-3 py-2">{TOKEN_TYPE_LABELS[token.token_type] || token.token_type}</td>
+                              <td className="truncate px-3 py-2 text-[11px] text-muted-foreground">{formatScopes(token.scopes)}</td>
                               <td className="px-3 py-2">
                                 <Badge variant="outline" className={cn("text-[10px]", statusBadgeClass(token.status))}>
                                   {STATUS_LABELS[token.status] || token.status}
@@ -535,7 +573,7 @@ export default function TeamOpsView() {
                           ))}
                           {tokens.length === 0 && (
                             <tr>
-                              <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
+                              <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
                                 暂无接入凭证
                               </td>
                             </tr>
