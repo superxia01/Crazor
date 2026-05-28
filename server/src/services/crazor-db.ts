@@ -996,7 +996,7 @@ export function getProjectStats() {
   return { totalProjects: total, todoTasks: todo, doingTasks: doing, doneTasks: done }
 }
 
-// ── Hermes sessions analytics (read-only from state.db) ─────
+// ── Agent sessions analytics (Hermes-compatible state.db) ────
 
 export function getHermesSessionStats() {
   try {

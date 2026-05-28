@@ -2,9 +2,11 @@ import { resolve, join } from 'node:path'
 import { homedir } from 'node:os'
 import { mkdirSync, existsSync } from 'node:fs'
 
-// ── Hermes home (read-only) ──────────────────────────────────
-// Crazor reads state.db for session analytics but never writes to Hermes.
-export const HERMES_HOME = resolve(homedir(), '.hermes')
+// ── Agent state home ─────────────────────────────────────────
+// Crazor may read provider state for analytics and sync Hermes Skills.
+// Business data stays in CRAZOR_HOME.
+export const AGENT_STATE_HOME = resolve(process.env.AGENT_STATE_HOME || process.env.HERMES_HOME || join(homedir(), '.hermes'))
+export const HERMES_HOME = AGENT_STATE_HOME
 
 // ── Crazor data directory ────────────────────────────────────
 // Defaults to ~/.crazor/, overridable via CRAZOR_HOME env var.

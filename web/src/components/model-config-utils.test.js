@@ -107,6 +107,7 @@ test("getPrimaryModelConfig normalizes flattened and nested Hermes model setting
     provider: "custom",
     baseUrl: "https://example.com/v1",
     apiKey: "secret-key",
+    apiMode: "",
     contextLength: "128000",
   })
 })

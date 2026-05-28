@@ -24,12 +24,15 @@ import { seedSkills } from './services/seed-skills'
 import { migrateVault } from './services/migrate-vault'
 import { handleSSEConnect, handleSSEMessage } from './services/crazor-mcp'
 import { CRAZOR_SKILLS_DIR } from './services/crazor-config'
+import {
+  AGENT_DASHBOARD_URL,
+  AGENT_GATEWAY_URL,
+  agentGatewayHeaders,
+} from './services/agent-gateway'
 
 const app = new Hono()
 
 // --- Config ---
-const HERMES_GATEWAY_URL = process.env.HERMES_GATEWAY_URL || 'http://127.0.0.1:8642'
-const HERMES_DASHBOARD_URL = process.env.HERMES_DASHBOARD_URL || 'http://127.0.0.1:9119'
 const PORT = parseInt(process.env.PORT || '3001')
 
 // --- Dashboard session token management ---
@@ -42,7 +45,7 @@ async function getDashboardToken(): Promise<string | null> {
     return _dashboardToken
   }
   try {
-    const resp = await fetch(`${HERMES_DASHBOARD_URL}/`)
+    const resp = await fetch(`${AGENT_DASHBOARD_URL}/`)
     const html = await resp.text()
     const match = html.match(/__HERMES_SESSION_TOKEN__="([^"]+)"/)
     if (match) {
@@ -66,7 +69,7 @@ async function dashboardFetch(path: string, options: RequestInit = {}): Promise<
   if (token) {
     headers['X-Hermes-Session-Token'] = token
   }
-  return fetch(`${HERMES_DASHBOARD_URL}${path}`, {
+  return fetch(`${AGENT_DASHBOARD_URL}${path}`, {
     ...options,
     headers,
   })
@@ -82,6 +85,230 @@ async function safeDashboardJson<T>(c: any, path: string, options: RequestInit =
   } catch {
     return fallback
   }
+}
+
+function parseUpstreamError(text: string): { message: string; detail?: unknown } {
+  try {
+    const data = JSON.parse(text)
+    const message =
+      data?.error?.message ||
+      data?.message ||
+      data?.error ||
+      text
+    return { message: String(message), detail: data }
+  } catch {
+    return { message: text }
+  }
+}
+
+async function parseResponsePayload(resp: Response): Promise<unknown> {
+  const text = await resp.text()
+  if (!text) return { ok: resp.ok }
+  try {
+    return JSON.parse(text)
+  } catch {
+    return resp.ok ? { ok: true, message: text } : { error: text }
+  }
+}
+
+async function proxyJsonResponse(c: any, resp: Response) {
+  return c.json(await parseResponsePayload(resp), resp.status as 200)
+}
+
+function formatSseEvent(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+}
+
+function responseFailedEvent(message: string, detail?: unknown): string {
+  return formatSseEvent('response.failed', {
+    type: 'response.failed',
+    response: {
+      status: 'failed',
+      error: { message },
+    },
+    error: {
+      message,
+      detail,
+    },
+  })
+}
+
+async function gatewayFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  return fetch(`${AGENT_GATEWAY_URL}${path}`, {
+    ...options,
+    headers: {
+      ...agentGatewayHeaders(),
+      ...(options.headers as Record<string, string> || {}),
+    },
+  })
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key)
+}
+
+function cleanString(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  return String(value).trim()
+}
+
+function readFirstString(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    if (hasOwn(record, key)) return cleanString(record[key])
+  }
+  return ''
+}
+
+function readContextLength(record: Record<string, unknown>): { hasValue: boolean; value: number } {
+  const hasValue = hasOwn(record, 'contextLength') || hasOwn(record, 'model_context_length')
+  if (!hasValue) return { hasValue: false, value: 0 }
+  const raw = hasOwn(record, 'contextLength') ? record.contextLength : record.model_context_length
+  const parsed = Number(raw)
+  return { hasValue: true, value: Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0 }
+}
+
+function inferApiMode(provider: string, model: string, currentApiMode: unknown): string {
+  const existing = cleanString(currentApiMode)
+  if (existing) return existing
+
+  const normalizedProvider = provider.toLowerCase()
+  const normalizedModel = model.toLowerCase()
+  if (
+    (normalizedProvider === 'custom' || normalizedProvider.startsWith('custom:')) &&
+    (normalizedModel.includes('codex') || normalizedModel.includes('gpt-5') || /\bo[1-4]\b/.test(normalizedModel))
+  ) {
+    return 'codex_responses'
+  }
+  return ''
+}
+
+function readClearFields(record: Record<string, unknown>): Set<string> {
+  const raw = record.clearFields
+  if (!Array.isArray(raw)) return new Set()
+  return new Set(raw.map((item) => cleanString(item)).filter(Boolean))
+}
+
+function unquoteYamlScalar(value: string): string {
+  const trimmed = value.trim()
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
+
+function parseModelBlockFromYaml(yamlText: string): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  const lines = yamlText.split(/\r?\n/)
+  let inModel = false
+  let modelIndent = 0
+
+  for (const line of lines) {
+    const indent = line.match(/^\s*/)?.[0].length ?? 0
+    const trimmed = line.trim()
+
+    if (!inModel) {
+      if (/^model:\s*(?:#.*)?$/.test(trimmed)) {
+        inModel = true
+        modelIndent = indent
+      }
+      continue
+    }
+
+    if (!trimmed || trimmed.startsWith('#')) continue
+    if (indent <= modelIndent) break
+
+    const match = line.match(/^\s+([A-Za-z0-9_]+):\s*(.*)$/)
+    if (!match) continue
+
+    const key = match[1]
+    let value = match[2].trim()
+    const commentIndex = value.search(/\s+#/)
+    if (commentIndex >= 0) value = value.slice(0, commentIndex).trim()
+    result[key] = unquoteYamlScalar(value)
+  }
+
+  return result
+}
+
+async function loadDashboardModelBlock(): Promise<Record<string, unknown>> {
+  try {
+    const resp = await dashboardFetch(`/api/config/raw`)
+    if (!resp.ok) return {}
+    const payload = asRecord(await resp.json())
+    return parseModelBlockFromYaml(cleanString(payload.yaml))
+  } catch {
+    return {}
+  }
+}
+
+function shouldUseModelSet(provider: string, body: Record<string, unknown>, contextLength: { hasValue: boolean }): boolean {
+  const normalizedProvider = provider.toLowerCase()
+  const hasBaseUrl = hasOwn(body, 'baseUrl') || hasOwn(body, 'base_url')
+  const hasApiKey = hasOwn(body, 'apiKey') || hasOwn(body, 'api_key')
+  const hasApiMode = hasOwn(body, 'apiMode') || hasOwn(body, 'api_mode')
+  const hasClearFields = Array.isArray(body.clearFields) && body.clearFields.length > 0
+
+  return (
+    normalizedProvider !== 'custom' &&
+    !normalizedProvider.startsWith('custom:') &&
+    !hasBaseUrl &&
+    !hasApiKey &&
+    !hasApiMode &&
+    !contextLength.hasValue &&
+    !hasClearFields
+  )
+}
+
+const sessionResponseIds = new Map<string, string | null>()
+const sessionPinnedIds = new Set<string>()
+const sessionModelOverrides = new Map<string, string | null>()
+
+function sessionTimestamp(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(value * 1000).toISOString()
+  }
+  const text = cleanString(value)
+  return text || new Date().toISOString()
+}
+
+function normalizeGatewaySession(payload: unknown): Record<string, unknown> {
+  const record = asRecord(payload)
+  const session = asRecord(record.session || record)
+  const id = cleanString(session.id)
+  const lastActive = session.last_active ?? session.started_at ?? session.updated_at
+  const overriddenModel = id ? sessionModelOverrides.get(id) : undefined
+
+  return {
+    ...session,
+    id,
+    title: cleanString(session.title) || cleanString(session.preview) || '新会话',
+    model: overriddenModel !== undefined ? overriddenModel : (session.model ?? null),
+    pinned: id ? sessionPinnedIds.has(id) : false,
+    updated_at: sessionTimestamp(lastActive),
+    created_at: sessionTimestamp(session.started_at ?? lastActive),
+    response_id: id ? sessionResponseIds.get(id) || null : null,
+  }
+}
+
+function normalizeGatewaySessionList(payload: unknown): Record<string, unknown>[] {
+  const record = asRecord(payload)
+  const items = Array.isArray(record.data)
+    ? record.data
+    : Array.isArray(record.sessions)
+      ? record.sessions
+      : Array.isArray(payload)
+        ? payload
+        : []
+  return items.map((item) => normalizeGatewaySession(item)).filter((item) => item.id)
 }
 
 // --- Middleware ---
@@ -105,21 +332,22 @@ app.post('/mcp/sse', async (c) => {
   return c.json(response)
 })
 
-// --- Hermes Gateway Proxy (port 8642) ---
+// --- Agent Gateway Proxy (Hermes-compatible OpenAI API) ---
 // Chat completions with SSE streaming
 app.post('/api/chat/completions', async (c) => {
   const body = await c.req.json()
-  const upstreamUrl = `${HERMES_GATEWAY_URL}/v1/chat/completions`
+  const upstreamUrl = `${AGENT_GATEWAY_URL}/v1/chat/completions`
 
   const resp = await fetch(upstreamUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: agentGatewayHeaders(),
     body: JSON.stringify(body),
   })
 
   if (!resp.ok) {
     const text = await resp.text()
-    throw new HTTPException(resp.status as any, { message: text })
+    const error = parseUpstreamError(text)
+    return c.json({ error: error.message, detail: error.detail }, resp.status as 500)
   }
 
   // Check if streaming
@@ -151,34 +379,69 @@ app.post('/api/chat/completions', async (c) => {
 // Responses API (alternative chat endpoint)
 app.post('/api/responses', async (c) => {
   const body = await c.req.json()
-  const upstreamUrl = `${HERMES_GATEWAY_URL}/v1/responses`
+  const upstreamUrl = `${AGENT_GATEWAY_URL}/v1/responses`
+
+  if (body.stream) {
+    c.header('Content-Type', 'text/event-stream')
+    c.header('Cache-Control', 'no-cache')
+    c.header('Connection', 'keep-alive')
+    c.header('X-Accel-Buffering', 'no')
+
+    return stream(c, async (stream) => {
+      await stream.write(': connected\n\n')
+
+      let resp: Response
+      try {
+        resp = await fetch(upstreamUrl, {
+          method: 'POST',
+          headers: agentGatewayHeaders(),
+          body: JSON.stringify(body),
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Hermes Responses API connection failed'
+        await stream.write(responseFailedEvent(message))
+        return
+      }
+
+      if (!resp.ok) {
+        const text = await resp.text()
+        const error = parseUpstreamError(text)
+        await stream.write(responseFailedEvent(error.message, error.detail))
+        return
+      }
+
+      const reader = resp.body?.getReader()
+      if (!reader) {
+        await stream.write(responseFailedEvent('Hermes Responses API returned an empty stream'))
+        return
+      }
+
+      const decoder = new TextDecoder()
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          await stream.write(decoder.decode(value, { stream: true }))
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Hermes Responses API stream interrupted'
+        await stream.write(responseFailedEvent(message))
+      } finally {
+        reader.releaseLock()
+      }
+    })
+  }
 
   const resp = await fetch(upstreamUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: agentGatewayHeaders(),
     body: JSON.stringify(body),
   })
 
   if (!resp.ok) {
     const text = await resp.text()
-    throw new HTTPException(resp.status as any, { message: text })
-  }
-
-  if (body.stream) {
-    return stream(c, async (stream) => {
-      c.header('Content-Type', 'text/event-stream')
-      c.header('Cache-Control', 'no-cache')
-      c.header('Connection', 'keep-alive')
-      c.header('X-Accel-Buffering', 'no')
-
-      const reader = resp.body!.getReader()
-      const decoder = new TextDecoder()
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        await stream.write(decoder.decode(value, { stream: true }))
-      }
-    })
+    const error = parseUpstreamError(text)
+    return c.json({ error: error.message, detail: error.detail }, resp.status as 500)
   }
 
   const sessionId = resp.headers.get('x-hermes-session-id')
@@ -189,15 +452,15 @@ app.post('/api/responses', async (c) => {
 
 // Models
 app.get('/api/models', async (c) => {
-  const resp = await fetch(`${HERMES_GATEWAY_URL}/v1/models`)
+  const resp = await fetch(`${AGENT_GATEWAY_URL}/v1/models`, { headers: agentGatewayHeaders() })
   const data = await resp.json()
   return c.json(data)
 })
 
-// Cron jobs (Hermes Gateway :8642)
+// Cron jobs (Agent Gateway provider)
 app.get('/api/cron', async (c) => {
   try {
-    const resp = await fetch(`${HERMES_GATEWAY_URL}/api/jobs?include_disabled=true`)
+    const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs?include_disabled=true`, { headers: agentGatewayHeaders() })
     const data = await resp.json()
     return c.json(data)
   } catch {
@@ -207,9 +470,9 @@ app.get('/api/cron', async (c) => {
 
 app.post('/api/cron', async (c) => {
   const body = await c.req.json()
-  const resp = await fetch(`${HERMES_GATEWAY_URL}/api/jobs`, {
+  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: agentGatewayHeaders(),
     body: JSON.stringify(body),
   })
   const data = await resp.json()
@@ -217,60 +480,66 @@ app.post('/api/cron', async (c) => {
 })
 
 app.post('/api/cron/:id/pause', async (c) => {
-  const resp = await fetch(`${HERMES_GATEWAY_URL}/api/jobs/${c.req.param('id')}/pause`, { method: 'POST' })
+  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs/${c.req.param('id')}/pause`, { method: 'POST', headers: agentGatewayHeaders() })
   return c.json(await resp.json())
 })
 
 app.post('/api/cron/:id/resume', async (c) => {
-  const resp = await fetch(`${HERMES_GATEWAY_URL}/api/jobs/${c.req.param('id')}/resume`, { method: 'POST' })
+  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs/${c.req.param('id')}/resume`, { method: 'POST', headers: agentGatewayHeaders() })
   return c.json(await resp.json())
 })
 
 app.post('/api/cron/:id/run', async (c) => {
-  const resp = await fetch(`${HERMES_GATEWAY_URL}/api/jobs/${c.req.param('id')}/run`, { method: 'POST' })
+  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs/${c.req.param('id')}/run`, { method: 'POST', headers: agentGatewayHeaders() })
   return c.json(await resp.json())
 })
 
 app.delete('/api/cron/:id', async (c) => {
-  const resp = await fetch(`${HERMES_GATEWAY_URL}/api/jobs/${c.req.param('id')}`, { method: 'DELETE' })
+  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs/${c.req.param('id')}`, { method: 'DELETE', headers: agentGatewayHeaders() })
   return c.json(await resp.json())
 })
 
 // --- Hermes Dashboard Proxy (port 9119) ---
 // Sessions
 app.get('/api/sessions', async (c) => {
-  const resp = await dashboardFetch(`/api/sessions`)
-  const data = await resp.json()
-  // Dashboard returns {sessions:[], total:0} — unwrap to array for frontend
-  if (data && Array.isArray(data.sessions)) {
-    return c.json(data.sessions)
-  }
-  return c.json(data)
+  const resp = await gatewayFetch(`/api/sessions?limit=100`)
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+  return c.json(normalizeGatewaySessionList(await resp.json()))
 })
 
 app.get('/api/sessions/search', async (c) => {
   const q = c.req.query('q') || ''
-  const resp = await dashboardFetch(`/api/sessions/search?q=${encodeURIComponent(q)}`)
-  const data = await resp.json()
-  return c.json(data)
+  const resp = await gatewayFetch(`/api/sessions?limit=100`)
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+  const sessions = normalizeGatewaySessionList(await resp.json())
+  const normalizedQuery = q.trim().toLowerCase()
+  return c.json(
+    normalizedQuery
+      ? sessions.filter((session) => cleanString(session.title).toLowerCase().includes(normalizedQuery))
+      : sessions
+  )
 })
 
 app.get('/api/sessions/:id', async (c) => {
-  const resp = await dashboardFetch(`/api/sessions/${c.req.param('id')}`)
-  const data = await resp.json()
-  return c.json(data)
+  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(c.req.param('id'))}`)
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+  return c.json(normalizeGatewaySession(await resp.json()))
 })
 
 app.get('/api/sessions/:id/messages', async (c) => {
-  const resp = await dashboardFetch(`/api/sessions/${c.req.param('id')}/messages`)
-  const data = await resp.json()
-  // Dashboard returns { session_id, messages: [...] }, frontend expects array
-  return c.json(Array.isArray(data) ? data : data.messages || [])
+  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(c.req.param('id'))}/messages`)
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+  const payload = asRecord(await resp.json())
+  return c.json(Array.isArray(payload.data) ? payload.data : [])
 })
 
 app.delete('/api/sessions/:id', async (c) => {
-  const resp = await dashboardFetch(`/api/sessions/${c.req.param('id')}`, { method: 'DELETE' })
-  return c.json({ ok: true })
+  const sessionId = c.req.param('id')
+  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+  sessionResponseIds.delete(sessionId)
+  sessionPinnedIds.delete(sessionId)
+  sessionModelOverrides.delete(sessionId)
+  return proxyJsonResponse(c, resp)
 })
 
 // Config
@@ -287,13 +556,97 @@ app.get('/api/config/raw', async (c) => {
 })
 
 app.patch('/api/config', async (c) => {
-  const body = await c.req.json()
+  const body = asRecord(await c.req.json())
+
+  if (body.config && typeof body.config === 'object' && !Array.isArray(body.config)) {
+    const resp = await dashboardFetch(`/api/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: body.config }),
+    })
+    return proxyJsonResponse(c, resp)
+  }
+
+  const provider = readFirstString(body, ['provider'])
+  const model = readFirstString(body, ['model'])
+  const baseUrl = readFirstString(body, ['baseUrl', 'base_url'])
+  const apiKey = readFirstString(body, ['apiKey', 'api_key'])
+  const apiMode = readFirstString(body, ['apiMode', 'api_mode'])
+  const hasBaseUrl = hasOwn(body, 'baseUrl') || hasOwn(body, 'base_url')
+  const hasApiKey = hasOwn(body, 'apiKey') || hasOwn(body, 'api_key')
+  const hasApiMode = hasOwn(body, 'apiMode') || hasOwn(body, 'api_mode')
+  const clearFields = readClearFields(body)
+  const contextLength = readContextLength(body)
+
+  if ((provider || model) && shouldUseModelSet(provider, body, contextLength)) {
+    const resp = await dashboardFetch(`/api/model/set`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'main',
+        provider,
+        model,
+      }),
+    })
+    return proxyJsonResponse(c, resp)
+  }
+
+  const configResp = await dashboardFetch(`/api/config`)
+  if (!configResp.ok) return proxyJsonResponse(c, configResp)
+
+  const infoResp = await dashboardFetch(`/api/model/info`)
+  const currentConfig = asRecord(await configResp.json())
+  const currentModelInfo = infoResp.ok ? asRecord(await infoResp.json()) : {}
+  const currentModelBlock = await loadDashboardModelBlock()
+  const nextConfig: Record<string, unknown> = { ...currentConfig }
+  const existingModel = {
+    ...currentModelBlock,
+    ...asRecord(nextConfig.model),
+  }
+  const nextModel: Record<string, unknown> = { ...existingModel }
+
+  const resolvedProvider = clearFields.has('provider')
+    ? ''
+    : provider || cleanString(nextModel.provider) || cleanString(currentModelInfo.provider) || 'auto'
+  const resolvedModel = clearFields.has('model')
+    ? ''
+    : model || cleanString(nextModel.default) || cleanString(nextModel.model) || cleanString(currentModelInfo.model) || cleanString(currentConfig.model)
+
+  nextModel.provider = resolvedProvider
+  nextModel.default = resolvedModel
+  if (clearFields.has('baseUrl') || clearFields.has('base_url')) {
+    nextModel.base_url = ''
+  } else if (hasBaseUrl && baseUrl) {
+    nextModel.base_url = baseUrl
+  }
+  if (clearFields.has('apiKey') || clearFields.has('api_key')) {
+    nextModel.api_key = ''
+  } else if (hasApiKey && apiKey) {
+    nextModel.api_key = apiKey
+  }
+  if (clearFields.has('apiMode') || clearFields.has('api_mode')) {
+    delete nextModel.api_mode
+  } else if (hasApiMode && apiMode) {
+    nextModel.api_mode = apiMode
+  }
+  const inferredApiMode = inferApiMode(resolvedProvider, resolvedModel, nextModel.api_mode)
+  if (inferredApiMode) nextModel.api_mode = inferredApiMode
+  if (contextLength.hasValue) {
+    if (contextLength.value > 0) {
+      nextModel.context_length = contextLength.value
+    } else {
+      delete nextModel.context_length
+    }
+  }
+  nextConfig.model = nextModel
+  if (contextLength.hasValue) nextConfig.model_context_length = contextLength.value
+
   const resp = await dashboardFetch(`/api/config`, {
-    method: 'PATCH',
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ config: nextConfig }),
   })
-  return c.json({ ok: true })
+  return proxyJsonResponse(c, resp)
 })
 
 // Skills
@@ -312,7 +665,15 @@ app.get('/api/tools/toolsets', async (c) => {
 // Models
 app.get('/api/model/info', async (c) => {
   const resp = await dashboardFetch(`/api/model/info`)
-  const data = await resp.json()
+  const data = asRecord(await resp.json())
+  const modelBlock = await loadDashboardModelBlock()
+  const baseUrl = cleanString(modelBlock.base_url)
+  const apiKey = cleanString(modelBlock.api_key)
+  const apiMode = cleanString(modelBlock.api_mode)
+
+  if (baseUrl) data.baseUrl = baseUrl
+  if (apiMode) data.apiMode = apiMode
+  data.apiKeySet = Boolean(apiKey)
   return c.json(data)
 })
 
@@ -323,13 +684,14 @@ app.get('/api/model/options', async (c) => {
 })
 
 app.post('/api/model/set', async (c) => {
-  const body = await c.req.json()
+  const body = asRecord(await c.req.json())
+  if (!cleanString(body.scope)) body.scope = 'main'
   const resp = await dashboardFetch(`/api/model/set`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return c.json({ ok: true })
+  return proxyJsonResponse(c, resp)
 })
 
 // Env vars
@@ -339,19 +701,26 @@ app.get('/api/env', async (c) => {
   return c.json(data)
 })
 
-app.post('/api/env', async (c) => {
+async function setDashboardEnvVar(c: any) {
   const body = await c.req.json()
   const resp = await dashboardFetch(`/api/env`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return c.json({ ok: true })
-})
+  return proxyJsonResponse(c, resp)
+}
+
+app.post('/api/env', setDashboardEnvVar)
+app.put('/api/env', setDashboardEnvVar)
 
 app.delete('/api/env/:key', async (c) => {
-  const resp = await dashboardFetch(`/api/env/${c.req.param('key')}`, { method: 'DELETE' })
-  return c.json({ ok: true })
+  const resp = await dashboardFetch(`/api/env`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: c.req.param('key') }),
+  })
+  return proxyJsonResponse(c, resp)
 })
 
 // Gateway status
@@ -369,7 +738,7 @@ app.post('/api/gateway/restart', async (c) => {
 // Hermes version
 app.get('/api/hermes/version', async (c) => {
   try {
-    const resp = await fetch(`${HERMES_GATEWAY_URL}/health`)
+    const resp = await fetch(`${AGENT_GATEWAY_URL}/health`)
     const data = await resp.json()
     return c.json(data)
   } catch {
@@ -378,66 +747,75 @@ app.get('/api/hermes/version', async (c) => {
 })
 
 // --- Sessions (write operations) ---
-// Dashboard only supports GET /api/sessions; sessions are created by the Gateway during chat.
-// Generate a local session stub so the frontend can track the conversation.
-const _localSessions: Record<string, any> = {}
+// Session writes go through Agent Gateway. Dashboard remains read/config only.
 
 app.post('/api/sessions', async (c) => {
   const body = await c.req.json()
-  const id = crypto.randomUUID()
-  const now = new Date().toISOString()
-  const session = {
-    id,
-    title: body.title || 'New Conversation',
-    agent_id: body.agent_id || 'hermes-agent',
-    workspace_path: body.workspace_path || null,
-    model: body.model || null,
-    created_at: now,
-    updated_at: now,
-    messages: [],
+  const resp = await gatewayFetch(`/api/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: body?.title,
+      model: body?.model,
+    }),
+  })
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+
+  const session = normalizeGatewaySession(await resp.json())
+  if (session.id && body?.model !== undefined) {
+    sessionModelOverrides.set(String(session.id), body.model || null)
+    session.model = body.model || null
   }
-  _localSessions[id] = session
-  return c.json(session, 201)
+  return c.json(session, resp.status as 201)
 })
 
 app.patch('/api/sessions/:id', async (c) => {
-  const id = c.req.param('id')
+  const sessionId = c.req.param('id')
   const body = await c.req.json()
-  if (_localSessions[id]) {
-    Object.assign(_localSessions[id], body, { updated_at: new Date().toISOString() })
-    return c.json(_localSessions[id])
+  const patchBody: Record<string, unknown> = {}
+
+  if (Object.prototype.hasOwnProperty.call(body, 'response_id')) {
+    sessionResponseIds.set(sessionId, body.response_id ? String(body.response_id) : null)
   }
-  // Session might exist in Dashboard only — best-effort forward
-  try {
-    const resp = await dashboardFetch(`/api/sessions/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    return c.json(await resp.json())
-  } catch {
-    return c.json({ ok: true })
+  if (Object.prototype.hasOwnProperty.call(body, 'model')) {
+    sessionModelOverrides.set(sessionId, body.model ? String(body.model) : null)
   }
+  if (Object.prototype.hasOwnProperty.call(body, 'title')) {
+    patchBody.title = body.title
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'end_reason')) {
+    patchBody.end_reason = body.end_reason
+  }
+
+  if (Object.keys(patchBody).length === 0) {
+    const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
+    if (!resp.ok) return proxyJsonResponse(c, resp)
+    return c.json(normalizeGatewaySession(await resp.json()))
+  }
+
+  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patchBody),
+  })
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+  return c.json(normalizeGatewaySession(await resp.json()))
 })
 
 app.post('/api/sessions/:id/pin', async (c) => {
-  const id = c.req.param('id')
-  if (_localSessions[id]) {
-    _localSessions[id].pinned = !(_localSessions[id].pinned)
-    return c.json({ ok: true, pinned: _localSessions[id].pinned })
+  const sessionId = c.req.param('id')
+  if (sessionPinnedIds.has(sessionId)) {
+    sessionPinnedIds.delete(sessionId)
+  } else {
+    sessionPinnedIds.add(sessionId)
   }
-  return c.json({ ok: true })
+  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+  return c.json(normalizeGatewaySession(await resp.json()))
 })
 
 app.post('/api/sessions/:id/messages', async (c) => {
-  const id = c.req.param('id')
-  const body = await c.req.json()
-  if (_localSessions[id]) {
-    const msg = { role: body.role, content: body.content, created_at: new Date().toISOString() }
-    _localSessions[id].messages.push(msg)
-    return c.json(msg, 201)
-  }
-  return c.json({ ok: true })
+  return c.json({ ok: true, session_id: c.req.param('id') })
 })
 
 // --- Skills (detail, toggle, market, install, uninstall, update) ---
@@ -573,9 +951,12 @@ app.get('/api/logs', async (c) => {
 
 // --- Env reveal ---
 app.get('/api/env/:key/reveal', async (c) => {
-  const resp = await dashboardFetch(`/api/env/${c.req.param('key')}/reveal`)
-  const data = await resp.json()
-  return c.json(data)
+  const resp = await dashboardFetch(`/api/env/reveal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: c.req.param('key') }),
+  })
+  return proxyJsonResponse(c, resp)
 })
 
 // --- Memories (Dashboard :9119) ---
@@ -1365,8 +1746,8 @@ for (const entity of ['contacts', 'channels', 'transactions']) {
   discoverCustomFields(entity)
 }
 console.log(`🚀 Crazor API Server starting on port ${PORT}`)
-console.log(`   Hermes Gateway: ${HERMES_GATEWAY_URL}`)
-console.log(`   Hermes Dashboard: ${HERMES_DASHBOARD_URL}`)
+console.log(`   Agent Gateway: ${AGENT_GATEWAY_URL}`)
+console.log(`   Agent Dashboard: ${AGENT_DASHBOARD_URL}`)
 if (seedResult.folders > 0 || seedResult.notes > 0) {
   console.log(`   📦 Seeded vault: ${seedResult.folders} folders, ${seedResult.notes} notes`)
 }
