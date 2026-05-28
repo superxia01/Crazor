@@ -2,6 +2,7 @@
 // Crazor business data — SQLite via Bun built-in
 
 import { Database } from "bun:sqlite"
+import { createHash } from "node:crypto"
 import { resolve } from "path"
 import { CRAZOR_DB_PATH, HERMES_HOME } from "./crazor-config"
 
@@ -171,6 +172,22 @@ db.exec(`
     updated_at TEXT NOT NULL,
     UNIQUE(entity, field_key)
   );
+
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id TEXT PRIMARY KEY,
+    actor_type TEXT NOT NULL DEFAULT 'unknown',
+    actor_id TEXT NOT NULL DEFAULT 'unknown',
+    source TEXT NOT NULL DEFAULT '',
+    action TEXT NOT NULL,
+    entity TEXT NOT NULL,
+    entity_id TEXT DEFAULT '',
+    payload_hash TEXT DEFAULT '',
+    summary TEXT DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity, entity_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_type, actor_id, created_at);
 `)
 
 // ── Schema migrations (idempotent) ──────────────────────────
@@ -223,6 +240,12 @@ function id(): string {
 
 function now(): string {
   return new Date().toISOString()
+}
+
+function hashPayload(payload: unknown): string {
+  if (payload === undefined || payload === null || payload === "") return ""
+  const text = typeof payload === "string" ? payload : JSON.stringify(payload)
+  return createHash("sha256").update(text).digest("hex")
 }
 
 function mapContact(row: any) {
@@ -994,6 +1017,51 @@ export function getProjectStats() {
   const doing = (db.prepare("SELECT count(*) as c FROM tasks WHERE status = 'doing'").get() as any).c
   const done = (db.prepare("SELECT count(*) as c FROM tasks WHERE status = 'done'").get() as any).c
   return { totalProjects: total, todoTasks: todo, doingTasks: doing, doneTasks: done }
+}
+
+// ── Audit logs ───────────────────────────────────────────────
+
+type AuditLogInput = {
+  actor_type?: string
+  actor_id?: string
+  source?: string
+  action: string
+  entity: string
+  entity_id?: string
+  payload?: unknown
+  payload_hash?: string
+  summary?: string
+}
+
+export function createAuditLog(data: AuditLogInput) {
+  const row = {
+    id: id(),
+    actor_type: data.actor_type || "unknown",
+    actor_id: data.actor_id || "unknown",
+    source: data.source || "",
+    action: data.action,
+    entity: data.entity,
+    entity_id: data.entity_id || "",
+    payload_hash: data.payload_hash || hashPayload(data.payload),
+    summary: data.summary || "",
+    created_at: now(),
+  }
+
+  db.prepare(`INSERT INTO audit_logs (id,actor_type,actor_id,source,action,entity,entity_id,payload_hash,summary,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(row.id, row.actor_type, row.actor_id, row.source, row.action, row.entity, row.entity_id, row.payload_hash, row.summary, row.created_at)
+  return row
+}
+
+export function listAuditLogs(filter?: { entity?: string; entity_id?: string; actor_id?: string; limit?: number }) {
+  let sql = "SELECT * FROM audit_logs WHERE 1=1"
+  const params: any[] = []
+  if (filter?.entity) { sql += " AND entity = ?"; params.push(filter.entity) }
+  if (filter?.entity_id) { sql += " AND entity_id = ?"; params.push(filter.entity_id) }
+  if (filter?.actor_id) { sql += " AND actor_id = ?"; params.push(filter.actor_id) }
+  const limit = Math.max(1, Math.min(Number(filter?.limit || 100), 500))
+  sql += " ORDER BY created_at DESC LIMIT ?"
+  params.push(limit)
+  return db.prepare(sql).all(...params)
 }
 
 // ── Agent sessions analytics (Hermes-compatible state.db) ────

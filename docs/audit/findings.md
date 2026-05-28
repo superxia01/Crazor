@@ -4,19 +4,21 @@
 
 ## 当前高优先级问题
 
-### P0：团队协作缺少身份、权限和审计归因
+### P0：团队协作缺少可信身份和权限控制
 
 **现象**
 
-产品愿景文档已经定义 SSO、RBAC、审计日志、多用户 token，但当前服务端没有业务用户身份、角色权限、操作日志表。
+- REST 和 MCP 写入已经会记录 `audit_logs`，包含 `actor_type`、`actor_id`、`source`、`action`、`entity`、`entity_id`、`payload_hash`、`created_at`。
+- 但当前 `actor_id` 仍来自请求头或 MCP 参数，没有登录态、签名、token 校验或 RBAC。
+- 服务端仍没有业务用户、团队成员、角色权限表。
 
 **影响**
 
-多 agent、多成员协作时，无法回答“谁通过哪个 agent 改了哪个客户/文档/交易”。这会影响真实业务可信度，也会影响后续客户演示。
+现在可以回答“这次写入声称来自哪个 actor/source”，但还不能可信地证明“这个 actor 真的是谁、是否有权限”。多 agent、多成员协作时，这仍会影响真实业务可信度和客户演示。
 
 **建议**
 
-先做最小审计闭环：为 REST API 和 MCP Tool 写入操作记录 `actor_type`、`actor_id`、`source`、`action`、`entity`、`entity_id`、`payload_hash`、`created_at`。
+下一步补最小身份层：团队成员表、API token、agent token、角色权限、服务端从 token 派生 actor，而不是信任前端传入的 actor。
 
 ### P1：客户 Case 仍缺文档打开编辑与双向关联动作
 
@@ -94,7 +96,7 @@
 
 ## 修复优先级建议
 
-1. 建最小审计日志表和 MCP/REST 写入日志。
+1. 建最小身份层：团队成员、API token、agent token、角色权限和服务端 actor 派生。
 2. 补客户文档打开/编辑、渠道转介绍创建、客户生成项目机会入口。
 3. 收敛 Agent Provider 能力抽象，减少 UI 对 Hermes 私有概念的硬依赖。
 4. 补内容作品详情到知识库正文 `doc_id` 的打开链路。
@@ -114,6 +116,7 @@
 | 客户详情不渲染 `detailExtra` 扩展区 | 已修复，`DataView` 已桥接根级 `detailExtra` 到 `DataDetail` |
 | 客户文档创建后列表读不回 | 已修复，客户文档列表已合并知识库树与旧目录 |
 | 客户 Case 缺少跟进/文档/成交最小入口 | 已修复，客户详情已接入跟进、需求文档和成交登记 |
+| REST/MCP 写入缺少最小审计日志 | 已修复，写入会记录到 `audit_logs` 并可通过 `/api/crazor/audit-logs` 查询 |
 
 ## 本轮验证记录
 
@@ -124,3 +127,4 @@
 | 基础业务 API 写入烟测 | 客户、渠道、流水、内容作品、项目、任务均通过创建、更新、删除 |
 | 客户 Case API 烟测 | 临时客户、跟进、需求文档、成交流水创建验证后已清理 |
 | 页面级轻量核验 | 客户新增、项目新增、内容作品新增、客户详情 Case 操作入口均可见 |
+| REST/MCP 审计烟测 | 人类来源和 agent 来源写入均生成审计日志，`payload_hash` 为 64 位 SHA-256 |

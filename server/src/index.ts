@@ -14,6 +14,7 @@ import {
   listChannels, getChannel, createChannel, updateChannel, deleteChannel, getChannelStats,
   listChannelReferrals, createChannelReferral, listContactChannels,
   listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats, seedContentPieces,
+  createAuditLog, listAuditLogs,
 } from './services/crazor-db'
 import { seedFieldDefinitions, discoverCustomFields, listFieldDefinitions, getFieldDefinition, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, reorderFieldDefinitions } from './services/field-definitions'
 import * as docs from './services/crazor-docs'
@@ -315,9 +316,94 @@ function normalizeGatewaySessionList(payload: unknown): Record<string, unknown>[
 app.use('*', cors({
   origin: ['http://localhost:5173', 'http://localhost:5174'],
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Crazor-Actor-Type', 'X-Crazor-Actor-Id', 'X-Crazor-Source'],
   exposeHeaders: ['X-Hermes-Session-Id'],
 }))
+
+const AUDIT_WRITE_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
+
+app.use('/api/crazor/*', async (c, next) => {
+  const method = c.req.method.toUpperCase()
+  const shouldAudit = AUDIT_WRITE_METHODS.has(method)
+  const requestText = shouldAudit
+    ? await c.req.raw.clone().text().catch(() => '')
+    : ''
+
+  await next()
+
+  if (!shouldAudit || c.res.status < 200 || c.res.status >= 400) return
+
+  const responseBody = await c.res.clone().json().catch(() => null)
+  const url = new URL(c.req.url)
+  const audit = deriveRestAudit(method, url.pathname, responseBody, url.searchParams)
+  try {
+    createAuditLog({
+      actor_type: c.req.header('X-Crazor-Actor-Type') || 'human',
+      actor_id: c.req.header('X-Crazor-Actor-Id') || 'anonymous',
+      source: c.req.header('X-Crazor-Source') || 'rest-api',
+      action: audit.action,
+      entity: audit.entity,
+      entity_id: audit.entity_id,
+      payload: requestText,
+      summary: `${method} ${url.pathname}`,
+    })
+  } catch (err) {
+    console.error('[audit] failed to record REST write:', err)
+  }
+})
+
+function deriveRestAudit(method: string, path: string, responseBody: any, searchParams: URLSearchParams) {
+  const segments = path.replace(/^\/api\/crazor\/?/, '').split('/').filter(Boolean)
+  const last = segments[segments.length - 1] || ''
+  const action = deriveAuditAction(method, last)
+  const entity = deriveAuditEntity(segments)
+  const entity_id =
+    stringOrEmpty(responseBody?.id) ||
+    stringOrEmpty(searchParams.get('id')) ||
+    stringOrEmpty(segments[1]) ||
+    ''
+  return { action, entity, entity_id }
+}
+
+function deriveAuditAction(method: string, lastSegment: string) {
+  if (lastSegment === 'move') return 'move'
+  if (lastSegment === 'reorder') return 'reorder'
+  if (lastSegment === 'discover') return 'discover'
+  if (lastSegment === 'install') return 'install'
+  if (method === 'POST') return 'create'
+  if (method === 'PATCH') return 'update'
+  if (method === 'DELETE') return 'delete'
+  return method.toLowerCase()
+}
+
+function deriveAuditEntity(segments: string[]) {
+  if (segments[0] === 'contacts' && segments[2] === 'docs') return 'contact_doc'
+  if (segments[0] === 'channels' && segments[2] === 'referrals') return 'channel_referral'
+  if (segments[0] === 'doc-files') return 'doc_file'
+  if (segments[0] === 'docs') {
+    if (segments[2]?.startsWith('folders')) return 'doc_folder'
+    if (segments[2]?.startsWith('notes')) return 'doc_note'
+    return 'doc'
+  }
+  if (segments[0] === 'schema') return 'field_definition'
+  if (segments[0] === 'skills') return 'skill'
+
+  const entityMap: Record<string, string> = {
+    contacts: 'contact',
+    'content-pieces': 'content_piece',
+    transactions: 'transaction',
+    projects: 'project',
+    tasks: 'task',
+    'follow-ups': 'follow_up',
+    channels: 'channel',
+  }
+  return entityMap[segments[0]] || segments[0] || 'unknown'
+}
+
+function stringOrEmpty(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  return String(value)
+}
 
 // --- Health ---
 app.get('/api/health', (c) => c.json({ status: 'ok', service: 'crazor-api' }))
@@ -1345,6 +1431,19 @@ app.onError((err, c) => {
 // ==========================================================================
 // Crazor business data routes (SQLite + local files, no Dashboard dependency)
 // ==========================================================================
+
+app.get('/api/crazor/audit-logs', (c) => {
+  const entity = c.req.query('entity')
+  const entity_id = c.req.query('entity_id')
+  const actor_id = c.req.query('actor_id')
+  const limit = Number(c.req.query('limit') || 100)
+  return c.json(listAuditLogs({
+    entity: entity || undefined,
+    entity_id: entity_id || undefined,
+    actor_id: actor_id || undefined,
+    limit,
+  }))
+})
 
 // --- Contacts ---
 app.get('/api/crazor/contacts', (c) => {

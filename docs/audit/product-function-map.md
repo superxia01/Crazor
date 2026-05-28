@@ -10,6 +10,7 @@ graph TD
   Web --> Server["Crazor Server REST API"]
   Web --> HermesDashboard["Hermes Dashboard 代理能力"]
   Server --> DB["SQLite 业务数据"]
+  Server --> Audit["audit_logs 操作审计"]
   Server --> Vault["Markdown Vault 知识库"]
   Server --> MCP["Crazor MCP Server"]
   Hermes["Hermes Agent Provider"] --> MCP
@@ -38,6 +39,7 @@ graph TD
 | 文件管理 | `files` | `/api/files/*` | Hermes workspace files | Provider 文件能力 | 依赖 workspace 配置 |
 | 终端 | `terminal` | `/api/terminal/sessions/*` | Hermes workspace | Provider 终端能力 | 可用性依赖 Hermes |
 | 工作区 | 侧边栏工作区 | `/api/workspaces/*` | Hermes/Crazor 配置 | 影响文件、终端、会话 | 基础可用，需要权限和隔离策略 |
+| 操作审计 | 暂无独立 UI | `/api/crazor/audit-logs` | `audit_logs` | MCP 写入自动记录 | REST/MCP 写入最小审计可用；身份可信度和权限待补 |
 | 数据分析 | `analytics` | `/api/crazor/analytics/*` | 聚合 DB | 间接依赖 | 可展示，需补业务指标定义 |
 | 集成 | `integrations` | 待核验 | 待核验 | 待核验 | 需要继续审计 |
 | 3D 办公室 | `office` | 前端状态为主 | 本地状态 | 暂无关键业务闭环 | 演示型能力 |
@@ -102,6 +104,7 @@ graph TD
 | 项目状态、任务、负责人、截止日期 | 是 | 项目方案正文可进文档 |
 | 内容标题、平台、状态、数据指标 | 是 | 正文、脚本、素材进入文档 |
 | SOP、话术、培训材料 | 否 | 是 |
+| 操作者、来源、动作、实体、payload hash | 是，进入 `audit_logs` | 否 |
 
 ## 接口可用性快照
 
@@ -121,6 +124,7 @@ graph TD
 | `/api/crazor/tasks` | 200 | 当前为空数组 |
 | `/api/crazor/channels` | 200 | 当前为空数组 |
 | `/api/crazor/analytics/overview` | 200 | 聚合接口可读 |
+| `/api/crazor/audit-logs` | 200 | 审计日志可读 |
 | `/api/crazor/docs/knowledge/tree` | 200 | 知识库树可读 |
 | `/api/workspaces` | 200 | 工作区可读 |
 | `/api/sessions` | 200 | 会话列表可读 |
@@ -138,3 +142,5 @@ graph TD
 | 客户跟进 | `/api/crazor/follow-ups` | 通过 | 创建并在客户详情读回 |
 | 客户需求文档 | `/api/crazor/contacts/:id/docs` | 通过 | 创建并从客户文档列表读回 |
 | 客户成交 | `/api/crazor/transactions` + `/api/crazor/contacts/:id` | 通过 | 创建流水并回写客户阶段/金额 |
+| REST 操作审计 | `/api/crazor/audit-logs` | 通过 | 人类入口写入记录 actor/source/action/entity/payload_hash |
+| MCP 操作审计 | MCP `tools/call` + `/api/crazor/audit-logs` | 通过 | Agent 工具写入记录 actor/source/action/entity/payload_hash |

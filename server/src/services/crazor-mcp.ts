@@ -16,6 +16,7 @@ import {
   updateContentPiece, deleteContentPiece, getContentPieceStats,
   contentPublish, contentUpdateMetrics, contentCheckDaily,
   getbijiSync, getbijiStatus, getbijiForceFull,
+  createAuditLog,
 } from "./crazor-db"
 import { listFieldDefinitions, createFieldDefinition, discoverCustomFields } from "./field-definitions"
 import * as docTree from "./crazor-doc-tree"
@@ -761,6 +762,12 @@ const TOOLS: any[] = [
 // ── Tool execution ───────────────────────────────────────────
 
 async function executeTool(name: string, args: any): Promise<any> {
+  const result = await executeToolAction(name, args)
+  recordMcpAudit(name, args, result)
+  return result
+}
+
+async function executeToolAction(name: string, args: any): Promise<any> {
   switch (name) {
     // Contacts
     case "create_contact": return createContact(args)
@@ -877,6 +884,62 @@ async function executeTool(name: string, args: any): Promise<any> {
 
     default: throw new Error(`Unknown tool: ${name}`)
   }
+}
+
+function recordMcpAudit(name: string, args: any, result: any) {
+  const audit = deriveMcpAudit(name, args, result)
+  if (!audit) return
+
+  try {
+    createAuditLog({
+      actor_type: "agent",
+      actor_id: String(args?.actor_id || args?.agent_id || "mcp-client"),
+      source: "mcp-tool",
+      action: audit.action,
+      entity: audit.entity,
+      entity_id: audit.entity_id,
+      payload: args,
+      summary: `MCP ${name}`,
+    })
+  } catch (err) {
+    console.error("[audit] failed to record MCP write:", err)
+  }
+}
+
+function deriveMcpAudit(name: string, args: any, result: any): null | { action: string; entity: string; entity_id: string } {
+  switch (name) {
+    case "create_contact": return auditMeta("create", "contact", result?.id)
+    case "update_contact": return auditMeta("update", "contact", args?.id)
+    case "create_transaction": return auditMeta("create", "transaction", result?.id)
+    case "update_transaction": return auditMeta("update", "transaction", args?.id)
+    case "create_project": return auditMeta("create", "project", result?.id)
+    case "update_project": return auditMeta("update", "project", args?.id)
+    case "create_task": return auditMeta("create", "task", result?.id)
+    case "update_task": return auditMeta("update", "task", args?.id)
+    case "move_task": return auditMeta("move", "task", args?.id)
+    case "create_follow_up": return auditMeta("create", "follow_up", result?.id)
+    case "update_follow_up": return auditMeta("update", "follow_up", args?.id)
+    case "create_channel": return auditMeta("create", "channel", result?.id)
+    case "update_channel": return auditMeta("update", "channel", args?.id)
+    case "create_content_piece": return auditMeta("create", "content_piece", result?.id)
+    case "update_content_piece": return auditMeta("update", "content_piece", args?.id)
+    case "delete_content_piece": return auditMeta("delete", "content_piece", args?.id)
+    case "content_publish": return auditMeta("publish", "content_piece", result?.piece?.id || args?.name)
+    case "content_update_metrics": return auditMeta("update_metrics", "content_piece", result?.piece?.id || args?.name)
+    case "crm_add_client": return auditMeta("create", "contact", result?.id)
+    case "crm_add_followup": return auditMeta("create", "follow_up", result?.follow_up?.id)
+    case "crm_update_stage": return auditMeta("update", "contact", result?.contact?.id)
+    case "crm_record_deal": return auditMeta("create", "transaction", result?.transaction?.id)
+    case "create_doc": return auditMeta("create", "doc_note", result?.id)
+    case "update_doc": return auditMeta("update", "doc_note", args?.id)
+    case "create_folder": return auditMeta("create", "doc_folder", result?.id)
+    case "add_field": return auditMeta("create", "field_definition", result?.id)
+    default: return null
+  }
+}
+
+function auditMeta(action: string, entity: string, entityId: unknown) {
+  return { action, entity, entity_id: entityId === null || entityId === undefined ? "" : String(entityId) }
 }
 
 // ── JSON-RPC message handler ─────────────────────────────────
