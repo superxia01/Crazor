@@ -60,6 +60,7 @@
 | `/api/crazor/identity/me` | 200 |
 | `/api/crazor/identity/members` | 200 |
 | `/api/crazor/identity/tokens` | 200 |
+| `POST /mcp` | 200，返回 `Mcp-Session-Id` |
 | `/api/workspaces` | 200 |
 | `/api/sessions` | 200 |
 
@@ -112,7 +113,8 @@
 | 无效 token 防冒名 | 通过，不回落到伪造 actor/source header |
 | 使用 API token 创建客户 | 通过，审计记录来源为 `api-token` |
 | 创建 agent 成员与 agent token | 通过 |
-| 使用 agent token 调用 MCP `create_contact` | 通过，审计记录来源为 `agent-token` |
+| 使用 agent token 调用 MCP SSE `create_contact` | 通过，审计记录来源为 `agent-token` |
+| 使用 agent token 调用 MCP StreamableHTTP `create_contact` | 通过，统一入口 `POST /mcp` 返回 `Mcp-Session-Id`，审计记录来源为 `agent-token` |
 | 临时客户、成员、token 清理 | 通过 |
 
 ## 持续审计规则

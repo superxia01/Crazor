@@ -120,6 +120,7 @@
 | 客户 Case 缺少跟进/文档/成交最小入口 | 已修复，客户详情已接入跟进、需求文档和成交登记 |
 | REST/MCP 写入缺少最小审计日志 | 已修复，写入会记录到 `audit_logs` 并可通过 `/api/crazor/audit-logs` 查询 |
 | REST/MCP 审计 actor 只能信任请求头或 MCP 参数 | 已修复，服务端可从 API token / agent token 派生 actor |
+| 统一 Web 入口 `POST /mcp` 被 Nginx 301 到丢失端口的 `/mcp/` | 已修复，新增精确代理规则，StreamableHTTP 可直接返回 `Mcp-Session-Id` |
 
 ## 本轮验证记录
 
@@ -131,4 +132,4 @@
 | 客户 Case API 烟测 | 临时客户、跟进、需求文档、成交流水创建验证后已清理 |
 | 页面级轻量核验 | 客户新增、项目新增、内容作品新增、客户详情 Case 操作入口均可见 |
 | REST/MCP 审计烟测 | 人类来源和 agent 来源写入均生成审计日志，`payload_hash` 为 64 位 SHA-256 |
-| 身份 token 烟测 | API token 创建客户记录 `human / api-token`，agent token 调 MCP 记录 `agent / agent-token`，无效 token 不回落到伪造 header |
+| 身份 token 烟测 | API token 创建客户记录 `human / api-token`，agent token 调 MCP SSE 与 StreamableHTTP 均记录 `agent / agent-token`，无效 token 不回落到伪造 header |

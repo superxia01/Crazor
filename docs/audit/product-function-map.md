@@ -133,6 +133,7 @@ graph TD
 | `/api/crazor/identity/me` | 200 | 可从 token 派生当前 actor |
 | `/api/crazor/identity/members` | 200 | 团队成员 API 可读写 |
 | `/api/crazor/identity/tokens` | 200 | actor token API 可读写，明文 token 只在创建时返回 |
+| `POST /mcp` | 200 | MCP StreamableHTTP 统一入口可用，返回 `Mcp-Session-Id` |
 | `/api/crazor/docs/knowledge/tree` | 200 | 知识库树可读 |
 | `/api/workspaces` | 200 | 工作区可读 |
 | `/api/sessions` | 200 | 会话列表可读 |
@@ -153,4 +154,5 @@ graph TD
 | 团队成员 | `/api/crazor/identity/members` | 通过 | 创建、查询、删除临时成员 |
 | actor token | `/api/crazor/identity/tokens` | 通过 | 创建、查询、撤销临时 token |
 | REST 操作审计 | `/api/crazor/audit-logs` | 通过 | API token 写入记录 actor/source/action/entity/payload_hash |
-| MCP 操作审计 | MCP `tools/call` + `/api/crazor/audit-logs` | 通过 | Agent token 工具写入记录 actor/source/action/entity/payload_hash |
+| MCP SSE 操作审计 | `/mcp/sse` + `/api/crazor/audit-logs` | 通过 | Agent token 工具写入记录 actor/source/action/entity/payload_hash |
+| MCP StreamableHTTP 操作审计 | `POST /mcp` + `/api/crazor/audit-logs` | 通过 | Agent token 工具写入记录 actor/source/action/entity/payload_hash |

@@ -1,5 +1,5 @@
 // Copyright (c) 2026 MeeJoy
-// Crazor MCP Server — SSE transport, JSON-RPC 2.0
+// Crazor MCP Server — SSE + StreamableHTTP transport, JSON-RPC 2.0
 
 import {
   listContacts, getContact, createContact, updateContact, deleteContact,
@@ -1036,4 +1036,78 @@ export async function handleSSEMessage(body: any, sessionIdParam: string | null,
   }
 
   return response
+}
+
+// ── StreamableHTTP handler (for Hermes Agent / MCP SDK clients) ──
+//
+// MCP StreamableHTTP transport: the client sends a single POST with
+// Accept: application/json, application/text-event-stream, or */*.
+//
+// - initialize  → 200 JSON with Mcp-Session-Id header
+// - tools/list  → 200 JSON
+// - tools/call  → 200 JSON (Crazor tools are synchronous)
+// - notifications/initialized → 202 Accepted (no body)
+//
+// Session state is kept in memory keyed by a UUID.  If the client omits
+// the Mcp-Session-Id on subsequent requests a new session is created
+// automatically (stateless per-request mode).
+
+const httpSessions = new Map<string, { initialized: boolean }>()
+
+function httpSessionId(): string {
+  return crypto.randomUUID()
+}
+
+export async function handleStreamableHTTP(
+  body: any,
+  headerSessionId: string | null,
+  actor?: ToolActor,
+): Promise<Response> {
+  // Validate JSON-RPC shape
+  if (!body || typeof body !== "object") {
+    return new Response(
+      JSON.stringify(jsonRpcError(null, -32700, "Parse error: invalid JSON-RPC request")),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    )
+  }
+
+  // Resolve or create session
+  const sid = headerSessionId || httpSessionId()
+  let session = httpSessions.get(sid)
+  if (!session) {
+    session = { initialized: false }
+    httpSessions.set(sid, session)
+  }
+
+  // Notifications carry no `id` — respond 202 with no body
+  if (!body.id && body.method) {
+    if (body.method === "notifications/initialized") {
+      session.initialized = true
+    }
+    return new Response(null, {
+      status: 202,
+      headers: {
+        "Mcp-Session-Id": sid,
+      },
+    })
+  }
+
+  // Process the request
+  const response = await handleMessage(body, actor)
+
+  // null means "no response" (e.g. notification with id which is unusual)
+  if (response === null) {
+    return new Response(null, {
+      status: 202,
+      headers: { "Mcp-Session-Id": sid },
+    })
+  }
+
+  return new Response(JSON.stringify(response), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Mcp-Session-Id": sid,
+    },
+  })
 }

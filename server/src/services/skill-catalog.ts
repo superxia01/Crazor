@@ -6,6 +6,7 @@ export interface SkillEntry {
   id: string
   name: string
   description: string
+  source: string  // "crazor" = AI digital employee, others = Hermes auto-generated
   category: string
   tags: string[]
   trigger: string
@@ -94,6 +95,7 @@ function parseSkillFile(id: string): { entry: SkillEntry; meta: SkillMeta } | nu
       id,
       name: employeeName,
       description: fm.description || '',
+      source: fm.source || '',
       category: fm.category || '',
       tags: Array.isArray(fm.tags) ? fm.tags : [],
       trigger,
@@ -118,10 +120,12 @@ function parseSkillFile(id: string): { entry: SkillEntry; meta: SkillMeta } | nu
 
 // ── Public API ─────────────────────────────────────────────────
 
-/** Return the skill catalog (display metadata only) */
-export function getCatalog(): SkillEntry[] {
+/** Return the skill catalog, optionally filtered by source */
+export function getCatalog(filter?: { source?: string }): SkillEntry[] {
   if (_catalogCache && Date.now() - _catalogCache.ts < CACHE_TTL) {
-    return _catalogCache.data
+    return filter?.source
+      ? _catalogCache.data.filter((e) => e.source === filter.source)
+      : _catalogCache.data
   }
   const dirs = scanSkillDirs()
   const entries: SkillEntry[] = []
@@ -130,7 +134,9 @@ export function getCatalog(): SkillEntry[] {
     if (parsed) entries.push(parsed.entry)
   }
   _catalogCache = { data: entries, ts: Date.now() }
-  return entries
+  return filter?.source
+    ? entries.filter((e) => e.source === filter.source)
+    : entries
 }
 
 /** Return a single skill's display metadata */

@@ -25,7 +25,7 @@ import * as skillCatalog from './services/skill-catalog'
 import { seedVault } from './services/seed-vault'
 import { seedSkills } from './services/seed-skills'
 import { migrateVault } from './services/migrate-vault'
-import { handleSSEConnect, handleSSEMessage } from './services/crazor-mcp'
+import { handleSSEConnect, handleSSEMessage, handleStreamableHTTP } from './services/crazor-mcp'
 import { CRAZOR_SKILLS_DIR } from './services/crazor-config'
 import {
   AGENT_DASHBOARD_URL,
@@ -315,11 +315,15 @@ function normalizeGatewaySessionList(payload: unknown): Record<string, unknown>[
 }
 
 // --- Middleware ---
+const CORS_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+  : ['http://localhost:5173', 'http://localhost:5174']
+
 app.use('*', cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174'],
+  origin: CORS_ORIGINS,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Crazor-Token', 'X-Crazor-Actor-Type', 'X-Crazor-Actor-Id', 'X-Crazor-Source'],
-  exposeHeaders: ['X-Hermes-Session-Id'],
+  allowHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id', 'X-Crazor-Token', 'X-Crazor-Actor-Type', 'X-Crazor-Actor-Id', 'X-Crazor-Source'],
+  exposeHeaders: ['X-Hermes-Session-Id', 'Mcp-Session-Id'],
 }))
 
 const AUDIT_WRITE_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
@@ -437,7 +441,7 @@ function stringOrEmpty(value: unknown): string {
 // --- Health ---
 app.get('/api/health', (c) => c.json({ status: 'ok', service: 'crazor-api' }))
 
-// --- MCP SSE endpoint ---
+// --- MCP SSE endpoint (legacy, for SSE-only clients) ---
 app.get('/mcp/sse', (c) => handleSSEConnect())
 app.post('/mcp/sse', async (c) => {
   const body = await c.req.json()
@@ -445,6 +449,23 @@ app.post('/mcp/sse', async (c) => {
   const response = await handleSSEMessage(body, sessionIdParam, resolveRequestActor(c, { actor_type: 'agent', actor_id: 'mcp-client', source: 'mcp-tool' }))
   if (response === null) return c.json({})
   return c.json(response)
+})
+
+// --- MCP StreamableHTTP endpoint (for Hermes Agent / MCP SDK clients) ---
+app.post('/mcp', async (c) => {
+  const body = await c.req.json()
+  const sessionHeader = c.req.header('mcp-session-id') || null
+  return handleStreamableHTTP(body, sessionHeader, resolveRequestActor(c, { actor_type: 'agent', actor_id: 'mcp-client', source: 'mcp-tool' }))
+})
+
+// Handle DELETE for session cleanup (optional, MCP spec)
+app.delete('/mcp', async (c) => {
+  const sessionHeader = c.req.header('mcp-session-id')
+  if (sessionHeader) {
+    // Session cleanup would go here if needed
+    return c.json({ ok: true })
+  }
+  return c.json({ ok: true })
 })
 
 // --- Agent Gateway Proxy (Hermes-compatible OpenAI API) ---
@@ -1945,7 +1966,7 @@ app.post('/api/crazor/schema/:entity/discover', (c) => {
 // --- Crazor Skill Catalog & Installation ---
 
 app.get('/api/crazor/skills/catalog', (c) => {
-  return c.json(skillCatalog.getCatalog())
+  return c.json(skillCatalog.getCatalog({ source: 'crazor' }))
 })
 
 app.get('/api/crazor/skills/meta', (c) => {
