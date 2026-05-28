@@ -18,6 +18,7 @@
 - [Hermes Agent 集成说明](docs/deployment/hermes-agent.md)
 - [Agent Gateway 解耦规范](docs/architecture/agent-gateway.md)
 - [分支与多人协作规范](docs/development/branching-and-collaboration.md)
+- [产品持续审计入口](docs/audit/README.md)
 
 ## Crazor 是什么
 
