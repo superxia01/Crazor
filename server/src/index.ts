@@ -263,7 +263,8 @@ app.get('/api/sessions/:id', async (c) => {
 app.get('/api/sessions/:id/messages', async (c) => {
   const resp = await dashboardFetch(`/api/sessions/${c.req.param('id')}/messages`)
   const data = await resp.json()
-  return c.json(data)
+  // Dashboard returns { session_id, messages: [...] }, frontend expects array
+  return c.json(Array.isArray(data) ? data : data.messages || [])
 })
 
 app.delete('/api/sessions/:id', async (c) => {
