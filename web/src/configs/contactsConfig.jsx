@@ -6,10 +6,13 @@ import {
   DollarSignIcon,
   FileTextIcon,
   GlobeIcon,
+  ExternalLinkIcon,
   MailIcon,
   MessageSquareIcon,
   PhoneIcon,
   PlusIcon,
+  PencilIcon,
+  KanbanSquareIcon,
   TagIcon,
   TrendingUpIcon,
   UserIcon,
@@ -45,6 +48,33 @@ const DEAL_FIELDS = [
   { key: "product_type", label: "产品/项目", placeholder: "课程、培训、软件开发..." },
   { key: "payment_status", label: "回款状态", type: "select", options: PAYMENT_STATUSES, defaultValue: "未回款" },
   { key: "description", label: "成交说明", type: "textarea", placeholder: "成交背景、交付范围或后续事项", fullWidth: true },
+]
+
+const REFERRAL_FIELDS = [
+  { key: "channel_id", label: "渠道", type: "asyncSelect", required: true, placeholder: "选择渠道 *", asyncOptions: async () => {
+    try {
+      const r = await fetch("/api/crazor/channels")
+      if (!r.ok) return []
+      const channels = await r.json()
+      return channels.map((c) => ({ value: c.id, label: `${c.name}${c.rating ? ` · ${c.rating}` : ""}` }))
+    } catch { return [] }
+  }},
+  { key: "product_type", label: "产品/项目", placeholder: "培训、软件开发、课程..." },
+  { key: "deal_amount", label: "商机金额", type: "number", defaultValue: 0 },
+  { key: "date", label: "引入日期", type: "date", defaultValue: today() },
+]
+
+const PROJECT_FIELDS = [
+  { key: "name", label: "项目名称", required: true, placeholder: "项目名称 *" },
+  { key: "budget", label: "预算", type: "number", defaultValue: 0 },
+  { key: "team", label: "团队成员", placeholder: "团队成员" },
+  { key: "deadline", label: "截止日期", type: "date" },
+  { key: "description", label: "项目说明", type: "textarea", placeholder: "交付范围、客户目标、约束条件", fullWidth: true },
+]
+
+const DOC_EDIT_FIELDS = [
+  { key: "title", label: "文档标题", required: true, placeholder: "文档标题 *" },
+  { key: "content", label: "文档内容", type: "textarea", placeholder: "需求正文", fullWidth: true },
 ]
 
 const STAGE_COLORS = {
@@ -256,20 +286,25 @@ export default {
     const [channels, setChannels] = useState([])
     const [followUps, setFollowUps] = useState([])
     const [docs, setDocs] = useState([])
+    const [projects, setProjects] = useState([])
     const [loading, setLoading] = useState(true)
     const [activeForm, setActiveForm] = useState(null)
+    const [activeDoc, setActiveDoc] = useState(null)
 
     const load = useCallback(async () => {
       setLoading(true)
       try {
-        const [channelsResp, followUpsResp, docsResp] = await Promise.all([
+        const [channelsResp, followUpsResp, docsResp, projectsResp] = await Promise.all([
           fetch(`/api/crazor/contacts/${item.id}/channels`),
           fetch(`/api/crazor/follow-ups?contact_id=${encodeURIComponent(item.id)}`),
           fetch(`/api/crazor/contacts/${item.id}/docs`),
+          fetch("/api/crazor/projects"),
         ])
         setChannels(channelsResp.ok ? await channelsResp.json() : [])
         setFollowUps(followUpsResp.ok ? await followUpsResp.json() : [])
         setDocs(docsResp.ok ? await docsResp.json() : [])
+        const allProjects = projectsResp.ok ? await projectsResp.json() : []
+        setProjects(allProjects.filter((project) => project.contact_id === item.id))
       } catch { /* ignore */ }
       setLoading(false)
     }, [item.id])
@@ -319,6 +354,36 @@ export default {
       }
     }
 
+    const handleOpenDoc = async (doc) => {
+      if (!doc?.id || doc.source === "legacy" || doc.id.startsWith("legacy:")) {
+        toast.error("旧目录文档暂不支持在客户详情内编辑")
+        return
+      }
+      try {
+        const note = await getJson(`/api/crazor/docs/knowledge/notes-ops?id=${encodeURIComponent(doc.id)}`)
+        setActiveDoc(note)
+        setActiveForm("doc-edit")
+      } catch (error) {
+        toast.error("文档读取失败", { description: String(error?.message || error) })
+      }
+    }
+
+    const handleUpdateDoc = async (data) => {
+      if (!activeDoc?.id) return
+      try {
+        await patchJson(`/api/crazor/docs/knowledge/notes-ops?id=${encodeURIComponent(activeDoc.id)}`, {
+          title: data.title,
+          content: data.content || "",
+        })
+        toast.success("需求文档已保存")
+        setActiveForm(null)
+        setActiveDoc(null)
+        await load()
+      } catch (error) {
+        toast.error("需求文档保存失败", { description: String(error?.message || error) })
+      }
+    }
+
     const handleRecordDeal = async (data) => {
       try {
         const amount = Number(data.amount || 0)
@@ -346,6 +411,44 @@ export default {
       }
     }
 
+    const handleCreateReferral = async (data) => {
+      try {
+        if (!data.channel_id) throw new Error("请选择渠道")
+        await postJson(`/api/crazor/channels/${data.channel_id}/referrals`, {
+          contact_id: item.id,
+          product_type: data.product_type || item.project_type || "",
+          deal_amount: Number(data.deal_amount || 0),
+          date: data.date || today(),
+        })
+        toast.success("渠道转介绍已建立")
+        setActiveForm(null)
+        await load()
+        await onReload?.()
+      } catch (error) {
+        toast.error("渠道转介绍创建失败", { description: String(error?.message || error) })
+      }
+    }
+
+    const handleCreateProject = async (data) => {
+      try {
+        const project = await postJson("/api/crazor/projects", {
+          ...data,
+          name: data.name || `${item.name} 项目机会`,
+          contact_id: item.id,
+          budget: Number(data.budget || item.deal || 0),
+          description: data.description || buildDefaultProjectDescription(item),
+        })
+        toast.success("项目机会已创建")
+        setActiveForm(null)
+        await load()
+        await onReload?.()
+        window.__activeProject = project.id
+        window.dispatchEvent(new CustomEvent("dataview-reload"))
+      } catch (error) {
+        toast.error("项目机会创建失败", { description: String(error?.message || error) })
+      }
+    }
+
     if (loading) return <div className="text-[11px] text-muted-foreground border-t pt-3">加载中...</div>
 
     return (
@@ -363,6 +466,14 @@ export default {
             <DollarSignIcon className="size-3.5" />
             成交
           </Button>
+          <Button size="sm" variant={activeForm === "referral" ? "default" : "outline"} onClick={() => setActiveForm(activeForm === "referral" ? null : "referral")}>
+            <GlobeIcon className="size-3.5" />
+            渠道转介绍
+          </Button>
+          <Button size="sm" variant={activeForm === "project" ? "default" : "outline"} onClick={() => setActiveForm(activeForm === "project" ? null : "project")}>
+            <KanbanSquareIcon className="size-3.5" />
+            生成项目
+          </Button>
         </div>
 
         {activeForm === "follow-up" && (
@@ -377,9 +488,38 @@ export default {
           </ActionForm>
         )}
 
+        {activeForm === "doc-edit" && activeDoc && (
+          <ActionForm title="编辑需求文档">
+            <DataForm fields={DOC_EDIT_FIELDS} initial={activeDoc} onSubmit={handleUpdateDoc} onCancel={() => { setActiveForm(null); setActiveDoc(null) }} submitLabel="保存文档" />
+          </ActionForm>
+        )}
+
         {activeForm === "deal" && (
           <ActionForm title="登记成交">
             <DataForm fields={DEAL_FIELDS} onSubmit={handleRecordDeal} onCancel={() => setActiveForm(null)} submitLabel="登记成交" />
+          </ActionForm>
+        )}
+
+        {activeForm === "referral" && (
+          <ActionForm title="建立渠道转介绍">
+            <DataForm fields={REFERRAL_FIELDS} onSubmit={handleCreateReferral} onCancel={() => setActiveForm(null)} submitLabel="建立关联" />
+          </ActionForm>
+        )}
+
+        {activeForm === "project" && (
+          <ActionForm title="从客户生成项目机会">
+            <DataForm
+              fields={PROJECT_FIELDS}
+              initial={{
+                name: `${item.name || "客户"} 项目机会`,
+                budget: Number(item.deal || 0),
+                team: item.sales_person || "",
+                description: buildDefaultProjectDescription(item),
+              }}
+              onSubmit={handleCreateProject}
+              onCancel={() => setActiveForm(null)}
+              submitLabel="创建项目"
+            />
           </ActionForm>
         )}
 
@@ -410,9 +550,18 @@ export default {
           ) : (
             docs.map((doc) => (
               <div key={doc.id || doc.path || doc.name} className="rounded-md border px-2.5 py-2 text-[12px]">
-                <div className="flex items-center gap-1.5 font-medium">
-                  <FileTextIcon className="size-3.5 text-muted-foreground" />
-                  <span>{doc.title || doc.name}</span>
+                <div className="flex items-start justify-between gap-2">
+                  <button type="button" onClick={() => handleOpenDoc(doc)} className="flex min-w-0 items-center gap-1.5 text-left font-medium hover:text-primary">
+                    <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{doc.title || doc.name}</span>
+                    <ExternalLinkIcon className="size-3 shrink-0 text-muted-foreground" />
+                  </button>
+                  {doc.source !== "legacy" && (
+                    <Button size="sm" variant="ghost" onClick={() => handleOpenDoc(doc)} className="h-6 shrink-0 rounded-md px-2 text-[11px]">
+                      <PencilIcon className="size-3" />
+                      编辑
+                    </Button>
+                  )}
                 </div>
                 <div className="mt-1 truncate text-[11px] text-muted-foreground">{doc.id || doc.path}</div>
               </div>
@@ -435,6 +584,29 @@ export default {
                   {ch.product_type && <Badge variant="outline" className="text-[10px] h-4">{ch.product_type}</Badge>}
                   {ch.deal_amount > 0 && <span className="text-primary font-medium">¥{ch.deal_amount >= 10000 ? (ch.deal_amount / 10000).toFixed(1) + "万" : ch.deal_amount.toLocaleString()}</span>}
                 </div>
+              </div>
+            ))
+          )}
+        </CaseSection>
+
+        <CaseSection title={`项目机会 (${projects.length})`}>
+          {projects.length === 0 ? (
+            <EmptyLine>暂无关联项目</EmptyLine>
+          ) : (
+            projects.map((project) => (
+              <div key={project.id} className="rounded-md border px-2.5 py-2 text-[12px]">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-1.5 font-medium">
+                    <KanbanSquareIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{project.name}</span>
+                  </div>
+                  {Number(project.budget || 0) > 0 && (
+                    <span className="shrink-0 text-primary font-medium">
+                      ¥{Number(project.budget) >= 10000 ? (Number(project.budget) / 10000).toFixed(1) + "万" : Number(project.budget).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+                {project.description && <div className="mt-1 line-clamp-2 text-muted-foreground">{project.description}</div>}
               </div>
             ))
           )}
@@ -466,6 +638,11 @@ async function patchJson(url, payload) {
   return parseJsonResponse(resp)
 }
 
+async function getJson(url) {
+  const resp = await fetch(url)
+  return parseJsonResponse(resp)
+}
+
 async function parseJsonResponse(resp) {
   const body = await resp.json().catch(() => null)
   if (!resp.ok) {
@@ -488,6 +665,24 @@ function buildDefaultDocContent(contact, title) {
     "",
     "## 下一步",
     "",
+  ].join("\n")
+}
+
+function buildDefaultProjectDescription(contact) {
+  return [
+    `客户：${contact.name || ""}`,
+    `公司：${contact.company || ""}`,
+    `来源：${contact.source || ""}`,
+    `项目类型：${contact.project_type || ""}`,
+    `预算范围：${contact.budget_range || ""}`,
+    "",
+    "## 客户背景",
+    contact.situation || "",
+    "",
+    "## 交付目标",
+    "",
+    "## 下一步",
+    contact.next_follow_up || "",
   ].join("\n")
 }
 
