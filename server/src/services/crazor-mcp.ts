@@ -6,7 +6,7 @@ import {
   listTransactions, createTransaction, updateTransaction, deleteTransaction,
   getMonthlyRevenue, getContactStats, getFinanceStats, getProjectStats,
   listProjects, createProject, updateProject, deleteProject,
-  listTasks, createTask, updateTask, deleteTask, moveTask,
+  listTasks, getTaskReminders, createTask, updateTask, deleteTask, moveTask,
   listFollowUps, createFollowUp, updateFollowUp, deleteFollowUp, getFollowUpReminders,
   listChannels, getChannel, createChannel, updateChannel, deleteChannel, getChannelStats,
   listChannelReferrals, createChannelReferral,
@@ -274,6 +274,16 @@ const TOOLS: any[] = [
       type: "object",
       properties: {
         project: { type: "string", description: "按项目ID筛选" },
+      },
+    },
+  },
+  {
+    name: "get_task_reminders",
+    description: "获取今日到期或已逾期的未完成任务提醒，包含所属项目和关联客户信息",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "最多返回条数，默认 20" },
       },
     },
   },
@@ -828,6 +838,7 @@ async function executeToolAction(name: string, args: any): Promise<any> {
     case "update_task": return updateTask(args.id, args)
     case "move_task": return moveTask(args.id, args.status)
     case "list_tasks": return listTasks(args?.project)
+    case "get_task_reminders": return getTaskReminders(args?.limit || 20)
 
     // Stats
     case "get_contacts_stats": return getContactStats()

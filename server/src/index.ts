@@ -9,7 +9,7 @@ import {
   listContacts, getContact, createContact, updateContact, deleteContact,
   listTransactions, createTransaction, updateTransaction, deleteTransaction,
   getMonthlyRevenue, listProjects, createProject, updateProject, deleteProject,
-  listTasks, listTasksByContact, createTask, updateTask, deleteTask, moveTask,
+  listTasks, listTasksByContact, getTaskReminders, createTask, updateTask, deleteTask, moveTask,
   getContactStats, getFinanceStats, getProjectStats, getHermesSessionStats,
   listFollowUps, createFollowUp, updateFollowUp, deleteFollowUp, getFollowUpReminders,
   listChannels, getChannel, createChannel, updateChannel, deleteChannel, getChannelStats,
@@ -2299,6 +2299,10 @@ app.patch('/api/crazor/tasks/:id/move', async (c) => {
   return c.json(updated)
 })
 
+app.get('/api/crazor/task-reminders', (c) => {
+  return c.json(getTaskReminders(parsePositiveInt(c.req.query('limit'), 20)))
+})
+
 // --- Follow-ups ---
 app.get('/api/crazor/follow-up-reminders', (c) => {
   return c.json(getFollowUpReminders())
@@ -2385,6 +2389,7 @@ app.get('/api/crazor/analytics/overview', (c) => {
     hermes: getHermesSessionStats(),
     channels: getChannelStats(),
     followUpReminders: getFollowUpReminders(),
+    taskReminders: getTaskReminders(),
   })
 })
 

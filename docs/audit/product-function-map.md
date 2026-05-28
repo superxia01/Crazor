@@ -37,7 +37,7 @@ graph TD
 | 客户管理 | `contacts` | `/api/crazor/contacts`、`/api/crazor/follow-ups`、`/api/crazor/follow-up-reminders`、`/api/crazor/contacts/:id/docs`、`/api/crazor/contacts/:id/docs/search`、`/api/crazor/attachments/policy`、`/api/crazor/contacts/:id/attachments`、`/api/crazor/contacts/:id/attachments/:filename/preview`、`/api/crazor/docs/knowledge/notes-ops`、`/api/crazor/transactions`、`/api/crazor/channels/:id/referrals`、`/api/crazor/projects`、`/api/crazor/tasks?contact_id=:id` | `contacts`、`follow_ups`、`transactions`、Markdown Vault、`attachments/contacts`、`channel_referrals`、`projects`、`tasks` | CRM MCP tools + 文档 MCP tools + 渠道/项目/任务 MCP tools | 客户详情深链路、待跟进提醒处理、项目任务联动、文档搜索跳转、附件归档、附件策略和文本/图片预览可用；跨模块提醒规则和客户级权限待补 |
 | 渠道管理 | `channels` | `/api/crazor/channels` | `channels`、`channel_referrals` | 渠道 MCP tools | 渠道新增/编辑/删除基础闭环可用；客户侧转介绍关系已接入，渠道侧批量运营待补 |
 | 财务中心 | `finance` | `/api/crazor/transactions`、`/api/crazor/analytics/*` | `transactions` | 财务 MCP tools | 流水新增可用，API 更新/删除通过；编辑入口需按财务权限继续评估 |
-| 项目看板 | `projects` | `/api/crazor/projects`、`/api/crazor/tasks` | `projects`、`tasks` | 项目/任务 MCP tools | 项目创建、任务创建、任务拖拽/删除可用；项目编辑归档待补 |
+| 项目看板 | `projects` | `/api/crazor/projects`、`/api/crazor/tasks`、`/api/crazor/task-reminders` | `projects`、`tasks` | 项目/任务 MCP tools + `get_task_reminders` | 项目创建、任务创建、任务拖拽/删除、任务到期提醒读取和处理可用；项目编辑归档待补 |
 | 平台流量 | `content` | `/api/crazor/content-pieces`、`/api/crazor/content-pieces/:id/publish`、`/api/crazor/content-pieces/:id/metrics`、`/api/crazor/docs/knowledge/search`、`/api/crazor/docs/knowledge/notes`、`/api/crazor/docs/knowledge/notes-ops` | `content_pieces`、Markdown Vault | 内容 MCP tools + 文档 MCP tools | 内容作品新增/编辑/删除、发布、指标回收、正文创建/搜索/关联/打开/保存和复盘模板写入可用；外部平台回执和自动指标采集待补 |
 | 知识库 | `knowledge` | `/api/crazor/docs/knowledge/*` | Markdown Vault | 文档 MCP tools | 可读写，已补旧路径和空白文档兜底 |
 | AI 笔记 | `notebook` | `/api/crazor/docs/notebook/*` | Markdown Vault | 文档 MCP tools | 可读写，编辑体验需持续核验 |
@@ -46,7 +46,7 @@ graph TD
 | 工作区 | 侧边栏工作区 | `/api/workspaces/*` | Hermes/Crazor 配置 | 影响文件、终端、会话 | 基础可用，需要权限和隔离策略 |
 | 团队身份与接入凭证 | `teamops` 协作审计 | `/api/crazor/identity/me`、`/api/crazor/identity/members`、`/api/crazor/identity/tokens` | `team_members`、`actor_tokens.scopes` | REST/MCP 可通过 token 派生 actor，校验 scope，并受角色写入/敏感读取上限约束 | 最小 UI 与 API 可用；当前访问 token、token scope、强制写入认证、角色级写入上限和敏感只读保护已接入，完整登录态、审批和细粒度 RBAC 待补 |
 | 操作审计 | `teamops` 协作审计 | `/api/crazor/audit-logs` | `audit_logs` | MCP 写入、无 token、scope 越权、角色越权和敏感读取拒绝自动记录 | REST/MCP 写入、`missing-token deny_*`、scope/角色越权 `deny_*`、敏感读取 `deny_read` 审计可用；审批流待补 |
-| 数据分析 | `analytics` | `/api/crazor/analytics/*` | 聚合 DB | 间接依赖 | 可展示，需补业务指标定义 |
+| 数据分析 | `analytics` | `/api/crazor/analytics/*`、`/api/crazor/follow-up-reminders`、`/api/crazor/task-reminders` | 聚合 DB | 间接依赖 + MCP 任务提醒 | 可展示业务指标，可处理客户跟进提醒和项目任务到期提醒；需继续补业务指标定义 |
 | 集成 | `integrations` | 待核验 | 待核验 | 待核验 | 需要继续审计 |
 | 3D 办公室 | `office` | 前端状态为主 | 本地状态 | 暂无关键业务闭环 | 演示型能力 |
 
@@ -72,7 +72,7 @@ sequenceDiagram
   UI->>DB: 通过 REST API 读取客户、财务、分析数据
 ```
 
-当前判断：Agent 写入链路相对完整，前端客户基础新增/编辑已接入，客户详情已能直接记录跟进、完成/顺延待跟进提醒、登记成交、沉淀并编辑客户需求文档，搜索客户文档正文，按策略归档客户附件并预览文本/图片，且可建立渠道转介绍、从客户生成项目机会、从项目拆解任务。下一步要补跨模块提醒规则、附件扫描和客户级权限边界。
+当前判断：Agent 写入链路相对完整，前端客户基础新增/编辑已接入，客户详情已能直接记录跟进、完成/顺延待跟进提醒、登记成交、沉淀并编辑客户需求文档，搜索客户文档正文，按策略归档客户附件并预览文本/图片，且可建立渠道转介绍、从客户生成项目机会、从项目拆解任务。数据分析页已能统一处理客户待跟进提醒和项目任务到期提醒。下一步要补更细的提醒规则配置、附件扫描和客户级权限边界。
 
 ### 内容生产到数据回收
 
@@ -131,6 +131,7 @@ graph TD
 | `/api/crazor/transactions` | 200 | 当前为空数组 |
 | `/api/crazor/projects` | 200 | 当前为空数组 |
 | `/api/crazor/tasks` | 200 | 当前为空数组 |
+| `/api/crazor/task-reminders` | 200 | 项目任务到期提醒可读 |
 | `/api/crazor/channels` | 200 | 当前为空数组 |
 | `/api/crazor/analytics/overview` | 200 | 聚合接口可读 |
 | `/api/crazor/audit-logs` | 200 | 默认可读；严格模式已有 active token 后需要有权限 token |
@@ -160,6 +161,7 @@ graph TD
 | 客户渠道转介绍 | `/api/crazor/channels/:id/referrals` + `/api/crazor/contacts/:id/channels` | 通过 | 从客户详情建立关系并从客户侧读回 |
 | 客户生成项目机会 | `/api/crazor/projects` | 通过 | 项目记录保持 `contact_id` 关联 |
 | 客户项目任务联动 | `/api/crazor/tasks` + `/api/crazor/tasks?contact_id=:id` | 通过 | 从客户项目拆解任务，并按客户读回关联项目下任务 |
+| 项目任务到期提醒 | `/api/crazor/task-reminders` + `/api/crazor/tasks/:id` + `POST /mcp` | 通过 | 数据分析页可完成或顺延今日到期/逾期任务；MCP `get_task_reminders` 可读；更新进入 `task` 审计 |
 | 客户文档搜索跳转 | `/api/crazor/contacts/:id/docs/search` + `/api/crazor/docs/knowledge/notes-ops` | 通过 | 客户详情可搜索需求文档正文，并直接打开编辑结果 |
 | 客户附件归档 | `/api/crazor/contacts/:id/attachments` | 通过 | 客户详情可上传、列表、下载、删除附件，并记录 `contact_attachment` 审计 |
 | 客户附件策略与预览 | `/api/crazor/attachments/policy` + `/api/crazor/contacts/:id/attachments/:filename/preview` | 通过 | 可配置扩展名/大小限制，文本和图片可在客户详情预览，非法类型与超大文件被拒绝 |

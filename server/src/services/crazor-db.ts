@@ -634,6 +634,29 @@ export function listTasksByContact(contactId: string) {
   `).all(contactId)
 }
 
+export function getTaskReminders(limit: number = 20) {
+  const today = now().slice(0, 10)
+  return db.prepare(`
+    SELECT
+      t.*,
+      p.name as project_name,
+      p.contact_id,
+      c.name as contact_name
+    FROM tasks t
+    LEFT JOIN projects p ON p.id = t.project_id
+    LEFT JOIN contacts c ON c.id = p.contact_id
+    WHERE t.status != 'done'
+      AND t.due_date IS NOT NULL
+      AND t.due_date != ''
+      AND t.due_date <= ?
+    ORDER BY
+      t.due_date ASC,
+      CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+      t.updated_at DESC
+    LIMIT ?
+  `).all(today, Math.max(1, Math.min(100, Number(limit) || 20)))
+}
+
 export function createTask(data: Partial<any>) {
   const t = {
     id: id(), project_id: data.project_id, title: data.title || "", description: data.description || "",
@@ -1062,7 +1085,8 @@ export function getProjectStats() {
   const todo = (db.prepare("SELECT count(*) as c FROM tasks WHERE status = 'todo'").get() as any).c
   const doing = (db.prepare("SELECT count(*) as c FROM tasks WHERE status = 'doing'").get() as any).c
   const done = (db.prepare("SELECT count(*) as c FROM tasks WHERE status = 'done'").get() as any).c
-  return { totalProjects: total, todoTasks: todo, doingTasks: doing, doneTasks: done }
+  const tasksDue = (db.prepare("SELECT count(*) as c FROM tasks WHERE status != 'done' AND due_date IS NOT NULL AND due_date != '' AND due_date <= ?").get(now().slice(0, 10)) as any).c
+  return { totalProjects: total, todoTasks: todo, doingTasks: doing, doneTasks: done, tasksDue }
 }
 
 // ── Audit logs ───────────────────────────────────────────────
