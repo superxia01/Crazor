@@ -20,6 +20,7 @@ import * as docs from './services/crazor-docs'
 import * as docTree from './services/crazor-doc-tree'
 import * as skillCatalog from './services/skill-catalog'
 import { seedVault } from './services/seed-vault'
+import { seedSkills } from './services/seed-skills'
 import { migrateVault } from './services/migrate-vault'
 import { handleSSEConnect, handleSSEMessage } from './services/crazor-mcp'
 import { CRAZOR_SKILLS_DIR } from './services/crazor-config'
@@ -1335,18 +1336,12 @@ app.post('/api/crazor/skills/install', async (c) => {
   const { id } = await c.req.json()
   if (!id) return c.json({ error: 'Missing skill id' }, 400)
 
-  // Look up the skill in the catalog
-  const entry = skillCatalog.getCatalogEntry(id)
-  if (!entry) return c.json({ error: 'Skill not found in catalog' }, 404)
-
-  // Read the full .md content
+  // Re-seed this specific skill (seedSkills is idempotent)
+  const result = seedSkills()
+  // Verify the skill now exists
   const content = skillCatalog.getSkillContent(id)
-  if (!content) return c.json({ error: 'Skill file not found' }, 404)
+  if (!content) return c.json({ error: 'Skill not found in catalog' }, 404)
 
-  // Write to CRAZOR_SKILLS_DIR/{id}/SKILL.md
-  const skillDir = join(CRAZOR_SKILLS_DIR, id)
-  mkdirSync(skillDir, { recursive: true })
-  writeFileSync(join(skillDir, 'SKILL.md'), content)
   return c.json({ success: true })
 })
 
@@ -1362,6 +1357,7 @@ app.delete('/api/crazor/skills/:id', async (c) => {
 // --- Start ---
 const migrationResult = migrateVault()
 const seedResult = seedVault()
+const seedSkillsResult = seedSkills()
 // Seed field definitions from schema metadata
 seedFieldDefinitions()
 seedContentPieces()
@@ -1373,6 +1369,9 @@ console.log(`   Hermes Gateway: ${HERMES_GATEWAY_URL}`)
 console.log(`   Hermes Dashboard: ${HERMES_DASHBOARD_URL}`)
 if (seedResult.folders > 0 || seedResult.notes > 0) {
   console.log(`   📦 Seeded vault: ${seedResult.folders} folders, ${seedResult.notes} notes`)
+}
+if (seedSkillsResult.converted > 0 || seedSkillsResult.skipped > 0) {
+  console.log(`   📦 Seeded skills: ${seedSkillsResult.converted} converted, ${seedSkillsResult.skipped} unchanged`)
 }
 
 export default {
