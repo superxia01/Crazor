@@ -95,6 +95,9 @@ services:
       CRAZOR_SEED_DEMO_DATA: ${CRAZOR_SEED_DEMO_DATA:-false}
       CRAZOR_REQUIRE_WRITE_TOKEN: ${CRAZOR_REQUIRE_WRITE_TOKEN:-false}
       CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN: ${CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN:-}
+      CRAZOR_ATTACHMENT_MAX_BYTES: ${CRAZOR_ATTACHMENT_MAX_BYTES:-20971520}
+      CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES: ${CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES:-524288}
+      CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS: ${CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS:-txt,md,csv,json,pdf,doc,docx,xls,xlsx,ppt,pptx,png,jpg,jpeg,webp,gif,zip,mp3,m4a,wav,mp4,mov}
     volumes:
       - ./data/crazor:/data/crazor
       - ./data/hermes/state:/data/agent-state

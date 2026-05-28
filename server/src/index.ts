@@ -47,6 +47,19 @@ const CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN = truthyEnv(
   process.env.CRAZOR_REQUIRE_TOKEN_AUTH,
 )
 const CRAZOR_CONTACT_ATTACHMENTS_ROOT = resolve(CRAZOR_HOME, 'attachments', 'contacts')
+const DEFAULT_ATTACHMENT_EXTENSIONS = [
+  'txt', 'md', 'csv', 'json', 'pdf',
+  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  'png', 'jpg', 'jpeg', 'webp', 'gif',
+  'zip', 'mp3', 'm4a', 'wav', 'mp4', 'mov',
+]
+const TEXT_ATTACHMENT_EXTENSIONS = new Set(['txt', 'md', 'csv', 'json', 'log', 'yaml', 'yml'])
+const IMAGE_ATTACHMENT_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif'])
+const CRAZOR_ATTACHMENT_MAX_BYTES = parsePositiveInt(process.env.CRAZOR_ATTACHMENT_MAX_BYTES, 20 * 1024 * 1024)
+const CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES = parsePositiveInt(process.env.CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES, 512 * 1024)
+const CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS = parseAttachmentExtensionList(
+  process.env.CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS || DEFAULT_ATTACHMENT_EXTENSIONS.join(','),
+)
 
 // --- Dashboard session token management ---
 let _dashboardToken: string | null = null
@@ -555,6 +568,50 @@ function stringOrEmpty(value: unknown): string {
   return String(value)
 }
 
+function parsePositiveInt(value: unknown, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback
+}
+
+function parseAttachmentExtensionList(value: unknown): string[] {
+  const extensions = String(value || '')
+    .split(/[\s,，]+/)
+    .map((item) => normalizeAttachmentExtension(item))
+    .filter(Boolean)
+  return extensions.length > 0 ? Array.from(new Set(extensions)) : DEFAULT_ATTACHMENT_EXTENSIONS
+}
+
+function normalizeAttachmentExtension(value: unknown): string {
+  const raw = String(value || '').trim().toLowerCase()
+  if (!raw) return ''
+  if (raw === '*') return '*'
+  return raw.replace(/^\.+/, '')
+}
+
+function attachmentExtension(filename: string): string {
+  const dotIndex = filename.lastIndexOf('.')
+  if (dotIndex <= 0 || dotIndex === filename.length - 1) return ''
+  return normalizeAttachmentExtension(filename.slice(dotIndex + 1))
+}
+
+function attachmentPolicy() {
+  const allowed = CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS
+  return {
+    max_bytes: CRAZOR_ATTACHMENT_MAX_BYTES,
+    max_mb: Number((CRAZOR_ATTACHMENT_MAX_BYTES / 1024 / 1024).toFixed(1)),
+    preview_max_bytes: CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES,
+    allowed_extensions: allowed,
+    accept: allowed.includes('*') ? '' : allowed.map((ext) => `.${ext}`).join(','),
+  }
+}
+
+function isAttachmentExtensionAllowed(filename: string): boolean {
+  const allowed = CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS
+  if (allowed.includes('*')) return true
+  const ext = attachmentExtension(filename)
+  return Boolean(ext && allowed.includes(ext))
+}
+
 function contactAttachmentsDir(contactId: string): string {
   const safeContactId = sanitizePathSegment(contactId)
   const dir = resolve(CRAZOR_CONTACT_ATTACHMENTS_ROOT, safeContactId)
@@ -587,6 +644,65 @@ function uniqueAttachmentName(dir: string, filename: string): string {
   return candidate
 }
 
+function attachmentKind(filename: string): 'text' | 'image' | 'file' {
+  const ext = attachmentExtension(filename)
+  if (TEXT_ATTACHMENT_EXTENSIONS.has(ext)) return 'text'
+  if (IMAGE_ATTACHMENT_EXTENSIONS.has(ext)) return 'image'
+  return 'file'
+}
+
+function attachmentMimeType(filename: string): string {
+  const ext = attachmentExtension(filename)
+  const mimeMap: Record<string, string> = {
+    txt: 'text/plain; charset=utf-8',
+    md: 'text/markdown; charset=utf-8',
+    csv: 'text/csv; charset=utf-8',
+    json: 'application/json; charset=utf-8',
+    log: 'text/plain; charset=utf-8',
+    yaml: 'text/yaml; charset=utf-8',
+    yml: 'text/yaml; charset=utf-8',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+    gif: 'image/gif',
+    pdf: 'application/pdf',
+    zip: 'application/zip',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ppt: 'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    mp3: 'audio/mpeg',
+    m4a: 'audio/mp4',
+    wav: 'audio/wav',
+    mp4: 'video/mp4',
+    mov: 'video/quicktime',
+  }
+  return mimeMap[ext] || 'application/octet-stream'
+}
+
+function contactAttachmentResponse(contactId: string, name: string, stat: any) {
+  const encodedContactId = encodeURIComponent(contactId)
+  const encodedName = encodeURIComponent(name)
+  const kind = attachmentKind(name)
+  return {
+    id: name,
+    name,
+    path: `attachments/contacts/${sanitizePathSegment(contactId)}/${name}`,
+    size: stat.size,
+    extension: attachmentExtension(name),
+    kind,
+    mime_type: attachmentMimeType(name),
+    can_preview: kind !== 'file' && stat.size <= CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES,
+    created_at: stat.birthtime.toISOString(),
+    updated_at: stat.mtime.toISOString(),
+    download_url: `/api/crazor/contacts/${encodedContactId}/attachments/${encodedName}`,
+    preview_url: `/api/crazor/contacts/${encodedContactId}/attachments/${encodedName}/preview`,
+  }
+}
+
 function listContactAttachments(contactId: string) {
   const dir = contactAttachmentsDir(contactId)
   if (!existsSync(dir)) return []
@@ -597,15 +713,7 @@ function listContactAttachments(contactId: string) {
       try {
         const stat = statSync(filePath)
         if (!stat.isFile()) return []
-        return [{
-          id: name,
-          name,
-          path: `attachments/contacts/${sanitizePathSegment(contactId)}/${name}`,
-          size: stat.size,
-          created_at: stat.birthtime.toISOString(),
-          updated_at: stat.mtime.toISOString(),
-          download_url: `/api/crazor/contacts/${encodeURIComponent(contactId)}/attachments/${encodeURIComponent(name)}`,
-        }]
+        return [contactAttachmentResponse(contactId, name, stat)]
       } catch {
         return []
       }
@@ -1841,6 +1949,10 @@ app.post('/api/crazor/contacts/:id/docs', async (c) => {
 })
 
 // --- Contact attachments ---
+app.get('/api/crazor/attachments/policy', (c) => {
+  return c.json(attachmentPolicy())
+})
+
 app.get('/api/crazor/contacts/:id/attachments', (c) => {
   const contactId = c.req.param('id')
   if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
@@ -1861,21 +1973,71 @@ app.post('/api/crazor/contacts/:id/attachments', async (c) => {
   mkdirSync(dir, { recursive: true })
 
   const originalName = sanitizeAttachmentFilename(rawFile.name || body.filename || 'attachment')
+  if (!isAttachmentExtensionAllowed(originalName)) {
+    return c.json({
+      error: 'attachment type is not allowed',
+      allowed_extensions: CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS,
+    }, 415)
+  }
+
+  if (Number(rawFile.size || 0) > CRAZOR_ATTACHMENT_MAX_BYTES) {
+    return c.json({
+      error: 'attachment is too large',
+      max_bytes: CRAZOR_ATTACHMENT_MAX_BYTES,
+    }, 413)
+  }
+
   const filename = uniqueAttachmentName(dir, originalName)
   const filePath = resolve(dir, filename)
   const arrayBuffer = await rawFile.arrayBuffer()
-  writeFileSync(filePath, Buffer.from(arrayBuffer))
+  const fileBuffer = Buffer.from(arrayBuffer)
+  if (fileBuffer.byteLength > CRAZOR_ATTACHMENT_MAX_BYTES) {
+    return c.json({
+      error: 'attachment is too large',
+      max_bytes: CRAZOR_ATTACHMENT_MAX_BYTES,
+    }, 413)
+  }
+  writeFileSync(filePath, fileBuffer)
 
   const stat = statSync(filePath)
-  return c.json({
-    id: filename,
+  return c.json(contactAttachmentResponse(contactId, filename, stat), 201)
+})
+
+app.get('/api/crazor/contacts/:id/attachments/:filename/preview', (c) => {
+  const contactId = c.req.param('id')
+  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
+  const filename = sanitizeAttachmentFilename(c.req.param('filename'))
+  const filePath = resolve(contactAttachmentsDir(contactId), filename)
+  if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
+
+  const stat = statSync(filePath)
+  const kind = attachmentKind(filename)
+  const base = {
     name: filename,
-    path: `attachments/contacts/${sanitizePathSegment(contactId)}/${filename}`,
+    kind,
     size: stat.size,
-    created_at: stat.birthtime.toISOString(),
-    updated_at: stat.mtime.toISOString(),
-    download_url: `/api/crazor/contacts/${encodeURIComponent(contactId)}/attachments/${encodeURIComponent(filename)}`,
-  }, 201)
+    mime_type: attachmentMimeType(filename),
+    max_preview_bytes: CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES,
+  }
+
+  if (kind === 'file') {
+    return c.json({ ...base, previewable: false, reason: '该附件类型暂不支持预览，请下载查看' })
+  }
+  if (stat.size > CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES) {
+    return c.json({ ...base, previewable: false, reason: '附件超过预览大小限制，请下载查看' })
+  }
+  if (kind === 'text') {
+    return c.json({
+      ...base,
+      previewable: true,
+      content: readFileSync(filePath, 'utf-8'),
+    })
+  }
+  return c.json({
+    ...base,
+    previewable: true,
+    content_base64: Buffer.from(readFileSync(filePath)).toString('base64'),
+  })
 })
 
 app.get('/api/crazor/contacts/:id/attachments/:filename', (c) => {
@@ -1886,7 +2048,7 @@ app.get('/api/crazor/contacts/:id/attachments/:filename', (c) => {
   if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
   return new Response(readFileSync(filePath), {
     headers: {
-      'Content-Type': 'application/octet-stream',
+      'Content-Type': attachmentMimeType(filename),
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
     },
   })

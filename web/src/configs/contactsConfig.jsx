@@ -5,6 +5,7 @@ import {
   Building2Icon,
   DownloadIcon,
   DollarSignIcon,
+  EyeIcon,
   FileTextIcon,
   GlobeIcon,
   ExternalLinkIcon,
@@ -340,6 +341,9 @@ export default {
     const [docSearchActive, setDocSearchActive] = useState(false)
     const [docSearchLoading, setDocSearchLoading] = useState(false)
     const [attachments, setAttachments] = useState([])
+    const [attachmentPolicy, setAttachmentPolicy] = useState(null)
+    const [activeAttachmentPreview, setActiveAttachmentPreview] = useState(null)
+    const [attachmentPreviewLoading, setAttachmentPreviewLoading] = useState(false)
     const [uploadingAttachment, setUploadingAttachment] = useState(false)
     const [projects, setProjects] = useState([])
     const [tasks, setTasks] = useState([])
@@ -352,11 +356,12 @@ export default {
     const load = useCallback(async () => {
       setLoading(true)
       try {
-        const [channelsResp, followUpsResp, docsResp, attachmentsResp, projectsResp, tasksResp] = await Promise.all([
+        const [channelsResp, followUpsResp, docsResp, attachmentsResp, attachmentPolicyResp, projectsResp, tasksResp] = await Promise.all([
           fetch(`/api/crazor/contacts/${item.id}/channels`),
           fetch(`/api/crazor/follow-ups?contact_id=${encodeURIComponent(item.id)}`),
           fetch(`/api/crazor/contacts/${item.id}/docs`),
           fetch(`/api/crazor/contacts/${item.id}/attachments`),
+          fetch("/api/crazor/attachments/policy"),
           fetch("/api/crazor/projects"),
           fetch(`/api/crazor/tasks?contact_id=${encodeURIComponent(item.id)}`),
         ])
@@ -364,6 +369,7 @@ export default {
         setFollowUps(followUpsResp.ok ? await followUpsResp.json() : [])
         setDocs(docsResp.ok ? await docsResp.json() : [])
         setAttachments(attachmentsResp.ok ? await attachmentsResp.json() : [])
+        setAttachmentPolicy(attachmentPolicyResp.ok ? await attachmentPolicyResp.json() : null)
         const allProjects = projectsResp.ok ? await projectsResp.json() : []
         setProjects(allProjects.filter((project) => project.contact_id === item.id))
         setTasks(tasksResp.ok ? await tasksResp.json() : [])
@@ -474,6 +480,12 @@ export default {
     const handleUploadAttachment = async (event) => {
       const file = event.target.files?.[0]
       if (!file) return
+      const policyError = validateAttachmentFile(file, attachmentPolicy)
+      if (policyError) {
+        toast.error(policyError)
+        event.target.value = ""
+        return
+      }
       setUploadingAttachment(true)
       try {
         const formData = new FormData()
@@ -493,12 +505,26 @@ export default {
       }
     }
 
+    const handlePreviewAttachment = async (attachment) => {
+      if (!attachment?.preview_url) return
+      setAttachmentPreviewLoading(true)
+      try {
+        const preview = await getJson(attachment.preview_url)
+        setActiveAttachmentPreview({ ...preview, attachment })
+      } catch (error) {
+        toast.error("附件预览失败", { description: String(error?.message || error) })
+      } finally {
+        setAttachmentPreviewLoading(false)
+      }
+    }
+
     const handleDeleteAttachment = async (attachment) => {
       if (!attachment?.download_url) return
       try {
         const resp = await fetch(attachment.download_url, { method: "DELETE" })
         await parseJsonResponse(resp)
         toast.success("附件已删除")
+        if (activeAttachmentPreview?.attachment?.id === attachment.id) setActiveAttachmentPreview(null)
         await load()
       } catch (error) {
         toast.error("附件删除失败", { description: String(error?.message || error) })
@@ -635,7 +661,7 @@ export default {
             <UploadIcon className="size-3.5" />
             {uploadingAttachment ? "上传中" : "上传附件"}
           </Button>
-          <input ref={fileInputRef} type="file" className="hidden" onChange={handleUploadAttachment} />
+          <input ref={fileInputRef} type="file" accept={attachmentPolicy?.accept || undefined} className="hidden" onChange={handleUploadAttachment} />
         </div>
 
         {activeForm === "follow-up" && (
@@ -778,6 +804,11 @@ export default {
         </CaseSection>
 
         <CaseSection title={`附件归档 (${attachments.length})`}>
+          {attachmentPolicy && (
+            <div className="text-[11px] text-muted-foreground">
+              单个附件不超过 {formatFileSize(attachmentPolicy.max_bytes)}，允许 {formatAttachmentExtensions(attachmentPolicy.allowed_extensions)}
+            </div>
+          )}
           {attachments.length === 0 ? (
             <EmptyLine>暂无归档附件</EmptyLine>
           ) : (
@@ -794,6 +825,11 @@ export default {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
+                    {attachment.can_preview && (
+                      <Button size="icon-xs" variant="ghost" onClick={() => void handlePreviewAttachment(attachment)} disabled={attachmentPreviewLoading} aria-label="预览附件">
+                        <EyeIcon className="size-3" />
+                      </Button>
+                    )}
                     <Button asChild size="icon-xs" variant="ghost" aria-label="下载附件">
                       <a href={attachment.download_url} download={attachment.name}>
                         <DownloadIcon className="size-3" />
@@ -806,6 +842,9 @@ export default {
                 </div>
               </div>
             ))
+          )}
+          {activeAttachmentPreview && (
+            <AttachmentPreviewPanel preview={activeAttachmentPreview} onClose={() => setActiveAttachmentPreview(null)} />
           )}
         </CaseSection>
 
@@ -909,6 +948,66 @@ function formatDateTime(value) {
   } catch {
     return String(value)
   }
+}
+
+function formatAttachmentExtensions(extensions) {
+  const list = Array.isArray(extensions) ? extensions : []
+  if (list.includes("*")) return "全部类型"
+  if (list.length === 0) return "默认类型"
+  return list.map((ext) => `.${ext}`).join("、")
+}
+
+function attachmentExtension(filename) {
+  const name = String(filename || "")
+  const dotIndex = name.lastIndexOf(".")
+  if (dotIndex <= 0 || dotIndex === name.length - 1) return ""
+  return name.slice(dotIndex + 1).toLowerCase()
+}
+
+function validateAttachmentFile(file, policy) {
+  if (!policy) return ""
+  if (policy.max_bytes && file.size > Number(policy.max_bytes)) {
+    return `附件不能超过 ${formatFileSize(policy.max_bytes)}`
+  }
+  const allowed = Array.isArray(policy.allowed_extensions) ? policy.allowed_extensions : []
+  if (allowed.length > 0 && !allowed.includes("*")) {
+    const ext = attachmentExtension(file.name)
+    if (!ext || !allowed.includes(ext)) {
+      return `不支持 .${ext || "无扩展名"} 文件`
+    }
+  }
+  return ""
+}
+
+function AttachmentPreviewPanel({ preview, onClose }) {
+  return (
+    <div className="rounded-md border bg-muted/20 p-2.5 text-[12px]">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-medium">{preview.name || preview.attachment?.name || "附件预览"}</div>
+          <div className="text-[11px] text-muted-foreground">{formatFileSize(preview.size)} · {preview.mime_type || preview.kind || "file"}</div>
+        </div>
+        <Button size="icon-xs" variant="ghost" onClick={onClose} aria-label="关闭附件预览">
+          <XIcon className="size-3" />
+        </Button>
+      </div>
+      {!preview.previewable ? (
+        <EmptyLine>{preview.reason || "该附件暂不支持预览，请下载查看"}</EmptyLine>
+      ) : preview.kind === "image" ? (
+        <div className="overflow-hidden rounded-md border bg-background">
+          <img
+            src={`data:${preview.mime_type || "image/png"};base64,${preview.content_base64 || ""}`}
+            alt={preview.name || "附件预览"}
+            className="max-h-64 w-full object-contain"
+          />
+        </div>
+      ) : (
+        <pre className="max-h-64 overflow-auto rounded-md border bg-background p-2 text-[11px] leading-5 whitespace-pre-wrap break-words">
+          {preview.content || ""}
+        </pre>
+      )}
+    </div>
+  )
 }
 
 async function postJson(url, payload) {
