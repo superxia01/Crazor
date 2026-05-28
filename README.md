@@ -338,6 +338,18 @@ http://localhost:5173
 http://局域网IP:5173
 ```
 
+运行交付烟测：
+
+```bash
+./scripts/hermes smoke
+```
+
+烟测会创建临时客户、文档、附件、渠道、流水、项目、任务、内容和 token，验证后自动清理。需要验证局域网入口时可指定：
+
+```bash
+CRAZOR_SMOKE_BASE_URL=http://局域网IP:5173 ./scripts/hermes smoke
+```
+
 Docker 环境会启动：
 
 - `crazor-web`：Web 统一入口，反代 `/api/*` 和 `/mcp/*`。

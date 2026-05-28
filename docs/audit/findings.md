@@ -24,6 +24,7 @@
 - 服务端新增可选业务只读保护：开启 `CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true` 或 `CRAZOR_REQUIRE_READ_TOKEN=true` 且已有 active token 后，客户、项目、任务、内容、文档、渠道、财务和分析等业务读取必须携带有权限的 token。
 - 业务只读保护同样受 token scope 与角色读取上限约束；无 token 会返回 401 并记录 `deny_read`，有 `read:*` 或对应业务读取 scope 的 token 可正常读取。
 - 统一入口已新增“协作审计”页面，可以创建团队成员或 Agent 身份、按权限范围签发/撤销 token、设置当前访问 token、查看审计日志。
+- Docker MVP 交付烟测已脚本化：`./scripts/hermes smoke` 会通过统一入口验证后端健康、Hermes 状态代理、身份 token、客户 Case、文档附件、渠道流水、项目任务、内容发布、分析概览和审计日志，并清理临时数据。
 - 但当前还没有完整登录态、关键操作审批，以及可配置到页面策略层的细粒度 RBAC 矩阵。
 
 **影响**
@@ -158,6 +159,7 @@
 | token 有 scope 但缺少角色级写入上限 | 已修复，`admin/member/viewer` 写入上限已接入 REST/MCP 权限判定，角色降级会即时影响已签发 token |
 | 敏感只读接口在严格模式下仍可匿名读取 | 已修复，`audit-logs`、团队成员列表、token 列表已接入敏感只读权限校验和 `deny_read` 审计 |
 | 业务只读接口缺少可选严格认证边界 | 已修复，`CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true` 后客户、项目、任务、内容、文档、渠道、财务和分析等业务读取会校验 token scope 与角色读取上限 |
+| 核心业务链路缺少可重复交付烟测 | 已修复，新增 `scripts/crazor-smoke.mjs` 与 `./scripts/hermes smoke`，覆盖核心 Docker MVP 链路并自动清理临时数据 |
 | 统一 Web 入口 `POST /mcp` 被 Nginx 301 到丢失端口的 `/mcp/` | 已修复，新增精确代理规则，StreamableHTTP 可直接返回 `Mcp-Session-Id` |
 | 团队身份、token 与审计日志没有统一页面 | 已修复，新增“协作审计”页面 |
 
@@ -185,3 +187,4 @@
 | 敏感只读保护烟测 | 严格模式下无 token/无效 token/非 admin 读取敏感接口被拒绝；admin 可读；普通业务只读保持可用；拒绝进入 `deny_read` 审计 |
 | 业务只读保护烟测 | 开启 `CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true` 后，无 token 读取客户列表返回 401；`read:*` token 可读客户和分析数据；拒绝进入 `deny_read contact` 审计 |
 | 协作审计页面烟测 | Web Docker 构建通过；身份 API、token API、审计 API 均通过统一入口验证 |
+| 自动交付烟测脚本 | `node --check scripts/crazor-smoke.mjs`、`bash -n scripts/hermes`、`./scripts/hermes smoke` 均通过；临时客户、文档、附件、渠道、流水、项目、任务、内容和身份已清理 |

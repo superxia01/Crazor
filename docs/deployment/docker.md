@@ -59,6 +59,26 @@ docker compose ps
 curl -sS http://localhost:5173/api/health
 ```
 
+运行交付烟测：
+
+```bash
+./scripts/hermes smoke
+```
+
+烟测会通过 Web 统一入口验证后端健康、Hermes 状态代理、身份 token、客户 Case、文档、附件、渠道、财务流水、项目任务、内容发布、分析概览和审计日志，并在结束后清理临时业务数据。
+
+验证局域网入口：
+
+```bash
+CRAZOR_SMOKE_BASE_URL=http://局域网IP:5173 ./scripts/hermes smoke
+```
+
+如果临时切换到非 Hermes provider，可跳过 Hermes 状态代理检查：
+
+```bash
+CRAZOR_SMOKE_SKIP_HERMES=1 ./scripts/hermes smoke
+```
+
 ## 写入认证边界
 
 内部演示或单机调试可以保持默认：

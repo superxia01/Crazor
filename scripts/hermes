@@ -22,6 +22,7 @@ usage() {
   ./scripts/hermes logs [参数...]       查看 Hermes 日志
   ./scripts/hermes status               查看 Compose 服务状态
   ./scripts/hermes health               检查 Hermes 健康状态
+  ./scripts/hermes smoke                运行 Crazor Docker MVP 烟测
   ./scripts/hermes backup               备份 data/hermes/state
   ./scripts/hermes regen-api-key        重新生成 Agent Gateway API Key
 
@@ -233,6 +234,10 @@ case "$cmd" in
     ;;
   health)
     health
+    ;;
+  smoke)
+    need node
+    node "$PROJECT_ROOT/scripts/crazor-smoke.mjs" "$@"
     ;;
   backup)
     backup
