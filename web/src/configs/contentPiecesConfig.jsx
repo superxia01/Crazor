@@ -2,22 +2,27 @@
 
 import { useState } from "react"
 import {
+  BarChart3Icon,
   CalendarIcon,
+  CheckCircleIcon,
   EyeIcon,
   ExternalLinkIcon,
   FileTextIcon,
   HeartIcon,
+  LinkIcon,
   MegaphoneIcon,
   MessageSquareIcon,
   PencilIcon,
   PlusIcon,
   NewspaperIcon,
+  SearchIcon,
   Share2Icon,
   TagIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { DataForm } from "@/components/data-view"
 import { BadgeCell } from "@/components/data-view/DataGrid"
 
@@ -72,6 +77,12 @@ const CONTENT_DOC_FOLDER_ID = "knowledge/20-业务流程/10-公域流量/40-内�
 const DOC_EDIT_FIELDS = [
   { key: "title", label: "正文标题", required: true, placeholder: "正文标题 *" },
   { key: "content", label: "正文内容", type: "textarea", placeholder: "内容正文、脚本或素材说明", fullWidth: true },
+]
+const METRICS_FIELDS = [
+  { key: "views", label: "阅读/播放", type: "number" },
+  { key: "likes", label: "点赞", type: "number" },
+  { key: "comments", label: "评论", type: "number" },
+  { key: "shares", label: "转发/收藏", type: "number" },
 ]
 
 export default {
@@ -242,7 +253,10 @@ export default {
     ],
     detailExtra: function ContentDocPanel({ item, onReload, onItemUpdate }) {
       const [activeDoc, setActiveDoc] = useState(null)
+      const [docSearchQuery, setDocSearchQuery] = useState("")
+      const [docResults, setDocResults] = useState([])
       const [loading, setLoading] = useState(false)
+      const [metricsOpen, setMetricsOpen] = useState(false)
 
       const openDoc = async () => {
         if (!item.doc_id) {
@@ -253,6 +267,54 @@ export default {
         try {
           const note = await getJson(`/api/crazor/docs/knowledge/notes-ops?id=${encodeURIComponent(item.doc_id)}`)
           setActiveDoc(note)
+        } catch (error) {
+          toast.error("正文读取失败", { description: String(error?.message || error) })
+        } finally {
+          setLoading(false)
+        }
+      }
+
+      const searchDocs = async () => {
+        const query = (docSearchQuery || item.title || "").trim()
+        if (!query) {
+          toast.error("请输入正文关键词")
+          return
+        }
+        setLoading(true)
+        try {
+          const results = await getJson(`/api/crazor/docs/knowledge/search?q=${encodeURIComponent(query)}`)
+          setDocResults(results.slice(0, 6))
+          if (results.length === 0) toast.info("没有找到可关联的正文")
+        } catch (error) {
+          toast.error("正文搜索失败", { description: String(error?.message || error) })
+        } finally {
+          setLoading(false)
+        }
+      }
+
+      const linkDoc = async (note) => {
+        if (!note?.id) return
+        setLoading(true)
+        try {
+          const updated = await patchJson(`/api/crazor/content-pieces/${item.id}`, { doc_id: note.id })
+          onItemUpdate?.(updated)
+          await onReload?.()
+          const fullNote = await getJson(`/api/crazor/docs/knowledge/notes-ops?id=${encodeURIComponent(note.id)}`)
+          setActiveDoc(fullNote)
+          toast.success("正文已关联")
+        } catch (error) {
+          toast.error("正文关联失败", { description: String(error?.message || error) })
+        } finally {
+          setLoading(false)
+        }
+      }
+
+      const openSearchResult = async (note) => {
+        if (!note?.id) return
+        setLoading(true)
+        try {
+          const fullNote = await getJson(`/api/crazor/docs/knowledge/notes-ops?id=${encodeURIComponent(note.id)}`)
+          setActiveDoc(fullNote)
         } catch (error) {
           toast.error("正文读取失败", { description: String(error?.message || error) })
         } finally {
@@ -281,6 +343,35 @@ export default {
         }
       }
 
+      const publishContent = async () => {
+        setLoading(true)
+        try {
+          const result = await postJson(`/api/crazor/content-pieces/${item.id}/publish`, {})
+          if (result?.piece) onItemUpdate?.(result.piece)
+          await onReload?.()
+          toast.success("内容已标记发布")
+        } catch (error) {
+          toast.error("发布状态更新失败", { description: String(error?.message || error) })
+        } finally {
+          setLoading(false)
+        }
+      }
+
+      const saveMetrics = async (data) => {
+        setLoading(true)
+        try {
+          const result = await patchJson(`/api/crazor/content-pieces/${item.id}/metrics`, normalizeMetricsPayload(data))
+          if (result?.piece) onItemUpdate?.(result.piece)
+          await onReload?.()
+          setMetricsOpen(false)
+          toast.success("内容指标已回收")
+        } catch (error) {
+          toast.error("内容指标保存失败", { description: String(error?.message || error) })
+        } finally {
+          setLoading(false)
+        }
+      }
+
       const saveDoc = async (data) => {
         if (!activeDoc?.id) return
         setLoading(true)
@@ -299,44 +390,151 @@ export default {
         }
       }
 
+      const insertReviewTemplate = async () => {
+        setLoading(true)
+        try {
+          let note = activeDoc
+          if (!note?.id) {
+            if (!item.doc_id) {
+              toast.error("请先创建或关联正文")
+              return
+            }
+            note = await getJson(`/api/crazor/docs/knowledge/notes-ops?id=${encodeURIComponent(item.doc_id)}`)
+          }
+          const content = ensureReviewTemplate(note.content || "", item)
+          await patchJson(`/api/crazor/docs/knowledge/notes-ops?id=${encodeURIComponent(note.id)}`, {
+            title: note.title,
+            content,
+          })
+          const saved = await getJson(`/api/crazor/docs/knowledge/notes-ops?id=${encodeURIComponent(note.id)}`)
+          setActiveDoc(saved)
+          toast.success("复盘模板已写入正文")
+        } catch (error) {
+          toast.error("复盘模板写入失败", { description: String(error?.message || error) })
+        } finally {
+          setLoading(false)
+        }
+      }
+
       return (
-        <div className="border-t pt-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-[12px] font-medium">知识库正文</div>
-              <div className="mt-0.5 max-w-full truncate text-[11px] text-muted-foreground">{item.doc_id || "尚未关联正文文档"}</div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {item.doc_id ? (
-                <Button size="sm" variant="outline" onClick={openDoc} disabled={loading}>
-                  <ExternalLinkIcon className="size-3.5" />
-                  打开正文
+        <div className="flex flex-col gap-3 border-t pt-3">
+          <div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-[12px] font-medium">发布与指标回收</div>
+                <div className="mt-0.5 text-[11px] text-muted-foreground">
+                  {item.status || "选题中"}{item.published_at ? ` · ${item.published_at}` : ""}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={publishContent} disabled={loading || item.status === "已发布"}>
+                  <CheckCircleIcon className="size-3.5" />
+                  标记发布
                 </Button>
-              ) : (
-                <Button size="sm" variant="outline" onClick={createDoc} disabled={loading}>
-                  <PlusIcon className="size-3.5" />
-                  创建正文
+                <Button size="sm" variant="outline" onClick={() => setMetricsOpen((current) => !current)} disabled={loading}>
+                  <BarChart3Icon className="size-3.5" />
+                  更新指标
                 </Button>
-              )}
+              </div>
             </div>
+            {metricsOpen && (
+              <div className="rounded-md border bg-muted/20 p-3">
+                <DataForm
+                  fields={METRICS_FIELDS}
+                  initial={item}
+                  onSubmit={saveMetrics}
+                  onCancel={() => setMetricsOpen(false)}
+                  submitLabel="保存指标"
+                />
+              </div>
+            )}
           </div>
 
-          {activeDoc && (
-            <div className="rounded-md border bg-muted/20 p-3">
-              <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium">
-                <PencilIcon className="size-3.5 text-muted-foreground" />
-                编辑正文
+          <div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-[12px] font-medium">知识库正文</div>
+                <div className="mt-0.5 max-w-full truncate text-[11px] text-muted-foreground">{item.doc_id || "尚未关联正文文档"}</div>
               </div>
-              <DataForm
-                key={activeDoc.id}
-                fields={DOC_EDIT_FIELDS}
-                initial={activeDoc}
-                onSubmit={saveDoc}
-                onCancel={() => setActiveDoc(null)}
-                submitLabel="保存正文"
-              />
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={insertReviewTemplate} disabled={loading || !item.doc_id}>
+                  <FileTextIcon className="size-3.5" />
+                  复盘模板
+                </Button>
+                {item.doc_id ? (
+                  <Button size="sm" variant="outline" onClick={openDoc} disabled={loading}>
+                    <ExternalLinkIcon className="size-3.5" />
+                    打开正文
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={createDoc} disabled={loading}>
+                    <PlusIcon className="size-3.5" />
+                    创建正文
+                  </Button>
+                )}
+              </div>
             </div>
-          )}
+
+            <div className="mb-2 rounded-md border bg-muted/20 p-2.5">
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={docSearchQuery}
+                    onChange={(event) => setDocSearchQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void searchDocs()
+                    }}
+                    placeholder="搜索已有正文..."
+                    className="h-8 pl-8 text-[12px]"
+                  />
+                </div>
+                <Button size="sm" variant="outline" onClick={searchDocs} disabled={loading}>
+                  <SearchIcon className="size-3.5" />
+                  搜索
+                </Button>
+              </div>
+              {docResults.length > 0 && (
+                <div className="mt-2 flex flex-col gap-1.5">
+                  {docResults.map((note) => (
+                    <div key={note.id} className="flex items-center justify-between gap-2 rounded-md border bg-background px-2 py-1.5 text-[12px]">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{note.title}</div>
+                        <div className="truncate text-[10px] text-muted-foreground">{note.id}</div>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <Button size="xs" variant="ghost" onClick={() => void linkDoc(note)} disabled={loading}>
+                          <LinkIcon className="size-3" />
+                          关联
+                        </Button>
+                        <Button size="xs" variant="ghost" onClick={() => void openSearchResult(note)} disabled={loading}>
+                          <ExternalLinkIcon className="size-3" />
+                          打开
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {activeDoc && (
+              <div className="rounded-md border bg-muted/20 p-3">
+                <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium">
+                  <PencilIcon className="size-3.5 text-muted-foreground" />
+                  编辑正文
+                </div>
+                <DataForm
+                  key={activeDoc.id}
+                  fields={DOC_EDIT_FIELDS}
+                  initial={activeDoc}
+                  onSubmit={saveDoc}
+                  onCancel={() => setActiveDoc(null)}
+                  submitLabel="保存正文"
+                />
+              </div>
+            )}
+          </div>
         </div>
       )
     },
@@ -389,7 +587,47 @@ function buildDefaultContentDoc(item) {
     "",
     "## 发布复盘",
     "",
+    buildReviewTemplate(item),
+    "",
   ].join("\n")
+}
+
+function ensureReviewTemplate(content, item) {
+  const source = String(content || "").trimEnd()
+  if (source.includes("### 指标回收")) return source
+  const template = buildReviewTemplate(item)
+  if (source.includes("## 发布复盘")) {
+    return source.replace("## 发布复盘", `## 发布复盘\n\n${template}`)
+  }
+  return `${source}\n\n## 发布复盘\n\n${template}`.trim()
+}
+
+function buildReviewTemplate(item) {
+  return [
+    "### 指标回收",
+    "",
+    `- 发布日期：${item.published_at || dateToday()}`,
+    `- 阅读/播放：${numberOrEmpty(item.views)}`,
+    `- 点赞：${numberOrEmpty(item.likes)}`,
+    `- 评论：${numberOrEmpty(item.comments)}`,
+    `- 转发/收藏：${numberOrEmpty(item.shares)}`,
+    "- 转化线索：",
+    "",
+    "### 复盘结论",
+    "",
+    "- 有效点：",
+    "- 风险点：",
+    "- 下一步动作：",
+  ].join("\n")
+}
+
+function normalizeMetricsPayload(data) {
+  return {
+    views: data.views ? Number(data.views) : 0,
+    likes: data.likes ? Number(data.likes) : 0,
+    comments: data.comments ? Number(data.comments) : 0,
+    shares: data.shares ? Number(data.shares) : 0,
+  }
 }
 
 function normalizeContentPayload(data) {
@@ -401,4 +639,12 @@ function normalizeContentPayload(data) {
     comments: data.comments ? Number(data.comments) : 0,
     shares: data.shares ? Number(data.shares) : 0,
   }
+}
+
+function numberOrEmpty(value) {
+  return Number(value || 0) > 0 ? Number(value).toLocaleString() : ""
+}
+
+function dateToday() {
+  return new Date().toISOString().slice(0, 10)
 }

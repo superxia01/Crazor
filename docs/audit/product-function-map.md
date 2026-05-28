@@ -38,7 +38,7 @@ graph TD
 | 渠道管理 | `channels` | `/api/crazor/channels` | `channels`、`channel_referrals` | 渠道 MCP tools | 渠道新增/编辑/删除基础闭环可用；客户侧转介绍关系已接入，渠道侧批量运营待补 |
 | 财务中心 | `finance` | `/api/crazor/transactions`、`/api/crazor/analytics/*` | `transactions` | 财务 MCP tools | 流水新增可用，API 更新/删除通过；编辑入口需按财务权限继续评估 |
 | 项目看板 | `projects` | `/api/crazor/projects`、`/api/crazor/tasks` | `projects`、`tasks` | 项目/任务 MCP tools | 项目创建、任务创建、任务拖拽/删除可用；项目编辑归档待补 |
-| 平台流量 | `content` | `/api/crazor/content-pieces`、`/api/crazor/docs/knowledge/notes`、`/api/crazor/docs/knowledge/notes-ops` | `content_pieces`、Markdown Vault | 内容 MCP tools + 文档 MCP tools | 内容作品新增/编辑/删除与正文创建/打开/保存可用；内容复盘和搜索跳转待补 |
+| 平台流量 | `content` | `/api/crazor/content-pieces`、`/api/crazor/content-pieces/:id/publish`、`/api/crazor/content-pieces/:id/metrics`、`/api/crazor/docs/knowledge/search`、`/api/crazor/docs/knowledge/notes`、`/api/crazor/docs/knowledge/notes-ops` | `content_pieces`、Markdown Vault | 内容 MCP tools + 文档 MCP tools | 内容作品新增/编辑/删除、发布、指标回收、正文创建/搜索/关联/打开/保存和复盘模板写入可用；外部平台回执和自动指标采集待补 |
 | 知识库 | `knowledge` | `/api/crazor/docs/knowledge/*` | Markdown Vault | 文档 MCP tools | 可读写，已补旧路径和空白文档兜底 |
 | AI 笔记 | `notebook` | `/api/crazor/docs/notebook/*` | Markdown Vault | 文档 MCP tools | 可读写，编辑体验需持续核验 |
 | 文件管理 | `files` | `/api/files/*` | Hermes workspace files | Provider 文件能力 | 依赖 workspace 配置 |
@@ -85,7 +85,7 @@ graph LR
   Metrics --> Analytics["内容统计"]
 ```
 
-当前判断：数据边界清楚，后端和 MCP 有记录与指标更新能力；UI 已补内容作品新增/编辑，也能从详情创建正文、回填 `doc_id`、打开并保存知识库正文。下一步要补内容搜索结果跳转、发布复盘模板和指标回收体验。
+当前判断：数据边界清楚，后端和 MCP 有记录与指标更新能力；UI 已补内容作品新增/编辑，也能从详情创建或搜索正文、回填 `doc_id`、打开并保存知识库正文、标记发布、回收阅读/点赞/评论/转发指标，并写入发布复盘模板。下一步要补外部平台发布回执、自动指标采集和内容级权限边界。
 
 ### 知识库与文档协作
 
@@ -163,7 +163,8 @@ graph TD
 | 客户文档搜索跳转 | `/api/crazor/contacts/:id/docs/search` + `/api/crazor/docs/knowledge/notes-ops` | 通过 | 客户详情可搜索需求文档正文，并直接打开编辑结果 |
 | 客户附件归档 | `/api/crazor/contacts/:id/attachments` | 通过 | 客户详情可上传、列表、下载、删除附件，并记录 `contact_attachment` 审计 |
 | 客户附件策略与预览 | `/api/crazor/attachments/policy` + `/api/crazor/contacts/:id/attachments/:filename/preview` | 通过 | 可配置扩展名/大小限制，文本和图片可在客户详情预览，非法类型与超大文件被拒绝 |
-| 内容正文关联 | `/api/crazor/content-pieces` + `/api/crazor/docs/knowledge/notes-ops` | 通过 | 内容详情可创建正文、回填 `doc_id`、打开和保存正文 |
+| 内容发布与指标回收 | `/api/crazor/content-pieces/:id/publish` + `/api/crazor/content-pieces/:id/metrics` | 通过 | 内容详情可标记发布并回收阅读/点赞/评论/转发指标，审计记录 `publish` 和 `update_metrics` |
+| 内容正文关联与复盘 | `/api/crazor/content-pieces` + `/api/crazor/docs/knowledge/search` + `/api/crazor/docs/knowledge/notes-ops` | 通过 | 内容详情可创建或搜索关联正文、回填 `doc_id`、打开保存正文，并写入发布复盘模板 |
 | 团队成员 | `/api/crazor/identity/members` | 通过 | 创建、查询、删除临时成员 |
 | actor token | `/api/crazor/identity/tokens` | 通过 | 创建、查询、撤销临时 token |
 | REST token scope | `/api/crazor/*` + `/api/crazor/audit-logs` | 通过 | `contact:create` token 可创建客户，创建项目被 403 拒绝并记录 `deny_create` |

@@ -15,6 +15,7 @@ import {
   listChannels, getChannel, createChannel, updateChannel, deleteChannel, getChannelStats,
   listChannelReferrals, createChannelReferral, listContactChannels,
   listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats, seedContentPieces,
+  contentPublish, contentUpdateMetrics,
   createAuditLog, listAuditLogs,
   createTeamMember, listTeamMembers, updateTeamMember, deleteTeamMember,
   createActorToken, listActorTokens, revokeActorToken, resolveActorToken, hasActiveActorTokens,
@@ -530,6 +531,8 @@ function deriveAuditAction(method: string, lastSegment: string) {
   if (lastSegment === 'reorder') return 'reorder'
   if (lastSegment === 'discover') return 'discover'
   if (lastSegment === 'install') return 'install'
+  if (lastSegment === 'publish') return 'publish'
+  if (lastSegment === 'metrics') return 'update_metrics'
   if (method === 'POST') return 'create'
   if (method === 'PATCH') return 'update'
   if (method === 'DELETE') return 'delete'
@@ -2095,6 +2098,23 @@ app.patch('/api/crazor/content-pieces/:id', async (c) => {
   const updated = updateContentPiece(c.req.param('id'), body)
   if (!updated) return c.json({ error: 'not found' }, 404)
   return c.json(updated)
+})
+
+app.post('/api/crazor/content-pieces/:id/publish', (c) => {
+  try {
+    return c.json(contentPublish(c.req.param('id')))
+  } catch (err: any) {
+    return c.json({ error: err?.message || 'publish failed' }, 404)
+  }
+})
+
+app.patch('/api/crazor/content-pieces/:id/metrics', async (c) => {
+  try {
+    const body = await c.req.json()
+    return c.json(contentUpdateMetrics(c.req.param('id'), body))
+  } catch (err: any) {
+    return c.json({ error: err?.message || 'metrics update failed' }, 404)
+  }
 })
 
 app.delete('/api/crazor/content-pieces/:id', (c) => {
