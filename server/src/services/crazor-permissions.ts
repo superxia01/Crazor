@@ -25,8 +25,8 @@ const ROLE_WRITE_SCOPE_POLICIES: Record<string, string[]> = {
 
 const ROLE_READ_SCOPE_POLICIES: Record<string, string[]> = {
   admin: ["*"],
-  member: ["crm:*", "docs:*", "project:*", "content:*"],
-  viewer: ["crm:read", "docs:read", "project:read", "content:read"],
+  member: ["crm:*", "docs:*", "project:*", "content:*", "analytics:read"],
+  viewer: ["crm:read", "docs:read", "project:read", "content:read", "analytics:read"],
 }
 
 const ENTITY_GROUPS: Record<string, string[]> = {
@@ -35,6 +35,7 @@ const ENTITY_GROUPS: Record<string, string[]> = {
   project: ["project", "task"],
   projects: ["project", "task"],
   content: ["content_piece"],
+  analytics: ["analytics"],
   identity: ["team_member", "actor_token", "field_definition", "skill"],
   audit: ["audit_log"],
   channel: ["channel", "channel_referral"],

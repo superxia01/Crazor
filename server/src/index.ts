@@ -47,6 +47,11 @@ const CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN = truthyEnv(
   process.env.CRAZOR_REQUIRE_WRITE_TOKEN ||
   process.env.CRAZOR_REQUIRE_TOKEN_AUTH,
 )
+const CRAZOR_REQUIRE_BUSINESS_READ_TOKEN = truthyEnv(
+  process.env.CRAZOR_REQUIRE_BUSINESS_READ_TOKEN ||
+  process.env.CRAZOR_REQUIRE_READ_TOKEN ||
+  process.env.CRAZOR_REQUIRE_TOKEN_AUTH,
+)
 const CRAZOR_CONTACT_ATTACHMENTS_ROOT = resolve(CRAZOR_HOME, 'attachments', 'contacts')
 const DEFAULT_ATTACHMENT_EXTENSIONS = [
   'txt', 'md', 'csv', 'json', 'pdf',
@@ -351,16 +356,31 @@ app.use('*', cors({
 }))
 
 const AUDIT_WRITE_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
+const BUSINESS_READ_ROOTS = new Set([
+  'contacts',
+  'follow-ups',
+  'follow-up-reminders',
+  'transactions',
+  'projects',
+  'tasks',
+  'task-reminders',
+  'channels',
+  'content-pieces',
+  'docs',
+  'doc-files',
+  'analytics',
+])
 
 app.use('/api/crazor/*', async (c, next) => {
   const method = c.req.method.toUpperCase()
   const shouldAudit = AUDIT_WRITE_METHODS.has(method)
   const url = new URL(c.req.url)
   const sensitiveRead = deriveSensitiveReadAudit(method, url.pathname)
+  const businessRead = sensitiveRead ? null : deriveBusinessReadAudit(method, url.pathname, url.searchParams)
   const requestText = shouldAudit
     ? await c.req.raw.clone().text().catch(() => '')
     : ''
-  const actor = shouldAudit || sensitiveRead
+  const actor = shouldAudit || sensitiveRead || businessRead
     ? resolveRequestActor(c, { actor_type: 'human', actor_id: 'anonymous', source: 'rest-api' })
     : null
 
@@ -371,6 +391,22 @@ app.use('/api/crazor/*', async (c, next) => {
     const permission = evaluateReadPermission(readActor, sensitiveRead.entity)
     if (!permission.allowed) {
       recordDeniedRestRead(readActor, sensitiveRead, method, url.pathname, permission.required_scope)
+      return c.json({
+        error: permission.error,
+        required_scope: permission.required_scope,
+        auth_required: permission.status === 401,
+        actor_id: readActor?.actor_id || '',
+      }, permission.status || 403)
+    }
+  }
+
+  if (businessRead && shouldProtectBusinessRead()) {
+    const readActor = extractActorToken(c)
+      ? actor
+      : { actor_type: 'human', actor_id: 'missing-token', source: 'missing-token' }
+    const permission = evaluateReadPermission(readActor, businessRead.entity)
+    if (!permission.allowed) {
+      recordDeniedRestRead(readActor, businessRead, method, url.pathname, permission.required_scope)
       return c.json({
         error: permission.error,
         required_scope: permission.required_scope,
@@ -440,12 +476,31 @@ function shouldProtectSensitiveRead(): boolean {
   return CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN && hasActiveActorTokens()
 }
 
+function shouldProtectBusinessRead(): boolean {
+  return CRAZOR_REQUIRE_BUSINESS_READ_TOKEN && hasActiveActorTokens()
+}
+
 function deriveSensitiveReadAudit(method: string, pathname: string): { entity: string; entity_id: string } | null {
   if (method !== 'GET') return null
   if (pathname === '/api/crazor/audit-logs') return { entity: 'audit_log', entity_id: '' }
   if (pathname === '/api/crazor/identity/members') return { entity: 'team_member', entity_id: '' }
   if (pathname === '/api/crazor/identity/tokens') return { entity: 'actor_token', entity_id: '' }
   return null
+}
+
+function deriveBusinessReadAudit(method: string, pathname: string, searchParams: URLSearchParams): { entity: string; entity_id: string } | null {
+  if (method !== 'GET') return null
+  if (deriveSensitiveReadAudit(method, pathname)) return null
+
+  const segments = pathname.replace(/^\/api\/crazor\/?/, '').split('/').filter(Boolean)
+  if (segments[0] === 'identity') return null
+  if (!BUSINESS_READ_ROOTS.has(segments[0])) return null
+
+  const entity = deriveAuditEntity(segments)
+  return {
+    entity,
+    entity_id: deriveRestEntityId(segments, null, searchParams),
+  }
 }
 
 function recordDeniedRestRead(actor: any, audit: { entity: string; entity_id: string }, method: string, pathname: string, requiredScope: string) {
@@ -518,12 +573,17 @@ function deriveRestAudit(method: string, path: string, responseBody: any, search
   const last = segments[segments.length - 1] || ''
   const action = deriveAuditAction(method, last)
   const entity = deriveAuditEntity(segments)
-  const entity_id =
+  const entity_id = deriveRestEntityId(segments, responseBody, searchParams)
+  return { action, entity, entity_id }
+}
+
+function deriveRestEntityId(segments: string[], responseBody: any, searchParams: URLSearchParams) {
+  return (
     stringOrEmpty(responseBody?.id) ||
     stringOrEmpty(searchParams.get('id')) ||
     stringOrEmpty(segments[1]) ||
     ''
-  return { action, entity, entity_id }
+  )
 }
 
 function deriveAuditAction(method: string, lastSegment: string) {
@@ -560,8 +620,11 @@ function deriveAuditEntity(segments: string[]) {
     transactions: 'transaction',
     projects: 'project',
     tasks: 'task',
+    'task-reminders': 'task',
     'follow-ups': 'follow_up',
+    'follow-up-reminders': 'follow_up',
     channels: 'channel',
+    analytics: 'analytics',
   }
   return entityMap[segments[0]] || segments[0] || 'unknown'
 }

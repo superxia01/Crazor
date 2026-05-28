@@ -81,6 +81,14 @@ CRAZOR_REQUIRE_WRITE_TOKEN=true
 CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN=true
 ```
 
+业务只读接口默认不强制 token，方便本机初始化和内部演示。团队协作环境如果需要把客户、项目、任务、内容、文档、渠道、财务和分析等业务读取也纳入权限控制，可以开启：
+
+```env
+CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true
+```
+
+也可以使用 `CRAZOR_REQUIRE_READ_TOKEN=true` 同时保护敏感只读和业务只读接口。开启后，已有 active token 时，无 token 或无权限 token 的业务读取会被拒绝，并记录 `deny_read` 审计。
+
 首次部署如果还没有 active token，系统仍允许创建第一个团队身份和 token，避免初始化锁死。拿到 token 后，在 Web 的“协作审计 / 当前访问 Token”里启用，后续业务写入会自动带上 `Authorization: Bearer`。
 
 ## Docker 代理

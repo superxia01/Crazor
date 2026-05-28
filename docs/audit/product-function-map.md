@@ -11,7 +11,7 @@ graph TD
   Web --> HermesDashboard["Hermes Dashboard 代理能力"]
   Server --> DB["SQLite 业务数据"]
   Server --> Identity["team_members / actor_tokens"]
-  Server --> Permission["写入认证 / Token Scope / 角色上限 / 敏感只读保护"]
+  Server --> Permission["写入认证 / Token Scope / 角色上限 / 只读保护"]
   Server --> Audit["audit_logs 操作审计"]
   Server --> Vault["Markdown Vault 知识库"]
   Server --> MCP["Crazor MCP Server"]
@@ -44,7 +44,7 @@ graph TD
 | 文件管理 | `files` | `/api/files/*` | Hermes workspace files | Provider 文件能力 | 依赖 workspace 配置 |
 | 终端 | `terminal` | `/api/terminal/sessions/*` | Hermes workspace | Provider 终端能力 | 可用性依赖 Hermes |
 | 工作区 | 侧边栏工作区 | `/api/workspaces/*` | Hermes/Crazor 配置 | 影响文件、终端、会话 | 基础可用，需要权限和隔离策略 |
-| 团队身份与接入凭证 | `teamops` 协作审计 | `/api/crazor/identity/me`、`/api/crazor/identity/members`、`/api/crazor/identity/tokens` | `team_members`、`actor_tokens.scopes` | REST/MCP 可通过 token 派生 actor，校验 scope，并受角色写入/敏感读取上限约束 | 最小 UI 与 API 可用；当前访问 token、token scope、强制写入认证、角色级写入上限和敏感只读保护已接入，完整登录态、审批和细粒度 RBAC 待补 |
+| 团队身份与接入凭证 | `teamops` 协作审计 | `/api/crazor/identity/me`、`/api/crazor/identity/members`、`/api/crazor/identity/tokens` | `team_members`、`actor_tokens.scopes` | REST/MCP 可通过 token 派生 actor，校验 scope，并受角色写入、敏感读取和业务读取上限约束 | 最小 UI 与 API 可用；当前访问 token、token scope、强制写入认证、角色级写入上限、敏感只读保护和业务只读保护已接入，完整登录态、审批和细粒度 RBAC 待补 |
 | 操作审计 | `teamops` 协作审计 | `/api/crazor/audit-logs` | `audit_logs` | MCP 写入、无 token、scope 越权、角色越权和敏感读取拒绝自动记录 | REST/MCP 写入、`missing-token deny_*`、scope/角色越权 `deny_*`、敏感读取 `deny_read` 审计可用；审批流待补 |
 | 数据分析 | `analytics` | `/api/crazor/analytics/*`、`/api/crazor/follow-up-reminders`、`/api/crazor/task-reminders` | 聚合 DB | 间接依赖 + MCP 任务提醒 | 可展示业务指标，可处理客户跟进提醒和项目任务到期提醒；需继续补业务指标定义 |
 | 集成 | `integrations` | 待核验 | 待核验 | 待核验 | 需要继续审计 |
@@ -174,6 +174,7 @@ graph TD
 | 强制写入认证 | `CRAZOR_REQUIRE_WRITE_TOKEN=true` + `/api/crazor/*` + `POST /mcp` | 通过 | 无 token REST/MCP 写入被拒绝，有效 token 放行，缺 token 与越权动作进入审计 |
 | 角色级 RBAC | `/api/crazor/*` + `POST /mcp` + `/api/crazor/audit-logs` | 通过 | admin 可写全部；member 被限制在业务域；viewer 不可写；agent 降级后已签发 token 的 MCP 写入被拒绝 |
 | 敏感只读保护 | `CRAZOR_REQUIRE_WRITE_TOKEN=true` + `/api/crazor/audit-logs` + `/api/crazor/identity/*` | 通过 | 无 token/无效 token/非 admin 读取敏感接口被拒绝；拒绝记录 `deny_read`；普通业务只读保持可读 |
+| 业务只读保护 | `CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true` + `/api/crazor/contacts` + `/api/crazor/analytics/overview` | 通过 | 无 token 读取业务数据被拒绝；viewer + `read:*` token 可读客户和分析；拒绝记录 `deny_read contact` |
 | 协作审计页面 | `teamops` | 通过 | 侧边栏入口、身份列表、当前访问 token、token 列表、审计日志查看 |
 | REST 操作审计 | `/api/crazor/audit-logs` | 通过 | API token 写入记录 actor/source/action/entity/payload_hash |
 | MCP SSE 操作审计 | `/mcp/sse` + `/api/crazor/audit-logs` | 通过 | Agent token 工具写入记录 actor/source/action/entity/payload_hash |

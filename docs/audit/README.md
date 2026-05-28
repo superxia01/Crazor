@@ -32,7 +32,7 @@
 
 操作审计的最小底座已接入：REST 和 MCP 写入会记录到 `audit_logs`，包含操作者类型、操作者 ID、来源、动作、实体、实体 ID、payload hash 和创建时间。
 
-可信 actor 来源与最小权限边界已接入：服务端新增团队成员与 actor token 表，REST 请求可以通过 `Authorization: Bearer` 或 `X-Crazor-Token` 派生 `human / api-token` 来源，MCP 工具调用可以派生 `agent / agent-token` 来源；token 已支持 `scopes`，REST/MCP 写入都会校验 scope，并被成员角色写入上限二次裁剪。开启 `CRAZOR_REQUIRE_WRITE_TOKEN=true` 后，无 token 写入会被拒绝；已有 active token 后，审计日志、成员列表、token 列表等敏感只读接口也会要求有权限的 token。越权写入和敏感只读拒绝会记录 `deny_*` 审计日志。
+可信 actor 来源与最小权限边界已接入：服务端新增团队成员与 actor token 表，REST 请求可以通过 `Authorization: Bearer` 或 `X-Crazor-Token` 派生 `human / api-token` 来源，MCP 工具调用可以派生 `agent / agent-token` 来源；token 已支持 `scopes`，REST/MCP 写入都会校验 scope，并被成员角色写入上限二次裁剪。开启 `CRAZOR_REQUIRE_WRITE_TOKEN=true` 后，无 token 写入会被拒绝；已有 active token 后，审计日志、成员列表、token 列表等敏感只读接口也会要求有权限的 token。开启 `CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true` 或 `CRAZOR_REQUIRE_READ_TOKEN=true` 后，客户、项目、任务、内容、文档、渠道、财务和分析等业务读取也会要求有权限的 token。越权写入、敏感只读拒绝和业务只读拒绝会记录 `deny_*` 审计日志。
 
 协作审计的最小工作台已接入：统一 Web 入口新增“协作审计”页面，可以创建团队成员或 Agent 身份、按权限范围签发/撤销 API token 和 agent token，设置当前访问 token，并查看真实 `audit_logs` 写入记录。
 
@@ -41,7 +41,7 @@
 - 客户 Case 已打通第一层业务深链路、项目任务联动、客户文档搜索跳转、附件归档、附件类型/大小策略、文本/图片预览、待跟进提醒处理和项目任务到期提醒；下一步要继续补客户级权限边界和更细的提醒规则配置。
 - 内容作品已打通追踪记录到知识库正文、正文搜索关联、发布动作、指标回收和复盘模板写入链路；下一步要补外部平台真实发布回执、自动采集指标和内容级权限边界。
 - 后端业务 API 与 MCP Tool 已经比较完整，前端已承接基础写入和客户 Case 深链路，下一步要补更细的协作权限和跨模块上下文。
-- 多人协作所需的身份管理、当前访问 token、token scope、强制写入认证、角色级写入上限、敏感只读保护和审计查看已经有最小 UI 与服务端拦截，但仍缺完整登录态、业务只读接口保护策略、细粒度 RBAC 策略和关键操作审批。
+- 多人协作所需的身份管理、当前访问 token、token scope、强制写入认证、角色级写入上限、敏感只读保护、业务只读保护和审计查看已经有最小 UI 与服务端拦截，但仍缺完整登录态、细粒度 RBAC 策略和关键操作审批。
 - Agent Gateway 的解耦原则已有文档，但代码和 UI 里仍有较多 Hermes 私有概念。
 
 ## 本轮烟测
@@ -318,6 +318,23 @@
 | 普通业务只读 `/api/crazor/contacts` | 保持 200，避免默认演示入口被整体锁死 |
 | 敏感只读拒绝审计 | 通过，记录 `deny_read audit_log` 和 `deny_read team_member` |
 | 恢复默认 `docker compose up -d --no-deps crazor-server crazor-web` | 通过，`CRAZOR_REQUIRE_WRITE_TOKEN=false`，`CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN` 为空，server/web/hermes 均 healthy |
+
+## 业务只读保护烟测
+
+通过本机 Docker 暴露入口 `http://127.0.0.1:5173` 验证，临时只读成员和 token 创建后已删除；烟测结束后已恢复默认 Docker 配置：
+
+| 链路 | 结果 |
+|------|------|
+| `docker compose build crazor-server crazor-web` | 通过 |
+| 默认模式创建 viewer + `read:*` API token | 通过 |
+| `CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true docker compose up -d --no-deps --force-recreate crazor-server` | 通过，server healthy |
+| 无 token 读取 `/api/crazor/contacts` | 被拒绝，返回 401，`required_scope=contact:read` |
+| viewer + `read:*` token 读取 `/api/crazor/contacts` | 通过 |
+| viewer + `read:*` token 读取 `/api/crazor/analytics/overview` | 通过，`analytics:read` 已纳入角色读取上限 |
+| 无 token 读取 `/api/crazor/identity/me` | 保持 200，避免初始化探测被锁死 |
+| 业务只读拒绝审计 | 通过，记录 `deny_read contact` |
+| 恢复默认 `docker compose up -d --no-deps --force-recreate crazor-server` | 通过，`CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=false`，server/web/hermes 均 healthy |
+| 临时只读成员和 token 清理 | 通过 |
 
 ## 协作审计页面烟测
 

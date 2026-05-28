@@ -40,13 +40,13 @@ const STATUS_LABELS = {
 }
 
 const TOKEN_SCOPE_PRESETS = [
-  { value: "*", label: "全部写入" },
-  { value: "crm:* docs:* project:* content:*", label: "成员默认" },
-  { value: "crm:* docs:* project:create", label: "客户协作" },
+  { value: "*", label: "全部权限" },
+  { value: "crm:* docs:* project:* content:* analytics:read", label: "成员默认" },
+  { value: "crm:* docs:read project:create project:read analytics:read", label: "客户协作" },
   { value: "docs:*", label: "文档知识库" },
-  { value: "project:* task:*", label: "项目交付" },
-  { value: "content:* docs:*", label: "内容运营" },
-  { value: "identity:*", label: "身份管理" },
+  { value: "project:* analytics:read", label: "项目交付" },
+  { value: "content:* docs:* analytics:read", label: "内容运营" },
+  { value: "identity:* audit:read", label: "身份管理" },
   { value: "read:*", label: "只读身份" },
 ]
 
@@ -114,14 +114,14 @@ function formatScopes(scopes) {
       .split(/[\s,，]+/)
       .filter(Boolean)
   if (values.length === 0) return "-"
-  if (values.includes("*")) return "全部写入"
+  if (values.includes("*")) return "全部权限"
   return values.join(" · ")
 }
 
 function defaultScopesForMember(member) {
   if (member?.role === "admin") return "*"
   if (member?.role === "viewer") return "read:*"
-  return "crm:* docs:* project:* content:*"
+  return "crm:* docs:* project:* content:* analytics:read"
 }
 
 export default function TeamOpsView() {
