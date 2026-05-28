@@ -75,6 +75,12 @@ CRAZOR_REQUIRE_WRITE_TOKEN=true
 
 开启后，`/api/crazor/*` 的写入请求和 MCP 写入工具都必须携带有效 API/Agent token。token 的 `scopes` 会决定可执行的动作，例如 `contact:create`、`project:*`、`docs:*`。越权写入会被拒绝，并进入 `audit_logs`。
 
+敏感只读接口默认跟随写入认证边界：当 `CRAZOR_REQUIRE_WRITE_TOKEN=true` 且系统已有 active token 时，`/api/crazor/audit-logs`、`/api/crazor/identity/members`、`/api/crazor/identity/tokens` 也必须携带有权限的 token。需要单独控制时可以设置：
+
+```env
+CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN=true
+```
+
 首次部署如果还没有 active token，系统仍允许创建第一个团队身份和 token，避免初始化锁死。拿到 token 后，在 Web 的“协作审计 / 当前访问 Token”里启用，后续业务写入会自动带上 `Authorization: Bearer`。
 
 ## Docker 代理

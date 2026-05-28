@@ -17,10 +17,16 @@ export type PermissionDecision = {
 const TOKEN_SOURCES = new Set(["api-token", "agent-token"])
 const WRITE_ACTIONS = new Set(["create", "update", "delete", "move", "reorder", "publish", "update_metrics", "install", "discover"])
 
-const ROLE_SCOPE_POLICIES: Record<string, string[]> = {
+const ROLE_WRITE_SCOPE_POLICIES: Record<string, string[]> = {
   admin: ["*"],
   member: ["crm:*", "docs:*", "project:*", "content:*"],
   viewer: [],
+}
+
+const ROLE_READ_SCOPE_POLICIES: Record<string, string[]> = {
+  admin: ["*"],
+  member: ["crm:*", "docs:*", "project:*", "content:*"],
+  viewer: ["crm:read", "docs:read", "project:read", "content:read"],
 }
 
 const ENTITY_GROUPS: Record<string, string[]> = {
@@ -30,6 +36,7 @@ const ENTITY_GROUPS: Record<string, string[]> = {
   projects: ["project", "task"],
   content: ["content_piece"],
   identity: ["team_member", "actor_token", "field_definition", "skill"],
+  audit: ["audit_log"],
   channel: ["channel", "channel_referral"],
   channels: ["channel", "channel_referral"],
 }
@@ -58,7 +65,15 @@ export function serializeScopes(input: unknown, fallback = "*"): string {
 }
 
 export function roleAllowedScopes(role: unknown): string[] {
-  return ROLE_SCOPE_POLICIES[clean(role) || "member"] || ROLE_SCOPE_POLICIES.member
+  return roleAllowedWriteScopes(role)
+}
+
+export function roleAllowedWriteScopes(role: unknown): string[] {
+  return ROLE_WRITE_SCOPE_POLICIES[clean(role) || "member"] || ROLE_WRITE_SCOPE_POLICIES.member
+}
+
+export function roleAllowedReadScopes(role: unknown): string[] {
+  return ROLE_READ_SCOPE_POLICIES[clean(role) || "member"] || ROLE_READ_SCOPE_POLICIES.member
 }
 
 export function requiredScope(entity: string, action: string): string {
@@ -88,8 +103,36 @@ export function evaluateWritePermission(actor: ActorPermissionContext | null | u
   return { allowed: false, status: 403, error: "permission denied", required_scope }
 }
 
+export function evaluateReadPermission(actor: ActorPermissionContext | null | undefined, entity: string): PermissionDecision {
+  const action = "read"
+  const required_scope = requiredScope(entity, action)
+
+  if (!actor) return { allowed: true, required_scope }
+  if (actor.source === "missing-token") {
+    return { allowed: false, status: 401, error: "token required", required_scope }
+  }
+  if (actor.source === "invalid-token") {
+    return { allowed: false, status: 401, error: "invalid token", required_scope }
+  }
+  if (!TOKEN_SOURCES.has(String(actor.source || ""))) return { allowed: true, required_scope }
+
+  const scopes = normalizeScopes(actor.scopes)
+  if (scopes.some((scope) => scopeAllows(scope, entity, action))) {
+    if (roleAllowsRead(actor.role, entity, action)) {
+      return { allowed: true, required_scope }
+    }
+    return { allowed: false, status: 403, error: "role denied", required_scope }
+  }
+
+  return { allowed: false, status: 403, error: "permission denied", required_scope }
+}
+
 function roleAllowsWrite(role: unknown, entity: string, action: string): boolean {
-  return roleAllowedScopes(role).some((scope) => scopeAllows(scope, entity, action))
+  return roleAllowedWriteScopes(role).some((scope) => scopeAllows(scope, entity, action))
+}
+
+function roleAllowsRead(role: unknown, entity: string, action: string): boolean {
+  return roleAllowedReadScopes(role).some((scope) => scopeAllows(scope, entity, action))
 }
 
 function scopeAllows(scope: string, entity: string, action: string): boolean {
@@ -106,6 +149,9 @@ function scopeAllows(scope: string, entity: string, action: string): boolean {
 
   // Also support write-oriented aliases such as write:crm and write:*.
   if (left === "write" && WRITE_ACTIONS.has(clean(action))) {
+    return entityMatches(right, entity)
+  }
+  if (left === "read" && clean(action) === "read") {
     return entityMatches(right, entity)
   }
 

@@ -32,13 +32,19 @@ import {
   AGENT_GATEWAY_URL,
   agentGatewayHeaders,
 } from './services/agent-gateway'
-import { evaluateWritePermission } from './services/crazor-permissions'
+import { evaluateReadPermission, evaluateWritePermission } from './services/crazor-permissions'
 
 const app = new Hono()
 
 // --- Config ---
 const PORT = parseInt(process.env.PORT || '3001')
 const CRAZOR_REQUIRE_WRITE_TOKEN = truthyEnv(process.env.CRAZOR_REQUIRE_WRITE_TOKEN || process.env.CRAZOR_REQUIRE_TOKEN_AUTH)
+const CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN = truthyEnv(
+  process.env.CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN ||
+  process.env.CRAZOR_REQUIRE_READ_TOKEN ||
+  process.env.CRAZOR_REQUIRE_WRITE_TOKEN ||
+  process.env.CRAZOR_REQUIRE_TOKEN_AUTH,
+)
 
 // --- Dashboard session token management ---
 let _dashboardToken: string | null = null
@@ -334,10 +340,29 @@ app.use('/api/crazor/*', async (c, next) => {
   const method = c.req.method.toUpperCase()
   const shouldAudit = AUDIT_WRITE_METHODS.has(method)
   const url = new URL(c.req.url)
+  const sensitiveRead = deriveSensitiveReadAudit(method, url.pathname)
   const requestText = shouldAudit
     ? await c.req.raw.clone().text().catch(() => '')
     : ''
-  const actor = shouldAudit ? resolveRequestActor(c, { actor_type: 'human', actor_id: 'anonymous', source: 'rest-api' }) : null
+  const actor = shouldAudit || sensitiveRead
+    ? resolveRequestActor(c, { actor_type: 'human', actor_id: 'anonymous', source: 'rest-api' })
+    : null
+
+  if (sensitiveRead && shouldProtectSensitiveRead()) {
+    const readActor = extractActorToken(c)
+      ? actor
+      : { actor_type: 'human', actor_id: 'missing-token', source: 'missing-token' }
+    const permission = evaluateReadPermission(readActor, sensitiveRead.entity)
+    if (!permission.allowed) {
+      recordDeniedRestRead(readActor, sensitiveRead, method, url.pathname, permission.required_scope)
+      return c.json({
+        error: permission.error,
+        required_scope: permission.required_scope,
+        auth_required: permission.status === 401,
+        actor_id: readActor?.actor_id || '',
+      }, permission.status || 403)
+    }
+  }
 
   if (shouldAudit && CRAZOR_REQUIRE_WRITE_TOKEN && !extractActorToken(c) && !canBootstrapIdentityWrite(url.pathname)) {
     const audit = deriveRestAudit(method, url.pathname, null, url.searchParams)
@@ -393,6 +418,35 @@ function truthyEnv(value: unknown): boolean {
 function canBootstrapIdentityWrite(pathname: string): boolean {
   if (!CRAZOR_REQUIRE_WRITE_TOKEN || hasActiveActorTokens()) return false
   return pathname === '/api/crazor/identity/members' || pathname === '/api/crazor/identity/tokens'
+}
+
+function shouldProtectSensitiveRead(): boolean {
+  return CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN && hasActiveActorTokens()
+}
+
+function deriveSensitiveReadAudit(method: string, pathname: string): { entity: string; entity_id: string } | null {
+  if (method !== 'GET') return null
+  if (pathname === '/api/crazor/audit-logs') return { entity: 'audit_log', entity_id: '' }
+  if (pathname === '/api/crazor/identity/members') return { entity: 'team_member', entity_id: '' }
+  if (pathname === '/api/crazor/identity/tokens') return { entity: 'actor_token', entity_id: '' }
+  return null
+}
+
+function recordDeniedRestRead(actor: any, audit: { entity: string; entity_id: string }, method: string, pathname: string, requiredScope: string) {
+  try {
+    createAuditLog({
+      actor_type: actor?.actor_type || 'human',
+      actor_id: actor?.actor_id || 'missing-token',
+      source: actor?.source || 'permission-denied',
+      action: 'deny_read',
+      entity: audit.entity,
+      entity_id: audit.entity_id,
+      payload: '',
+      summary: `${method} ${pathname} denied: ${requiredScope}`,
+    })
+  } catch (err) {
+    console.error('[audit] failed to record read permission denial:', err)
+  }
 }
 
 function recordDeniedRestWrite(actor: any, audit: { action: string; entity: string; entity_id: string }, method: string, pathname: string, requestText: string, requiredScope: string) {

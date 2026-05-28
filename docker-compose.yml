@@ -94,6 +94,7 @@ services:
       NOUS_API_KEY: ${NOUS_API_KEY:-}
       CRAZOR_SEED_DEMO_DATA: ${CRAZOR_SEED_DEMO_DATA:-false}
       CRAZOR_REQUIRE_WRITE_TOKEN: ${CRAZOR_REQUIRE_WRITE_TOKEN:-false}
+      CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN: ${CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN:-}
     volumes:
       - ./data/crazor:/data/crazor
       - ./data/hermes/state:/data/agent-state
