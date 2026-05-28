@@ -94,5 +94,8 @@ export {
   isWindows,
   isLinux,
   HERMES_SKILLS_INDEX_URL,
+  BROWSER_ENV_STORAGE_KEY,
+  loadBrowserEnvVars,
+  saveBrowserEnvVars,
   fetchMarketIndex,
 } from './browser-utils.js'

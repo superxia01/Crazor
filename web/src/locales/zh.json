@@ -168,7 +168,7 @@
     "commands": "Hermes指令",
     "commandsDescription": "查看 Hermes 指令手册",
     "integrations": "连接器",
-    "integrationsDescription": "管理外部服务集成与 API 绑定",
+    "integrationsDescription": "管理外部服务凭证与接入状态",
     "sidebar": {
       "group": {
         "ai": "AI",
@@ -269,7 +269,7 @@
     "sourceGithub": "GitHub",
     "sourceClawhub": "ClawHub",
     "sourceLobehub": "LobeHub",
-    "marketIndexNote": "市场数据来自官方 skills-index.json",
+    "marketIndexNote": "市场数据经 Crazor 服务端轻量代理读取",
     "loadingInstalledTitle": "正在读取本地技能...",
     "loadingInstalledDescription": "正在扫描 ~/.hermes/skills 与 config.yaml。",
     "installedInfoDescription": "当前列表直接读取本机 Hermes 的已安装技能，不是演示数据。",
@@ -280,7 +280,7 @@
     "emptyToolsetsTitle": "当前没有匹配的工具集",
     "emptyToolsetsDescription": "试试换个关键词，或检查本机 Hermes CLI 是否可用。",
     "loadingMarketTitle": "正在读取技能市场...",
-    "loadingMarketDescription": "正在从官方技能索引加载可安装技能。",
+    "loadingMarketDescription": "正在通过 Crazor 服务端代理加载可安装技能。",
     "emptyMarketTitle": "当前没有匹配的市场技能",
     "emptyMarketDescription": "换个关键词或来源筛选再试试。",
     "loadingDetailTitle": "正在读取技能详情...",

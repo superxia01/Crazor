@@ -261,8 +261,8 @@ function getConnectorStatus(connector, envMap) {
 }
 
 const STATUS_CONFIG = {
-  connected: { label: "已连接", dot: "bg-emerald-500", badge: "bg-emerald-100 text-emerald-700" },
-  partial: { label: "部分配置", dot: "bg-amber-500", badge: "bg-amber-100 text-amber-700" },
+  connected: { label: "凭证完整", dot: "bg-emerald-500", badge: "bg-emerald-100 text-emerald-700" },
+  partial: { label: "部分填写", dot: "bg-amber-500", badge: "bg-amber-100 text-amber-700" },
   disconnected: { label: "未配置", dot: "bg-zinc-300", badge: "bg-zinc-100 text-zinc-500" },
 }
 
@@ -562,7 +562,7 @@ export default function IntegrationsView() {
   return (
     <ViewFrame
       title="连接器"
-      description="管理外部服务集成与 API 绑定"
+      description="管理外部服务凭证与接入状态"
       icon={PlugIcon}
     >
       <div className="flex-1 overflow-auto">

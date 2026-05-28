@@ -47,7 +47,7 @@ graph TD
 | 团队身份与接入凭证 | `teamops` 协作审计 | `/api/crazor/identity/me`、`/api/crazor/identity/members`、`/api/crazor/identity/tokens` | `team_members`、`actor_tokens.scopes` | REST/MCP 可通过 token 派生 actor，校验 scope，并受角色写入、敏感读取和业务读取上限约束 | 最小 UI 与 API 可用；当前访问 token、token scope、强制写入认证、角色级写入上限、敏感只读保护和业务只读保护已接入，完整登录态、审批和细粒度 RBAC 待补 |
 | 操作审计 | `teamops` 协作审计 | `/api/crazor/audit-logs` | `audit_logs` | MCP 写入、无 token、scope 越权、角色越权和敏感读取拒绝自动记录 | REST/MCP 写入、`missing-token deny_*`、scope/角色越权 `deny_*`、敏感读取 `deny_read` 审计可用；审批流待补 |
 | 数据分析 | `analytics` | `/api/crazor/analytics/*`、`/api/crazor/follow-up-reminders`、`/api/crazor/task-reminders` | 聚合 DB | 间接依赖 + MCP 任务提醒 | 可展示业务指标，可处理客户跟进提醒和项目任务到期提醒；需继续补业务指标定义 |
-| 集成 | `integrations` | 待核验 | 待核验 | 待核验 | 需要继续审计 |
+| 集成 / 连接器 | `integrations` | `/api/env`、`/api/env/:key/reveal` | Hermes Dashboard env 配置 | Provider 环境变量 | 可保存、清除预设和自定义连接器凭证；状态已改为“凭证完整/部分填写”，避免误判为外部业务已连接；真实回调、同步任务和外部平台连通性测试待补 |
 | 3D 办公室 | `office` | 前端状态为主 | 本地状态 | 暂无关键业务闭环 | 演示型能力 |
 
 ## 核心业务链路
@@ -140,6 +140,7 @@ graph TD
 | `/api/crazor/identity/tokens` | 200 | actor token API 可读写，明文 token 只在创建时返回，可配置 scopes；严格模式已有 active token 后列表需要有权限 token |
 | `POST /mcp` | 200 | MCP StreamableHTTP 统一入口可用，返回 `Mcp-Session-Id` |
 | `/api/crazor/docs/knowledge/tree` | 200 | 知识库树可读 |
+| `/api/env` | 200 | 连接器凭证配置可读写；仅代表 Provider 环境变量状态，不代表外部平台真实连通 |
 | `/api/workspaces` | 200 | 工作区可读 |
 | `/api/sessions` | 200 | 会话列表可读 |
 

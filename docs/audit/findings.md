@@ -97,15 +97,17 @@
 **现象**
 
 - `web/src/api/mock-data.js` 仍存在，但当前未发现业务入口直接导入。
-- `web/src/api/browser-utils.js` 仍保留直接拉取 Hermes skills index 的函数，当前市场页面使用服务端代理，但这个函数未来可能绕过轻量化修复。
+- 连接器页面当前只能管理 Provider 环境变量凭证，不能证明飞书、企业微信、小红书、GitHub 等外部平台已经完成真实 API 连通、回调接收或数据同步。
+- 连接器卡片此前会把凭证填满显示为“已连接”，本轮已改为“凭证完整/部分填写”，避免把配置状态误判成真实业务链路。
+- `web/src/api/browser-utils.js` 此前保留直接拉取 Hermes skills index 的函数，当前已改为统一走服务端 `/api/skills/market` 轻量代理。
 
 **影响**
 
-后续开发者容易误判“功能已经配置好了”，但入口实际没有使用。
+后续开发者容易误判“功能已经配置好了”，但入口实际只保存了凭证，还没有完成外部平台的端到端集成。
 
 **建议**
 
-未使用配置要么接入，要么归档；市场索引统一走服务端 `/api/skills/market`。任何演示路径不允许展示 mock 数据。
+未使用配置要么接入，要么归档；任何演示路径不允许展示 mock 数据。连接器下一步要补真实连通性测试、Webhook 回调入口、同步任务和失败审计。
 
 ### P2：中文化仍需收口
 
@@ -162,6 +164,9 @@
 | 核心业务链路缺少可重复交付烟测 | 已修复，新增 `scripts/crazor-smoke.mjs` 与 `./scripts/hermes smoke`，覆盖核心 Docker MVP 链路、MCP StreamableHTTP Agent 工具链路并自动清理临时数据 |
 | 统一 Web 入口 `POST /mcp` 被 Nginx 301 到丢失端口的 `/mcp/` | 已修复，新增精确代理规则，StreamableHTTP 可直接返回 `Mcp-Session-Id` |
 | 团队身份、token 与审计日志没有统一页面 | 已修复，新增“协作审计”页面 |
+| 设置页 Dashboard 保存按钮导入不存在的浏览器工具 | 已修复，补 `loadBrowserEnvVars` / `saveBrowserEnvVars`，端口保存可重复验证 |
+| 浏览器端技能市场工具绕过服务端轻量代理 | 已修复，`fetchMarketIndex` 统一请求 `/api/skills/market` |
+| 连接器凭证填满后显示“已连接”容易误导真实链路 | 已修复，页面改为“凭证完整/部分填写” |
 
 ## 本轮验证记录
 
@@ -188,3 +193,4 @@
 | 业务只读保护烟测 | 开启 `CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true` 后，无 token 读取客户列表返回 401；`read:*` token 可读客户和分析数据；拒绝进入 `deny_read contact` 审计 |
 | 协作审计页面烟测 | Web Docker 构建通过；身份 API、token API、审计 API 均通过统一入口验证 |
 | 自动交付烟测脚本 | `node --check scripts/crazor-smoke.mjs`、`bash -n scripts/hermes`、`./scripts/hermes smoke`、`./scripts/hermes smoke-strict` 均通过；严格模式匿名 REST/MCP 写入被拒绝；MCP initialize/tools/list/create_contact/get_task_reminders 通过；临时客户、MCP 客户、文档、附件、渠道、流水、项目、任务、内容和身份已清理 |
+| 连接器与浏览器工具补充验证 | `node --test web/src/api/browser-utils.test.js web/src/integrations-status.test.js` 通过；`docker compose build crazor-web` 通过；运行中 Web 容器已替换为最新镜像，`127.0.0.1:5173` 与 `192.168.103.4:5173` 健康检查通过 |
