@@ -17,6 +17,12 @@ export type PermissionDecision = {
 const TOKEN_SOURCES = new Set(["api-token", "agent-token"])
 const WRITE_ACTIONS = new Set(["create", "update", "delete", "move", "reorder", "publish", "update_metrics", "install", "discover"])
 
+const ROLE_SCOPE_POLICIES: Record<string, string[]> = {
+  admin: ["*"],
+  member: ["crm:*", "docs:*", "project:*", "content:*"],
+  viewer: [],
+}
+
 const ENTITY_GROUPS: Record<string, string[]> = {
   crm: ["contact", "follow_up", "transaction", "channel", "channel_referral", "contact_doc"],
   docs: ["doc", "doc_note", "doc_folder", "doc_file", "contact_doc"],
@@ -51,6 +57,10 @@ export function serializeScopes(input: unknown, fallback = "*"): string {
   return scopes.length > 0 ? scopes.join(",") : fallback
 }
 
+export function roleAllowedScopes(role: unknown): string[] {
+  return ROLE_SCOPE_POLICIES[clean(role) || "member"] || ROLE_SCOPE_POLICIES.member
+}
+
 export function requiredScope(entity: string, action: string): string {
   return `${clean(entity)}:${clean(action)}`
 }
@@ -69,10 +79,17 @@ export function evaluateWritePermission(actor: ActorPermissionContext | null | u
 
   const scopes = normalizeScopes(actor.scopes)
   if (scopes.some((scope) => scopeAllows(scope, entity, action))) {
-    return { allowed: true, required_scope }
+    if (roleAllowsWrite(actor.role, entity, action)) {
+      return { allowed: true, required_scope }
+    }
+    return { allowed: false, status: 403, error: "role denied", required_scope }
   }
 
   return { allowed: false, status: 403, error: "permission denied", required_scope }
+}
+
+function roleAllowsWrite(role: unknown, entity: string, action: string): boolean {
+  return roleAllowedScopes(role).some((scope) => scopeAllows(scope, entity, action))
 }
 
 function scopeAllows(scope: string, entity: string, action: string): boolean {

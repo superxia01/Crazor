@@ -28,7 +28,7 @@
 
 操作审计的最小底座已接入：REST 和 MCP 写入会记录到 `audit_logs`，包含操作者类型、操作者 ID、来源、动作、实体、实体 ID、payload hash 和创建时间。
 
-可信 actor 来源与最小写入权限边界已接入：服务端新增团队成员与 actor token 表，REST 请求可以通过 `Authorization: Bearer` 或 `X-Crazor-Token` 派生 `human / api-token` 来源，MCP 工具调用可以派生 `agent / agent-token` 来源；token 已支持 `scopes`，REST/MCP 写入都会校验 scope。开启 `CRAZOR_REQUIRE_WRITE_TOKEN=true` 后，无 token 写入会被拒绝；越权写入会记录 `deny_*` 审计日志。
+可信 actor 来源与最小写入权限边界已接入：服务端新增团队成员与 actor token 表，REST 请求可以通过 `Authorization: Bearer` 或 `X-Crazor-Token` 派生 `human / api-token` 来源，MCP 工具调用可以派生 `agent / agent-token` 来源；token 已支持 `scopes`，REST/MCP 写入都会校验 scope，并被成员角色写入上限二次裁剪。开启 `CRAZOR_REQUIRE_WRITE_TOKEN=true` 后，无 token 写入会被拒绝；越权写入会记录 `deny_*` 审计日志。
 
 协作审计的最小工作台已接入：统一 Web 入口新增“协作审计”页面，可以创建团队成员或 Agent 身份、按权限范围签发/撤销 API token 和 agent token，设置当前访问 token，并查看真实 `audit_logs` 写入记录。
 
@@ -36,7 +36,7 @@
 
 - 客户 Case 已打通第一层业务深链路，但附件归档、项目任务联动、客户文档搜索跳转仍需继续补齐。
 - 后端业务 API 与 MCP Tool 已经比较完整，前端已承接基础写入和客户 Case 深链路，下一步要补更细的协作权限和跨模块上下文。
-- 多人协作所需的身份管理、当前访问 token、token scope、强制写入认证和审计查看已经有最小 UI 与服务端拦截，但仍缺完整登录态、角色级 RBAC 矩阵、只读接口保护和关键操作审批。
+- 多人协作所需的身份管理、当前访问 token、token scope、强制写入认证、角色级写入上限和审计查看已经有最小 UI 与服务端拦截，但仍缺完整登录态、细粒度 RBAC 策略、只读接口保护和关键操作审批。
 - Agent Gateway 的解耦原则已有文档，但代码和 UI 里仍有较多 Hermes 私有概念。
 
 ## 本轮烟测
@@ -175,6 +175,24 @@
 | 无 token / 越权写入审计 | 通过，记录 `missing-token deny_create` 和窄 scope `deny_create` |
 | 临时客户、成员、token、客户目录清理 | 通过，`cleanup_errors` 为空 |
 | 恢复默认 `docker compose up -d --no-deps crazor-server crazor-web` | 通过，server/web/hermes 均 healthy |
+
+## 角色级 RBAC 烟测
+
+通过本机 Docker 暴露入口 `http://127.0.0.1:5173` 验证，临时成员、token 和客户数据创建后已全部删除；烟测结束后已恢复默认 Docker 配置：
+
+| 链路 | 结果 |
+|------|------|
+| `docker compose build crazor-server crazor-web` | 通过 |
+| `CRAZOR_REQUIRE_WRITE_TOKEN=true docker compose up -d --no-deps crazor-server` | 通过，server healthy |
+| admin token 解析 `/api/crazor/identity/me` | 通过，返回 `role=admin` |
+| member + `*` scope 创建客户 | 通过 |
+| member + `*` scope 创建团队身份 | 被拒绝，返回 403，`error=role denied`，`required_scope=team_member:create` |
+| viewer + `*` scope 创建客户 | 被拒绝，返回 403，`error=role denied`，`required_scope=contact:create` |
+| agent member token 调 MCP `create_contact` | 通过 |
+| 同一 agent token 在成员角色降为 viewer 后再次调 MCP `create_contact` | 被拒绝，返回 MCP `isError=true`，错误包含 `role denied` |
+| REST/MCP 角色越权审计 | 通过，记录 `deny_create team_member` 和 `deny_create contact` |
+| 临时客户、成员、token、客户目录清理 | 通过 |
+| 恢复默认 `docker compose up -d --no-deps crazor-server crazor-web` | 通过，`CRAZOR_REQUIRE_WRITE_TOKEN=false`，server/web/hermes 均 healthy |
 
 ## 协作审计页面烟测
 

@@ -41,11 +41,13 @@ const STATUS_LABELS = {
 
 const TOKEN_SCOPE_PRESETS = [
   { value: "*", label: "全部写入" },
+  { value: "crm:* docs:* project:* content:*", label: "成员默认" },
   { value: "crm:* docs:* project:create", label: "客户协作" },
   { value: "docs:*", label: "文档知识库" },
   { value: "project:* task:*", label: "项目交付" },
   { value: "content:* docs:*", label: "内容运营" },
   { value: "identity:*", label: "身份管理" },
+  { value: "read:*", label: "只读身份" },
 ]
 
 const ENTITY_LABELS = {
@@ -114,6 +116,12 @@ function formatScopes(scopes) {
   if (values.length === 0) return "-"
   if (values.includes("*")) return "全部写入"
   return values.join(" · ")
+}
+
+function defaultScopesForMember(member) {
+  if (member?.role === "admin") return "*"
+  if (member?.role === "viewer") return "read:*"
+  return "crm:* docs:* project:* content:*"
 }
 
 export default function TeamOpsView() {
@@ -203,7 +211,7 @@ export default function TeamOpsView() {
 
   useEffect(() => {
     if (!tokenForm.member_id && activeMembers.length > 0) {
-      setTokenForm((current) => ({ ...current, member_id: activeMembers[0].id }))
+      setTokenForm((current) => ({ ...current, member_id: activeMembers[0].id, scopes: defaultScopesForMember(activeMembers[0]) }))
     }
   }, [activeMembers, tokenForm.member_id])
 
@@ -462,7 +470,10 @@ export default function TeamOpsView() {
                       <select
                         value={tokenForm.member_id}
                         onChange={(event) =>
-                          setTokenForm((current) => ({ ...current, member_id: event.target.value }))
+                          setTokenForm((current) => {
+                            const member = activeMembers.find((item) => item.id === event.target.value)
+                            return { ...current, member_id: event.target.value, scopes: defaultScopesForMember(member) }
+                          })
                         }
                         className={fieldClassName}>
                         <option value="">选择身份</option>
