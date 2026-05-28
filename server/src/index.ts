@@ -341,7 +341,7 @@ app.get('/api/env', async (c) => {
 app.post('/api/env', async (c) => {
   const body = await c.req.json()
   const resp = await dashboardFetch(`/api/env`, {
-    method: 'POST',
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
