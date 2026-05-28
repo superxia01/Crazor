@@ -6,6 +6,9 @@ let authToken = (process.env.CRAZOR_SMOKE_TOKEN || "").trim()
 
 const cleanupStack = []
 const summary = []
+let rpcId = 1
+let mcpSessionId = ""
+let mcpAgentToken = ""
 
 function normalizeBaseUrl(value) {
   return String(value || "").replace(/\/+$/, "")
@@ -206,6 +209,110 @@ async function requestWithToken(path, token, options = {}) {
   }
 }
 
+async function createAgentToken() {
+  const member = await request("/api/crazor/identity/members", {
+    method: "POST",
+    body: {
+      name: unique("烟测Agent"),
+      actor_type: "agent",
+      role: "member",
+      status: "active",
+    },
+  })
+  const memberId = member.data.id
+  trackCleanup("烟测 Agent 身份", () => deleteIfExists(`/api/crazor/identity/members/${encodeURIComponent(memberId)}`))
+
+  const token = await request("/api/crazor/identity/tokens", {
+    method: "POST",
+    body: {
+      member_id: memberId,
+      token_type: "agent",
+      label: "docker-smoke-agent",
+      scopes: "contact:create read:*",
+    },
+  })
+  assert(token.data?.token, "Agent token 未返回明文 token", token.data)
+  return token.data.token
+}
+
+async function mcpRpc(method, params = undefined, options = {}) {
+  const token = options.token || mcpAgentToken || authToken
+  const headers = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  }
+  if (token) headers.Authorization = `Bearer ${token}`
+  if (mcpSessionId) headers["Mcp-Session-Id"] = mcpSessionId
+
+  const body = {
+    jsonrpc: "2.0",
+    id: options.id || rpcId++,
+    method,
+  }
+  if (params !== undefined) body.params = params
+
+  const response = await fetch(urlFor("/mcp"), {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  })
+  const sessionId = response.headers.get("Mcp-Session-Id")
+  if (sessionId) mcpSessionId = sessionId
+
+  const text = await response.text()
+  let data = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    data = text
+  }
+  const expected = options.expect || [200]
+  if (!expected.includes(response.status)) {
+    throw new Error(`POST /mcp ${method} 返回 ${response.status}：${text}`)
+  }
+  if (data?.error) {
+    throw new Error(`MCP ${method} 返回错误：${JSON.stringify(data.error)}`)
+  }
+  return { status: response.status, data, text, sessionId }
+}
+
+async function mcpNotification(method) {
+  const headers = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  }
+  if (mcpAgentToken) headers.Authorization = `Bearer ${mcpAgentToken}`
+  if (mcpSessionId) headers["Mcp-Session-Id"] = mcpSessionId
+
+  const response = await fetch(urlFor("/mcp"), {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ jsonrpc: "2.0", method }),
+  })
+  const sessionId = response.headers.get("Mcp-Session-Id")
+  if (sessionId) mcpSessionId = sessionId
+  assert(response.status === 202, `MCP ${method} 通知未返回 202`, { status: response.status, body: await response.text() })
+}
+
+function parseMcpToolResult(response, toolName) {
+  assert(!response.data?.result?.isError, `MCP ${toolName} 工具返回 isError`, response.data)
+  const text = response.data?.result?.content?.[0]?.text
+  assert(text, `MCP ${toolName} 工具未返回文本结果`, response.data)
+  try {
+    return JSON.parse(text)
+  } catch (error) {
+    throw new Error(`MCP ${toolName} 工具结果不是 JSON：${text}`)
+  }
+}
+
+async function callMcpTool(name, args = {}) {
+  const response = await mcpRpc("tools/call", {
+    name,
+    arguments: args,
+  })
+  return parseMcpToolResult(response, name)
+}
+
 async function main() {
   log(`Crazor Docker MVP 烟测开始：${baseUrl}`)
 
@@ -226,6 +333,40 @@ async function main() {
     const me = await request("/api/crazor/identity/me")
     assert(me.data?.actor_id, "当前 token 未能派生 actor", me.data)
     assert(auth.tokenSource === "env" || me.data.actor_id === auth.memberId, "派生 actor 与烟测身份不一致", me.data)
+  })
+
+  await step("MCP StreamableHTTP Agent 工具链路", async () => {
+    mcpAgentToken = await createAgentToken()
+    const init = await mcpRpc("initialize", {
+      protocolVersion: "2025-03-26",
+      capabilities: {},
+      clientInfo: { name: "crazor-smoke", version: "1.0.0" },
+    }, { token: mcpAgentToken })
+    assert(mcpSessionId, "MCP initialize 未返回 Mcp-Session-Id", init.data)
+    assert(init.data?.result?.serverInfo?.name === "crazor-mcp", "MCP initialize 未返回 Crazor 服务信息", init.data)
+
+    await mcpNotification("notifications/initialized")
+
+    const list = await mcpRpc("tools/list")
+    const tools = list.data?.result?.tools || []
+    assert(tools.some((tool) => tool.name === "create_contact"), "MCP tools/list 缺少 create_contact", tools)
+    assert(tools.some((tool) => tool.name === "get_task_reminders"), "MCP tools/list 缺少 get_task_reminders", tools)
+
+    const mcpContact = await callMcpTool("create_contact", {
+      name: unique("烟测MCP客户"),
+      company: "CRAZYAIGC MCP 烟测公司",
+      source: "mcp-smoke",
+      stage: "新线索",
+    })
+    assert(mcpContact?.id, "MCP create_contact 未返回客户 ID", mcpContact)
+    trackCleanup("烟测 MCP 客户", () => deleteIfExists(`/api/crazor/contacts/${encodeURIComponent(mcpContact.id)}`))
+
+    const logs = await request(query("/api/crazor/audit-logs", { entity: "contact", entity_id: mcpContact.id, limit: "20" }))
+    assert(
+      logs.data.some((item) => item.action === "create" && item.source === "agent-token"),
+      "MCP create_contact 未记录 agent-token 审计来源",
+      logs.data,
+    )
   })
 
   await step("业务只读边界探测", async () => {
@@ -412,6 +553,10 @@ async function main() {
 
     const reminders = await request("/api/crazor/task-reminders")
     assert(reminders.data.some((item) => item.id === task.id), "今日到期任务未进入任务提醒", reminders.data)
+
+    const mcpReminders = await callMcpTool("get_task_reminders", { limit: 50 })
+    assert(Array.isArray(mcpReminders), "MCP get_task_reminders 未返回数组", mcpReminders)
+    assert(mcpReminders.some((item) => item.id === task.id), "MCP get_task_reminders 未读到今日到期任务", mcpReminders)
 
     await request(`/api/crazor/tasks/${encodeURIComponent(task.id)}`, {
       method: "PATCH",

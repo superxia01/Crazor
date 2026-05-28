@@ -344,7 +344,7 @@ http://局域网IP:5173
 ./scripts/hermes smoke
 ```
 
-烟测会创建临时客户、文档、附件、渠道、流水、项目、任务、内容和 token，验证后自动清理。需要验证局域网入口时可指定：
+烟测会创建临时客户、文档、附件、渠道、流水、项目、任务、内容、API token 和 agent token，并验证 MCP StreamableHTTP 工具入口，验证后自动清理。需要验证局域网入口时可指定：
 
 ```bash
 CRAZOR_SMOKE_BASE_URL=http://局域网IP:5173 ./scripts/hermes smoke

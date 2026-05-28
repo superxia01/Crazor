@@ -65,7 +65,7 @@ curl -sS http://localhost:5173/api/health
 ./scripts/hermes smoke
 ```
 
-烟测会通过 Web 统一入口验证后端健康、Hermes 状态代理、身份 token、客户 Case、文档、附件、渠道、财务流水、项目任务、内容发布、分析概览和审计日志，并在结束后清理临时业务数据。
+烟测会通过 Web 统一入口验证后端健康、Hermes 状态代理、MCP StreamableHTTP、身份 token、客户 Case、文档、附件、渠道、财务流水、项目任务、内容发布、分析概览和审计日志，并在结束后清理临时业务数据。
 
 验证局域网入口：
 
