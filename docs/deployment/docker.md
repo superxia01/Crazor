@@ -59,6 +59,24 @@ docker compose ps
 curl -sS http://localhost:5173/api/health
 ```
 
+## 写入认证边界
+
+内部演示或单机调试可以保持默认：
+
+```env
+CRAZOR_REQUIRE_WRITE_TOKEN=false
+```
+
+团队协作环境建议开启：
+
+```env
+CRAZOR_REQUIRE_WRITE_TOKEN=true
+```
+
+开启后，`/api/crazor/*` 的写入请求和 MCP 写入工具都必须携带有效 API/Agent token。token 的 `scopes` 会决定可执行的动作，例如 `contact:create`、`project:*`、`docs:*`。越权写入会被拒绝，并进入 `audit_logs`。
+
+首次部署如果还没有 active token，系统仍允许创建第一个团队身份和 token，避免初始化锁死。拿到 token 后，在 Web 的“协作审计 / 当前访问 Token”里启用，后续业务写入会自动带上 `Authorization: Bearer`。
+
 ## Docker 代理
 
 在 macOS + OrbStack 环境，如果 Docker Hub 拉取大镜像不稳定，可以同时配置 OrbStack 网络代理和 Docker engine 代理。

@@ -11,7 +11,7 @@ graph TD
   Web --> HermesDashboard["Hermes Dashboard 代理能力"]
   Server --> DB["SQLite 业务数据"]
   Server --> Identity["team_members / actor_tokens"]
-  Server --> Permission["Token Scope 权限校验"]
+  Server --> Permission["写入认证 / Token Scope"]
   Server --> Audit["audit_logs 操作审计"]
   Server --> Vault["Markdown Vault 知识库"]
   Server --> MCP["Crazor MCP Server"]
@@ -44,8 +44,8 @@ graph TD
 | 文件管理 | `files` | `/api/files/*` | Hermes workspace files | Provider 文件能力 | 依赖 workspace 配置 |
 | 终端 | `terminal` | `/api/terminal/sessions/*` | Hermes workspace | Provider 终端能力 | 可用性依赖 Hermes |
 | 工作区 | 侧边栏工作区 | `/api/workspaces/*` | Hermes/Crazor 配置 | 影响文件、终端、会话 | 基础可用，需要权限和隔离策略 |
-| 团队身份与接入凭证 | `teamops` 协作审计 | `/api/crazor/identity/me`、`/api/crazor/identity/members`、`/api/crazor/identity/tokens` | `team_members`、`actor_tokens.scopes` | REST/MCP 可通过 token 派生 actor 并校验 scope | 最小 UI 与 API 可用；token scope 已接入，强制登录、角色级 RBAC 和审批待补 |
-| 操作审计 | `teamops` 协作审计 | `/api/crazor/audit-logs` | `audit_logs` | MCP 写入和越权拒绝自动记录 | REST/MCP 写入和 `deny_*` 拒绝审计可用；审批流待补 |
+| 团队身份与接入凭证 | `teamops` 协作审计 | `/api/crazor/identity/me`、`/api/crazor/identity/members`、`/api/crazor/identity/tokens` | `team_members`、`actor_tokens.scopes` | REST/MCP 可通过 token 派生 actor 并校验 scope | 最小 UI 与 API 可用；当前访问 token、token scope 和强制写入认证已接入，完整登录态、角色级 RBAC、只读保护和审批待补 |
+| 操作审计 | `teamops` 协作审计 | `/api/crazor/audit-logs` | `audit_logs` | MCP 写入、无 token 和越权拒绝自动记录 | REST/MCP 写入、`missing-token deny_*` 和越权 `deny_*` 审计可用；审批流待补 |
 | 数据分析 | `analytics` | `/api/crazor/analytics/*` | 聚合 DB | 间接依赖 | 可展示，需补业务指标定义 |
 | 集成 | `integrations` | 待核验 | 待核验 | 待核验 | 需要继续审计 |
 | 3D 办公室 | `office` | 前端状态为主 | 本地状态 | 暂无关键业务闭环 | 演示型能力 |
@@ -161,7 +161,8 @@ graph TD
 | actor token | `/api/crazor/identity/tokens` | 通过 | 创建、查询、撤销临时 token |
 | REST token scope | `/api/crazor/*` + `/api/crazor/audit-logs` | 通过 | `contact:create` token 可创建客户，创建项目被 403 拒绝并记录 `deny_create` |
 | MCP token scope | `POST /mcp` + `/api/crazor/audit-logs` | 通过 | `contact:create` agent token 可调 `create_contact`，调 `create_project` 返回 `isError=true` 并记录 `deny_create` |
-| 协作审计页面 | `teamops` | 通过 | 侧边栏入口、身份列表、token 列表、审计日志查看 |
+| 强制写入认证 | `CRAZOR_REQUIRE_WRITE_TOKEN=true` + `/api/crazor/*` + `POST /mcp` | 通过 | 无 token REST/MCP 写入被拒绝，有效 token 放行，缺 token 与越权动作进入审计 |
+| 协作审计页面 | `teamops` | 通过 | 侧边栏入口、身份列表、当前访问 token、token 列表、审计日志查看 |
 | REST 操作审计 | `/api/crazor/audit-logs` | 通过 | API token 写入记录 actor/source/action/entity/payload_hash |
 | MCP SSE 操作审计 | `/mcp/sse` + `/api/crazor/audit-logs` | 通过 | Agent token 工具写入记录 actor/source/action/entity/payload_hash |
 | MCP StreamableHTTP 操作审计 | `POST /mcp` + `/api/crazor/audit-logs` | 通过 | Agent token 工具写入记录 actor/source/action/entity/payload_hash |

@@ -28,15 +28,15 @@
 
 操作审计的最小底座已接入：REST 和 MCP 写入会记录到 `audit_logs`，包含操作者类型、操作者 ID、来源、动作、实体、实体 ID、payload hash 和创建时间。
 
-可信 actor 来源与最小权限边界已接入：服务端新增团队成员与 actor token 表，REST 请求可以通过 `Authorization: Bearer` 或 `X-Crazor-Token` 派生 `human / api-token` 来源，MCP 工具调用可以派生 `agent / agent-token` 来源；token 已支持 `scopes`，REST/MCP 写入都会校验 scope，越权写入会被拒绝并记录 `deny_*` 审计日志。
+可信 actor 来源与最小写入权限边界已接入：服务端新增团队成员与 actor token 表，REST 请求可以通过 `Authorization: Bearer` 或 `X-Crazor-Token` 派生 `human / api-token` 来源，MCP 工具调用可以派生 `agent / agent-token` 来源；token 已支持 `scopes`，REST/MCP 写入都会校验 scope。开启 `CRAZOR_REQUIRE_WRITE_TOKEN=true` 后，无 token 写入会被拒绝；越权写入会记录 `deny_*` 审计日志。
 
-协作审计的最小工作台已接入：统一 Web 入口新增“协作审计”页面，可以创建团队成员或 Agent 身份、按权限范围签发/撤销 API token 和 agent token，并查看真实 `audit_logs` 写入记录。
+协作审计的最小工作台已接入：统一 Web 入口新增“协作审计”页面，可以创建团队成员或 Agent 身份、按权限范围签发/撤销 API token 和 agent token，设置当前访问 token，并查看真实 `audit_logs` 写入记录。
 
 但从“团队内部真实使用”的标准看，产品仍不是完整闭环。核心差距在于：
 
 - 客户 Case 已打通第一层业务深链路，但附件归档、项目任务联动、客户文档搜索跳转仍需继续补齐。
 - 后端业务 API 与 MCP Tool 已经比较完整，前端已承接基础写入和客户 Case 深链路，下一步要补更细的协作权限和跨模块上下文。
-- 多人协作所需的身份管理、token scope 和审计查看已经有最小 UI 与服务端拦截，但仍缺强制登录边界、角色级 RBAC 矩阵和关键操作审批。
+- 多人协作所需的身份管理、当前访问 token、token scope、强制写入认证和审计查看已经有最小 UI 与服务端拦截，但仍缺完整登录态、角色级 RBAC 矩阵、只读接口保护和关键操作审批。
 - Agent Gateway 的解耦原则已有文档，但代码和 UI 里仍有较多 Hermes 私有概念。
 
 ## 本轮烟测
@@ -158,6 +158,24 @@
 | REST/MCP 越权写入审计 | 通过，记录 `deny_create project` |
 | 临时客户、成员、token、客户目录清理 | 通过，`cleanup_errors` 为空 |
 
+## 强制写入认证烟测
+
+通过本机 Docker 暴露入口 `http://127.0.0.1:5173` 验证，临时成员、token、客户目录创建后已全部删除；烟测结束后已恢复默认 Docker 配置：
+
+| 链路 | 结果 |
+|------|------|
+| `CRAZOR_REQUIRE_WRITE_TOKEN=true docker compose up -d --no-deps crazor-server crazor-web` | 通过，server healthy |
+| 无 token 调 REST 创建客户 | 被拒绝，返回 401，`required_scope=contact:create` |
+| 全权限 API token 调 `/api/crazor/identity/me` | 通过，可读回 actor 与 `scopes=["*"]` |
+| `contact:create` API token 调 REST 创建客户 | 通过 |
+| 同一 API token 调 REST 创建项目 | 被拒绝，返回 403 |
+| 无 token 调 MCP `create_contact` | 被拒绝，返回 MCP `isError=true` |
+| `contact:create` agent token 调 MCP `create_contact` | 通过 |
+| 同一 agent token 调 MCP `create_project` | 被拒绝，返回 MCP `isError=true` |
+| 无 token / 越权写入审计 | 通过，记录 `missing-token deny_create` 和窄 scope `deny_create` |
+| 临时客户、成员、token、客户目录清理 | 通过，`cleanup_errors` 为空 |
+| 恢复默认 `docker compose up -d --no-deps crazor-server crazor-web` | 通过，server/web/hermes 均 healthy |
+
 ## 协作审计页面烟测
 
 通过本机 Docker 暴露入口 `http://127.0.0.1:5173` 验证：
@@ -166,7 +184,7 @@
 |------|------|
 | `docker compose build crazor-web` | 通过，生成 `TeamOpsView` 前端 chunk |
 | 侧边栏“协作审计”入口 | 已接入 `teamops` 视图 |
-| 页面依赖身份 API | 通过，成员创建、按权限范围签发 token、token 列表不返回 `token_hash` |
+| 页面依赖身份 API | 通过，成员创建、按权限范围签发 token、设置当前访问 token、token 列表不返回 `token_hash` |
 | 页面依赖审计 API | 通过，可读取 `actor_token` 审计记录 |
 | 临时成员和 token 清理 | 通过 |
 

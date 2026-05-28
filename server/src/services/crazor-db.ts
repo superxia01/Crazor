@@ -1176,6 +1176,13 @@ export function listActorTokens(filter?: { member_id?: string; status?: string }
   return (db.prepare(sql).all(...params) as any[]).map((row) => ({ ...row, scopes: normalizeScopes(row.scopes) }))
 }
 
+export function hasActiveActorTokens() {
+  const row = db.prepare(`SELECT count(*) as count
+    FROM actor_tokens t JOIN team_members m ON m.id = t.member_id
+    WHERE t.status = 'active' AND m.status = 'active'`).get() as any
+  return Number(row?.count || 0) > 0
+}
+
 export function revokeActorToken(id: string) {
   db.prepare("UPDATE actor_tokens SET status = 'revoked', updated_at = ? WHERE id = ?").run(now(), id)
   const row = db.prepare("SELECT id,member_id,token_prefix,label,token_type,scopes,status,last_used_at,created_at,updated_at FROM actor_tokens WHERE id = ?").get(id) as any

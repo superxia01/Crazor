@@ -16,7 +16,7 @@ import {
   listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats, seedContentPieces,
   createAuditLog, listAuditLogs,
   createTeamMember, listTeamMembers, updateTeamMember, deleteTeamMember,
-  createActorToken, listActorTokens, revokeActorToken, resolveActorToken,
+  createActorToken, listActorTokens, revokeActorToken, resolveActorToken, hasActiveActorTokens,
 } from './services/crazor-db'
 import { seedFieldDefinitions, discoverCustomFields, listFieldDefinitions, getFieldDefinition, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, reorderFieldDefinitions } from './services/field-definitions'
 import * as docs from './services/crazor-docs'
@@ -38,6 +38,7 @@ const app = new Hono()
 
 // --- Config ---
 const PORT = parseInt(process.env.PORT || '3001')
+const CRAZOR_REQUIRE_WRITE_TOKEN = truthyEnv(process.env.CRAZOR_REQUIRE_WRITE_TOKEN || process.env.CRAZOR_REQUIRE_TOKEN_AUTH)
 
 // --- Dashboard session token management ---
 let _dashboardToken: string | null = null
@@ -338,24 +339,23 @@ app.use('/api/crazor/*', async (c, next) => {
     : ''
   const actor = shouldAudit ? resolveRequestActor(c, { actor_type: 'human', actor_id: 'anonymous', source: 'rest-api' }) : null
 
+  if (shouldAudit && CRAZOR_REQUIRE_WRITE_TOKEN && !extractActorToken(c) && !canBootstrapIdentityWrite(url.pathname)) {
+    const audit = deriveRestAudit(method, url.pathname, null, url.searchParams)
+    const missingActor = { actor_type: 'human', actor_id: 'missing-token', source: 'missing-token' }
+    const permission = evaluateWritePermission(missingActor, audit.action, audit.entity)
+    recordDeniedRestWrite(missingActor, audit, method, url.pathname, requestText, permission.required_scope)
+    return c.json({
+      error: permission.error,
+      required_scope: permission.required_scope,
+      auth_required: true,
+    }, permission.status || 401)
+  }
+
   if (shouldAudit && extractActorToken(c)) {
     const audit = deriveRestAudit(method, url.pathname, null, url.searchParams)
     const permission = evaluateWritePermission(actor, audit.action, audit.entity)
     if (!permission.allowed) {
-      try {
-        createAuditLog({
-          actor_type: actor?.actor_type || 'human',
-          actor_id: actor?.actor_id || 'invalid-token',
-          source: actor?.source || 'permission-denied',
-          action: `deny_${audit.action}`,
-          entity: audit.entity,
-          entity_id: audit.entity_id,
-          payload: requestText,
-          summary: `${method} ${url.pathname} denied: ${permission.required_scope}`,
-        })
-      } catch (err) {
-        console.error('[audit] failed to record permission denial:', err)
-      }
+      recordDeniedRestWrite(actor, audit, method, url.pathname, requestText, permission.required_scope)
       return c.json({
         error: permission.error,
         required_scope: permission.required_scope,
@@ -386,6 +386,32 @@ app.use('/api/crazor/*', async (c, next) => {
   }
 })
 
+function truthyEnv(value: unknown): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase())
+}
+
+function canBootstrapIdentityWrite(pathname: string): boolean {
+  if (!CRAZOR_REQUIRE_WRITE_TOKEN || hasActiveActorTokens()) return false
+  return pathname === '/api/crazor/identity/members' || pathname === '/api/crazor/identity/tokens'
+}
+
+function recordDeniedRestWrite(actor: any, audit: { action: string; entity: string; entity_id: string }, method: string, pathname: string, requestText: string, requiredScope: string) {
+  try {
+    createAuditLog({
+      actor_type: actor?.actor_type || 'human',
+      actor_id: actor?.actor_id || 'missing-token',
+      source: actor?.source || 'permission-denied',
+      action: `deny_${audit.action}`,
+      entity: audit.entity,
+      entity_id: audit.entity_id,
+      payload: requestText,
+      summary: `${method} ${pathname} denied: ${requiredScope}`,
+    })
+  } catch (err) {
+    console.error('[audit] failed to record permission denial:', err)
+  }
+}
+
 function resolveRequestActor(c: any, fallback = { actor_type: 'human', actor_id: 'anonymous', source: 'rest-api' }) {
   const token = extractActorToken(c)
   if (token) {
@@ -408,6 +434,13 @@ function extractActorToken(c: any): string {
   const auth = c.req.header('Authorization') || ''
   const match = auth.match(/^Bearer\s+(.+)$/i)
   return (match?.[1] || c.req.header('X-Crazor-Token') || '').trim()
+}
+
+function resolveMcpRequestActor(c: any) {
+  if (CRAZOR_REQUIRE_WRITE_TOKEN && !extractActorToken(c)) {
+    return { actor_type: 'agent', actor_id: 'missing-token', source: 'missing-token' }
+  }
+  return resolveRequestActor(c, { actor_type: 'agent', actor_id: 'mcp-client', source: 'mcp-tool' })
 }
 
 function deriveRestAudit(method: string, path: string, responseBody: any, searchParams: URLSearchParams) {
@@ -473,7 +506,7 @@ app.get('/mcp/sse', (c) => handleSSEConnect())
 app.post('/mcp/sse', async (c) => {
   const body = await c.req.json()
   const sessionIdParam = c.req.query('sessionId')
-  const response = await handleSSEMessage(body, sessionIdParam, resolveRequestActor(c, { actor_type: 'agent', actor_id: 'mcp-client', source: 'mcp-tool' }))
+  const response = await handleSSEMessage(body, sessionIdParam, resolveMcpRequestActor(c))
   if (response === null) return c.json({})
   return c.json(response)
 })
@@ -482,7 +515,7 @@ app.post('/mcp/sse', async (c) => {
 app.post('/mcp', async (c) => {
   const body = await c.req.json()
   const sessionHeader = c.req.header('mcp-session-id') || null
-  return handleStreamableHTTP(body, sessionHeader, resolveRequestActor(c, { actor_type: 'agent', actor_id: 'mcp-client', source: 'mcp-tool' }))
+  return handleStreamableHTTP(body, sessionHeader, resolveMcpRequestActor(c))
 })
 
 // Handle DELETE for session cleanup (optional, MCP spec)

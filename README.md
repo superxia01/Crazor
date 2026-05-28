@@ -357,6 +357,14 @@ Docker 环境会启动：
 CRAZOR_SEED_DEMO_DATA=false
 ```
 
+需要强制所有业务写入都带可审计身份时开启：
+
+```env
+CRAZOR_REQUIRE_WRITE_TOKEN=true
+```
+
+开启后，先在“协作审计”里创建身份并签发带 scope 的 API/Agent token，再在“当前访问 Token”里启用；REST 与 MCP 写入会按 token scope 校验，越权动作会进入审计日志。
+
 完整说明见 [Docker 部署说明](docs/deployment/docker.md) 和 [Hermes Agent 集成说明](docs/deployment/hermes-agent.md)。
 
 ### 本地开发方式

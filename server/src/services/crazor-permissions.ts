@@ -59,6 +59,9 @@ export function evaluateWritePermission(actor: ActorPermissionContext | null | u
   const required_scope = requiredScope(entity, action)
 
   if (!actor) return { allowed: true, required_scope }
+  if (actor.source === "missing-token") {
+    return { allowed: false, status: 401, error: "token required", required_scope }
+  }
   if (actor.source === "invalid-token") {
     return { allowed: false, status: 401, error: "invalid token", required_scope }
   }

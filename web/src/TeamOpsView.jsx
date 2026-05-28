@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { clearCrazorAuthToken, getCrazorAuthToken, maskCrazorToken, setCrazorAuthToken } from "@/api/crazor-auth"
 import { cn } from "@/lib/utils"
 
 const ACTOR_TYPE_LABELS = {
@@ -125,6 +126,8 @@ export default function TeamOpsView() {
   const [memberSaving, setMemberSaving] = useState(false)
   const [tokenSaving, setTokenSaving] = useState(false)
   const [tokenResult, setTokenResult] = useState(null)
+  const [accessTokenInput, setAccessTokenInput] = useState("")
+  const [savedAccessToken, setSavedAccessToken] = useState(() => getCrazorAuthToken())
   const [memberForm, setMemberForm] = useState({
     name: "",
     actor_type: "human",
@@ -284,6 +287,28 @@ export default function TeamOpsView() {
     toast.success("Token 已复制")
   }
 
+  async function saveAccessToken(event) {
+    event.preventDefault()
+    const token = accessTokenInput.trim()
+    if (!token) {
+      toast.error("请填写 Token")
+      return
+    }
+    setCrazorAuthToken(token)
+    setSavedAccessToken(token)
+    setAccessTokenInput("")
+    toast.success("访问 Token 已启用")
+    await refreshAll()
+  }
+
+  async function clearAccessToken() {
+    clearCrazorAuthToken()
+    setSavedAccessToken("")
+    setAccessTokenInput("")
+    toast.success("访问 Token 已清除")
+    await refreshAll()
+  }
+
   const stats = [
     { label: "活跃成员", value: activeMembers.length, icon: UsersIcon, tone: "text-blue-600" },
     { label: "Agent 身份", value: agentCount, icon: BotIcon, tone: "text-violet-600" },
@@ -348,6 +373,38 @@ export default function TeamOpsView() {
           <TabsContent value="identity" className="mt-3 min-h-0 flex-1">
             <div className="grid min-h-0 gap-3 xl:grid-cols-[320px_minmax(0,1fr)]">
               <div className="flex flex-col gap-3">
+                <Card className="shadow-none">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-2 text-[13px] font-medium">
+                      <ShieldCheckIcon className="size-4 text-emerald-600" />
+                      当前访问 Token
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <form className="flex flex-col gap-3" onSubmit={saveAccessToken}>
+                      <div className="rounded-[8px] border bg-muted/30 px-3 py-2 text-[12px]">
+                        <div className="text-muted-foreground">当前身份</div>
+                        <div className="mt-1 truncate font-medium">{currentActor?.actor_name || currentActor?.actor_id || "anonymous"}</div>
+                        <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">{maskCrazorToken(savedAccessToken)}</div>
+                      </div>
+                      <Input
+                        value={accessTokenInput}
+                        onChange={(event) => setAccessTokenInput(event.target.value)}
+                        placeholder="粘贴 API 或 Agent Token"
+                        className="h-9 rounded-[8px] text-[13px]"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button type="submit" disabled={!accessTokenInput.trim()} className="h-9 rounded-[8px]">
+                          启用
+                        </Button>
+                        <Button type="button" variant="outline" disabled={!savedAccessToken} onClick={clearAccessToken} className="h-9 rounded-[8px]">
+                          清除
+                        </Button>
+                      </div>
+                    </form>
+                  </CardContent>
+                </Card>
+
                 <Card className="shadow-none">
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2 text-[13px] font-medium">

@@ -93,6 +93,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       NOUS_API_KEY: ${NOUS_API_KEY:-}
       CRAZOR_SEED_DEMO_DATA: ${CRAZOR_SEED_DEMO_DATA:-false}
+      CRAZOR_REQUIRE_WRITE_TOKEN: ${CRAZOR_REQUIRE_WRITE_TOKEN:-false}
     volumes:
       - ./data/crazor:/data/crazor
       - ./data/hermes/state:/data/agent-state
