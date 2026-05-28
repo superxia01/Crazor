@@ -226,6 +226,10 @@ export default function DataView({ config }) {
         submitLabel={formState.mode === "edit" ? "保存" : (config.createSubmitLabel || "创建")}
       />
     )
+  const detailConfig = {
+    ...(config.detail || {}),
+    detailExtra: config.detail?.detailExtra || config.detailExtra,
+  }
 
   return (
     <ViewFrame
@@ -347,7 +351,9 @@ export default function DataView({ config }) {
         open={!!selectedItem}
         onClose={() => setSelectedItem(null)}
         item={selectedItem}
-        config={config.detail}
+        config={detailConfig}
+        onReload={reloadAll}
+        onItemUpdate={setSelectedItem}
       />
 
       <Dialog open={formState.open} onOpenChange={(open) => !open && closeForm()}>

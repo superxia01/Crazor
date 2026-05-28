@@ -14,7 +14,7 @@ const SKIP_KEYS = new Set([
   "id", "created_at", "updated_at", "custom_data", "tags",
 ])
 
-export default function DataDetail({ open, onClose, item, config }) {
+export default function DataDetail({ open, onClose, item, config, onReload, onItemUpdate }) {
   if (!item || !config) return null
 
   // Collect known field keys from config
@@ -96,7 +96,7 @@ export default function DataDetail({ open, onClose, item, config }) {
           {/* Extra sections (e.g. follow-ups, referrals) */}
           {config.detailExtra && (
             typeof config.detailExtra === "function"
-              ? <config.detailExtra item={item} />
+              ? <config.detailExtra item={item} onReload={onReload} onItemUpdate={onItemUpdate} />
               : config.detailExtra
           )}
         </div>

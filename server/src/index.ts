@@ -1382,7 +1382,18 @@ app.delete('/api/crazor/contacts/:id', (c) => {
 
 // --- Contact docs (Markdown) ---
 app.get('/api/crazor/contacts/:id/docs', (c) => {
-  return c.json(docs.listContactDocs(c.req.param('id')))
+  const contactId = c.req.param('id')
+  const treeDocs = docTree.listNotesByContact('knowledge', contactId).map((note: any) => ({
+    ...note,
+    source: 'knowledge',
+  }))
+  const legacyDocs = docs.listContactDocs(contactId).map((doc: any) => ({
+    ...doc,
+    id: `legacy:${doc.path}`,
+    title: doc.name?.replace(/\.md$/, '') || doc.path,
+    source: 'legacy',
+  }))
+  return c.json([...treeDocs, ...legacyDocs])
 })
 
 app.post('/api/crazor/contacts/:id/docs', async (c) => {

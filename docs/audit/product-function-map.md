@@ -28,7 +28,7 @@ graph TD
 | 定时任务 | `cron` | `/api/cron/*` | Hermes jobs | Hermes jobs | 可用性依赖 Hermes |
 | 记忆管理 | `hermes-memory` / `memory` | `/api/memories` | Hermes memory | Hermes memory | 可用性依赖 Hermes |
 | Agent 管理 | `hermes-agents` | `/api/agents`、`/api/status` | Provider state | Hermes provider | 监控型页面为主 |
-| 客户管理 | `contacts` | `/api/crazor/contacts`、`/api/crazor/follow-ups` | `contacts`、`follow_ups`、`channel_referrals` | CRM MCP tools | 客户基础新增/编辑可用；跟进、文档、成交一体化仍缺 |
+| 客户管理 | `contacts` | `/api/crazor/contacts`、`/api/crazor/follow-ups`、`/api/crazor/contacts/:id/docs`、`/api/crazor/transactions` | `contacts`、`follow_ups`、`transactions`、Markdown Vault、`channel_referrals` | CRM MCP tools + 文档 MCP tools | 客户详情最小 Case 闭环可用；文档打开/编辑、项目机会双向关联待补 |
 | 渠道管理 | `channels` | `/api/crazor/channels` | `channels`、`channel_referrals` | 渠道 MCP tools | 渠道新增/编辑/删除基础闭环可用；转介绍关系仍需 UI 化 |
 | 财务中心 | `finance` | `/api/crazor/transactions`、`/api/crazor/analytics/*` | `transactions` | 财务 MCP tools | 流水新增可用，API 更新/删除通过；编辑入口需按财务权限继续评估 |
 | 项目看板 | `projects` | `/api/crazor/projects`、`/api/crazor/tasks` | `projects`、`tasks` | 项目/任务 MCP tools | 项目创建、任务创建、任务拖拽/删除可用；项目编辑归档待补 |
@@ -64,7 +64,7 @@ sequenceDiagram
   UI->>DB: 通过 REST API 读取客户、财务、分析数据
 ```
 
-当前判断：Agent 写入链路相对完整，前端客户基础新增/编辑已接入；但前端直接记录跟进、登记成交、沉淀客户需求文档的 Case 闭环仍不足。
+当前判断：Agent 写入链路相对完整，前端客户基础新增/编辑已接入，客户详情已能直接记录跟进、登记成交、沉淀客户需求文档。下一步要补文档直接打开/编辑、渠道转介绍和项目机会的双向关联。
 
 ### 内容生产到数据回收
 
@@ -89,7 +89,7 @@ graph TD
   Agent["Agent"] --> MCP
 ```
 
-当前判断：文件系统驱动的知识库可用，旧路径兼容和缺失文档兜底已补。下一步要审计“客户关联文档、内容正文 doc_id、搜索结果跳转、附件归档”的完整体验。
+当前判断：文件系统驱动的知识库可用，旧路径兼容和缺失文档兜底已补，客户关联文档创建与读回已验证。下一步要审计“客户文档打开编辑、内容正文 doc_id、搜索结果跳转、附件归档”的完整体验。
 
 ## 数据边界
 
@@ -135,3 +135,6 @@ graph TD
 | 内容作品 | `/api/crazor/content-pieces` | 通过 | 创建、更新、删除 |
 | 项目 | `/api/crazor/projects` | 通过 | 创建、更新、删除 |
 | 任务 | `/api/crazor/tasks` | 通过 | 创建、更新、删除 |
+| 客户跟进 | `/api/crazor/follow-ups` | 通过 | 创建并在客户详情读回 |
+| 客户需求文档 | `/api/crazor/contacts/:id/docs` | 通过 | 创建并从客户文档列表读回 |
+| 客户成交 | `/api/crazor/transactions` + `/api/crazor/contacts/:id` | 通过 | 创建流水并回写客户阶段/金额 |
