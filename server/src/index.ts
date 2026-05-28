@@ -262,11 +262,17 @@ app.delete('/api/cron/:id', async (c) => {
 app.get('/api/sessions', async (c) => {
   const resp = await dashboardFetch(`/api/sessions`)
   const data = await resp.json()
-  // Dashboard returns {sessions:[], total:0} — unwrap to array for frontend
+  // Dashboard returns {sessions:[], total:0} — unwrap to array
+  let dashboardSessions: any[] = []
   if (data && Array.isArray(data.sessions)) {
-    return c.json(data.sessions)
+    dashboardSessions = data.sessions
+  } else if (Array.isArray(data)) {
+    dashboardSessions = data
   }
-  return c.json(data)
+  // Merge: Dashboard sessions + local sessions not yet synced to Dashboard
+  const dashboardIds = new Set(dashboardSessions.map((s: any) => s.id))
+  const localOnly = Object.values(_localSessions).filter((s: any) => !dashboardIds.has(s.id))
+  return c.json([...localOnly, ...dashboardSessions])
 })
 
 app.get('/api/sessions/search', async (c) => {
@@ -290,7 +296,12 @@ app.get('/api/sessions/:id/messages', async (c) => {
 })
 
 app.delete('/api/sessions/:id', async (c) => {
-  const resp = await dashboardFetch(`/api/sessions/${c.req.param('id')}`, { method: 'DELETE' })
+  const id = c.req.param('id')
+  // Clean up local session if present
+  if (_localSessions[id]) {
+    delete _localSessions[id]
+  }
+  const resp = await dashboardFetch(`/api/sessions/${id}`, { method: 'DELETE' })
   return c.json({ ok: true })
 })
 
