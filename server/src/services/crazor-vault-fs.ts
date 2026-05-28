@@ -77,7 +77,8 @@ function parentFolderId(folderId: string): string | null {
 function noteFolderId(noteId: string): string | null {
   const idx = noteId.lastIndexOf('/')
   if (idx <= 0) return null
-  return noteId.substring(0, idx)
+  const parentId = noteId.substring(0, idx)
+  return parentId.includes('/') ? parentId : null
 }
 
 // Convert folder ID to filesystem path
@@ -88,6 +89,180 @@ function folderIdToPath(folderId: string): string {
 // Convert note ID to filesystem path (add .md)
 function noteIdToPath(noteId: string): string {
   return resolve(CRAZOR_VAULT_ROOT, noteId + '.md')
+}
+
+interface ResolvedFolderRef {
+  id: string
+  dirPath: string
+}
+
+interface ResolvedNoteRef {
+  id: string
+  filePath: string
+}
+
+function stripOrderPrefix(name: string): string {
+  return name.replace(/^\d+-/, '')
+}
+
+function splitVaultId(id: string | null | undefined): string[] | null {
+  if (!id) return null
+  const parts = id
+    .split('/')
+    .map(part => part.trim())
+    .filter(Boolean)
+
+  if (parts.length === 0) return null
+  if (parts.some(part => part === '.' || part === '..')) return null
+
+  const safeParts = parts.map(sanitizeName).filter(Boolean)
+  return safeParts.length === parts.length ? safeParts : null
+}
+
+function entryMatchesName(entryName: string, requestedName: string): boolean {
+  const safeRequested = sanitizeName(requestedName)
+  return (
+    entryName === requestedName ||
+    entryName === safeRequested ||
+    stripOrderPrefix(entryName) === requestedName ||
+    stripOrderPrefix(entryName) === safeRequested
+  )
+}
+
+function findAliasedEntry(parentPath: string, requestedName: string, kind: 'directory' | 'note'): string | null {
+  if (!existsSync(parentPath)) return null
+
+  const entries = readdirSync(parentPath).filter(entry => !isIgnored(entry))
+  const candidates: { entry: string; name: string }[] = []
+
+  for (const entry of entries) {
+    const fullPath = resolve(parentPath, entry)
+    try {
+      const stat = statSync(fullPath)
+      if (kind === 'directory' && !stat.isDirectory()) continue
+      if (kind === 'note' && (!stat.isFile() || !entry.endsWith('.md'))) continue
+    } catch {
+      continue
+    }
+
+    candidates.push({
+      entry,
+      name: kind === 'note' ? entry.replace(/\.md$/, '') : entry,
+    })
+  }
+
+  const exact = candidates.find(candidate => candidate.name === requestedName)
+  if (exact) return exact.entry
+
+  const aliased = candidates.find(candidate => entryMatchesName(candidate.name, requestedName))
+  return aliased?.entry ?? null
+}
+
+function appendSortIfMissing(dirPath: string, name: string): void {
+  const meta = readDirMeta(dirPath)
+  if (!meta.sort) meta.sort = []
+  if (!meta.sort.includes(name)) {
+    meta.sort.push(name)
+    writeDirMeta(dirPath, meta)
+  }
+}
+
+function resolveExistingFolderRef(folderId: string | null | undefined): ResolvedFolderRef | null {
+  const parts = splitVaultId(folderId)
+  if (!parts) return null
+
+  const [scope, ...segments] = parts
+  let dirPath = scopeDir(scope)
+  if (!existsSync(dirPath)) return null
+
+  const actualParts = [scope]
+  for (const segment of segments) {
+    const matchedEntry = findAliasedEntry(dirPath, segment, 'directory')
+    if (!matchedEntry) return null
+    dirPath = resolve(dirPath, matchedEntry)
+    actualParts.push(matchedEntry)
+  }
+
+  return { id: actualParts.join('/'), dirPath }
+}
+
+function ensureFolderRef(folderId: string): ResolvedFolderRef | null {
+  const parts = splitVaultId(folderId)
+  if (!parts) return null
+
+  const [scope, ...segments] = parts
+  let dirPath = scopeDir(scope)
+  mkdirSync(dirPath, { recursive: true })
+
+  const actualParts = [scope]
+  for (const segment of segments) {
+    const matchedEntry = findAliasedEntry(dirPath, segment, 'directory')
+    const dirName = matchedEntry || sanitizeName(segment)
+    const nextPath = resolve(dirPath, dirName)
+
+    if (!matchedEntry) {
+      mkdirSync(nextPath, { recursive: true })
+      appendSortIfMissing(dirPath, dirName)
+    }
+
+    dirPath = nextPath
+    actualParts.push(dirName)
+  }
+
+  return { id: actualParts.join('/'), dirPath }
+}
+
+function resolveExistingNoteRef(noteId: string | null | undefined): ResolvedNoteRef | null {
+  const parts = splitVaultId(noteId)
+  if (!parts || parts.length < 2) return null
+
+  const [scope, ...segments] = parts
+  const folderSegments = segments.slice(0, -1)
+  const noteName = segments[segments.length - 1]
+  const folderId = [scope, ...folderSegments].join('/')
+  const folderRef = resolveExistingFolderRef(folderId)
+  if (!folderRef) return null
+
+  const matchedFile = findAliasedEntry(folderRef.dirPath, noteName, 'note')
+  if (!matchedFile) return null
+
+  const title = matchedFile.replace(/\.md$/, '')
+  return {
+    id: `${folderRef.id}/${title}`,
+    filePath: resolve(folderRef.dirPath, matchedFile),
+  }
+}
+
+function ensureBlankNoteRef(noteId: string | null | undefined): ResolvedNoteRef | null {
+  const parts = splitVaultId(noteId)
+  if (!parts || parts.length < 2) return null
+
+  const [scope, ...segments] = parts
+  const folderSegments = segments.slice(0, -1)
+  const requestedTitle = segments[segments.length - 1]
+  const folderId = [scope, ...folderSegments].join('/')
+  const folderRef = resolveExistingFolderRef(folderId) || ensureFolderRef(folderId)
+  if (!folderRef) return null
+
+  const matchedFile = findAliasedEntry(folderRef.dirPath, requestedTitle, 'note')
+  if (matchedFile) {
+    const title = matchedFile.replace(/\.md$/, '')
+    return {
+      id: `${folderRef.id}/${title}`,
+      filePath: resolve(folderRef.dirPath, matchedFile),
+    }
+  }
+
+  const safeTitle = sanitizeName(requestedTitle) || '未命名笔记'
+  const uniqueTitle = uniqueName(folderRef.dirPath, safeTitle)
+  const filePath = resolve(folderRef.dirPath, `${uniqueTitle}.md`)
+  writeFileSync(filePath, '', 'utf-8')
+  appendSortIfMissing(folderRef.dirPath, uniqueTitle)
+
+  return {
+    id: `${folderRef.id}/${uniqueTitle}`,
+    filePath,
+  }
 }
 
 // Check if a directory entry should be ignored
@@ -271,7 +446,8 @@ export function deleteFolder(folderId: string): void {
 
 export function createNote(scope: string, folderId: string | null, title: string, content?: string, contactId?: string) {
   const safeTitle = sanitizeName(title)
-  const dirPath = folderId ? folderIdToPath(folderId) : scopeDir(scope)
+  const folderRef = folderId ? (resolveExistingFolderRef(folderId) || ensureFolderRef(folderId)) : null
+  const dirPath = folderRef ? folderRef.dirPath : scopeDir(scope)
   mkdirSync(dirPath, { recursive: true })
 
   const uniqueTitle = uniqueName(dirPath, safeTitle)
@@ -285,26 +461,28 @@ export function createNote(scope: string, folderId: string | null, title: string
   if (contactId) dirMeta.contact_id = contactId
   writeDirMeta(dirPath, dirMeta)
 
-  const id = folderId ? `${folderId}/${uniqueTitle}` : `${scope}/${uniqueTitle}`
+  const id = folderRef ? `${folderRef.id}/${uniqueTitle}` : `${scope}/${uniqueTitle}`
   const ts = Date.now().toString()
   return {
-    id, scope, folder_id: folderId, title: uniqueTitle,
+    id, scope, folder_id: folderRef?.id || null, title: uniqueTitle,
     sort_order: dirMeta.sort.length - 1, contact_id: contactId || null,
     created_at: ts, updated_at: ts,
   }
 }
 
 export function getNote(noteId: string) {
-  const filePath = noteIdToPath(noteId)
-  if (!existsSync(filePath)) return null
+  const noteRef = resolveExistingNoteRef(noteId) || ensureBlankNoteRef(noteId)
+  if (!noteRef) return null
+
+  const filePath = noteRef.filePath
   const content = readFileSync(filePath, 'utf-8')
   const title = basename(filePath, '.md')
-  const folderId = noteFolderId(noteId)
+  const folderId = noteFolderId(noteRef.id)
   // Extract scope from noteId (first path segment)
-  const scope = noteId.split('/')[0]
+  const scope = noteRef.id.split('/')[0]
 
   return {
-    id: noteId, scope, folder_id: folderId, title,
+    id: noteRef.id, scope, folder_id: folderId, title,
     sort_order: 0, contact_id: null,
     created_at: birthTimestamp(filePath),
     updated_at: fileTimestamp(filePath),
@@ -313,8 +491,10 @@ export function getNote(noteId: string) {
 }
 
 export function updateNote(noteId: string, title: string, content: string): void {
-  const filePath = noteIdToPath(noteId)
-  if (!existsSync(filePath)) return
+  const noteRef = resolveExistingNoteRef(noteId) || ensureBlankNoteRef(noteId)
+  if (!noteRef) return
+
+  const filePath = noteRef.filePath
   const dirPath = dirname(filePath)
   const oldTitle = basename(filePath, '.md')
   const safeTitle = sanitizeName(title)
@@ -339,8 +519,10 @@ export function updateNote(noteId: string, title: string, content: string): void
 }
 
 export function deleteNote(noteId: string): void {
-  const filePath = noteIdToPath(noteId)
-  if (!existsSync(filePath)) return
+  const noteRef = resolveExistingNoteRef(noteId)
+  if (!noteRef) return
+
+  const filePath = noteRef.filePath
   const dirPath = dirname(filePath)
   const name = basename(filePath, '.md')
   rmSync(filePath)
@@ -375,13 +557,16 @@ export function moveFolder(folderId: string, parentId: string | null, targetFold
 }
 
 export function moveNote(noteId: string, folderId: string | null, targetNoteId: string | null, position: string | null): void {
-  const srcFile = noteIdToPath(noteId)
-  if (!existsSync(srcFile)) return
+  const noteRef = resolveExistingNoteRef(noteId)
+  if (!noteRef) return
+
+  const srcFile = noteRef.filePath
   const oldDir = dirname(srcFile)
   const noteName = basename(srcFile, '.md')
 
   // Determine target directory
-  const newDir = folderId ? folderIdToPath(folderId) : scopeDir(noteId.split('/')[0])
+  const folderRef = folderId ? (resolveExistingFolderRef(folderId) || ensureFolderRef(folderId)) : null
+  const newDir = folderRef ? folderRef.dirPath : scopeDir(noteRef.id.split('/')[0])
   mkdirSync(newDir, { recursive: true })
   const destFile = resolve(newDir, `${noteName}.md`)
 
@@ -395,7 +580,8 @@ export function moveNote(noteId: string, folderId: string | null, targetNoteId: 
   }
 
   // Update sort in new dir
-  const targetName = targetNoteId ? basename(noteIdToPath(targetNoteId), '.md') : null
+  const targetRef = targetNoteId ? resolveExistingNoteRef(targetNoteId) : null
+  const targetName = targetRef ? basename(targetRef.filePath, '.md') : null
   sortInsert(newDir, noteName, targetName, position)
 }
 

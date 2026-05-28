@@ -821,22 +821,77 @@ app.post('/api/sessions/:id/messages', async (c) => {
 // --- Skills (detail, toggle, market, install, uninstall, update) ---
 
 const SKILLS_INDEX_URL = 'https://hermes-agent.nousresearch.com/docs/api/skills-index.json'
+const DEFAULT_MARKET_SKILLS_LIMIT = 500
+const MAX_MARKET_SKILLS_LIMIT = 1000
 let _skillsCache: { data: any[]; fetchedAt: number } | null = null
 
+function marketSkillsLimit(rawLimit: string | undefined): number {
+  const parsed = Number.parseInt(rawLimit || '', 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MARKET_SKILLS_LIMIT
+  return Math.min(parsed, MAX_MARKET_SKILLS_LIMIT)
+}
+
+function compactMarketString(value: unknown, maxLength = 240): string {
+  const text = String(value || '').trim()
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength - 3)}...`
+}
+
+function compactMarketTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(item => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 8)
+}
+
+function compactMarketSkill(skill: any) {
+  const identifier = compactMarketString(skill?.identifier || skill?.id || skill?.name || skill?.path, 180)
+  const path = compactMarketString(skill?.path, 180)
+  const source = compactMarketString(skill?.source || 'market', 40)
+  const tags = compactMarketTags(skill?.tags)
+  const category = compactMarketString(skill?.category || path.split('/')[0] || tags[0] || source || 'general', 80)
+  const fallbackName = identifier.split('/').filter(Boolean).pop() || 'unnamed-skill'
+  const name = compactMarketString(skill?.name || skill?.label || fallbackName, 120)
+
+  return {
+    name,
+    label: compactMarketString(skill?.label || name, 120),
+    description: compactMarketString(skill?.description || skill?.summary, 280),
+    source,
+    identifier,
+    trust_level: compactMarketString(skill?.trust_level || skill?.trustLevel, 60),
+    repo: compactMarketString(skill?.repo, 180),
+    path,
+    category,
+    tags,
+    installed: Boolean(skill?.installed),
+  }
+}
+
+function compactMarketSkills(payload: any): any[] {
+  const rawSkills = Array.isArray(payload) ? payload : Array.isArray(payload?.skills) ? payload.skills : []
+  return rawSkills
+    .map(compactMarketSkill)
+    .filter(skill => skill.identifier && skill.name)
+    .slice(0, MAX_MARKET_SKILLS_LIMIT)
+}
+
 app.get('/api/skills/market', async (c) => {
+  const limit = marketSkillsLimit(c.req.query('limit'))
   try {
     // Cache for 10 minutes
     if (_skillsCache && Date.now() - _skillsCache.fetchedAt < 600_000) {
-      return c.json(_skillsCache.data)
+      return c.json(_skillsCache.data.slice(0, limit))
     }
     const resp = await fetch(SKILLS_INDEX_URL, { headers: { 'Accept': 'application/json' } })
     if (!resp.ok) return c.json([])
     const payload = await resp.json()
-    const skills = Array.isArray(payload?.skills) ? payload.skills : []
+    const skills = compactMarketSkills(payload)
     _skillsCache = { data: skills, fetchedAt: Date.now() }
-    return c.json(skills)
+    return c.json(skills.slice(0, limit))
   } catch {
-    return c.json(_skillsCache?.data ?? [])
+    return c.json((_skillsCache?.data ?? []).slice(0, limit))
   }
 })
 
