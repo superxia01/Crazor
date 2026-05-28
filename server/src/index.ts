@@ -1310,7 +1310,7 @@ app.post('/api/crazor/schema/:entity/discover', (c) => {
 // --- Crazor Skill Catalog & Installation ---
 
 app.get('/api/crazor/skills/catalog', (c) => {
-  return c.json(skillCatalog.getCatalog())
+  return c.json(skillCatalog.getCatalog({ source: 'crazor' }))
 })
 
 app.get('/api/crazor/skills/meta', (c) => {

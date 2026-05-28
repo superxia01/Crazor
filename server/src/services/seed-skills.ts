@@ -86,6 +86,7 @@ function convertToHermesFormat(id: string, sourceContent: string): string {
   const yamlParts: string[] = [
     `name: ${id}`,
     `description: "${(fm.description || '').replace(/"/g, '\\"')}"`,
+    `source: "crazor"`,
     `category: "${category}"`,
     `employeeName: "${employeeName}"`,
   ]
