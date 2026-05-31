@@ -956,27 +956,6 @@ export function contentCheckDaily() {
   return { date: today, stats, todayPublished, dailyCheck: results }
 }
 
-// ── Getbiji Stubs ────────────────────────────────────────────
-
-const getbijiState = { lastSync: "", status: "未连接", totalNotes: 0 }
-
-export function getbijiSync() {
-  // TODO: integrate with actual getbiji API
-  getbijiState.lastSync = now()
-  getbijiState.status = "已同步（占位）"
-  return { ...getbijiState, message: "getbiji 同步功能待接入，当前为占位返回" }
-}
-
-export function getbijiStatus() {
-  return getbijiState
-}
-
-export function getbijiForceFull() {
-  getbijiState.lastSync = now()
-  getbijiState.status = "全量同步（占位）"
-  return { ...getbijiState, message: "getbiji 全量同步功能待接入，当前为占位返回" }
-}
-
 // ── CRM Composite Functions ─────────────────────────────────
 
 export function crmGetClient(nameOrId: string) {

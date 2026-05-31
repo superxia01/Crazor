@@ -15,7 +15,6 @@ import {
   listContentPieces, getContentPiece, createContentPiece,
   updateContentPiece, deleteContentPiece, getContentPieceStats,
   contentPublish, contentUpdateMetrics, contentCheckDaily,
-  getbijiSync, getbijiStatus, getbijiForceFull,
   createAuditLog,
 } from "./crazor-db"
 import { listFieldDefinitions, createFieldDefinition, discoverCustomFields } from "./field-definitions"
@@ -612,22 +611,6 @@ const TOOLS: any[] = [
     description: "每日内容指标检查：检查今日各平台发布完成情况（公众号≥1、小红书≥1、知识星球≥1），返回完成度报告",
     inputSchema: { type: "object", properties: {} },
   },
-  // --- Getbiji (Material Sync) ---
-  {
-    name: "getbiji_sync",
-    description: "同步 Get 笔记素材到系统（占位，待接入）",
-    inputSchema: { type: "object", properties: {} },
-  },
-  {
-    name: "getbiji_status",
-    description: "查看 Get 笔记同步状态（占位，待接入）",
-    inputSchema: { type: "object", properties: {} },
-  },
-  {
-    name: "getbiji_force_full",
-    description: "强制全量同步 Get 笔记（占位，待接入）",
-    inputSchema: { type: "object", properties: {} },
-  },
   // --- Stats ---
   {
     name: "get_contacts_stats",
@@ -878,11 +861,6 @@ async function executeToolAction(name: string, args: any): Promise<any> {
     case "content_publish": return contentPublish(args.name)
     case "content_update_metrics": return contentUpdateMetrics(args.name, args)
     case "content_check_daily": return contentCheckDaily()
-
-    // Getbiji
-    case "getbiji_sync": return getbijiSync()
-    case "getbiji_status": return getbijiStatus()
-    case "getbiji_force_full": return getbijiForceFull()
 
     // Documents
     case "create_doc": {

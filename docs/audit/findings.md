@@ -101,6 +101,7 @@
 - 连接器页面此前按数组格式解析 `/api/env`，但当前服务实际返回按环境变量名索引的对象；本轮已补统一归一化，保存后的凭证状态可以从 Dashboard metadata 正确读回。
 - 已配置字段现在留空保存会保留原凭证，清除配置走单独按钮，避免 reveal 失败或只修改部分字段时误删已有凭证。
 - `web/src/api/browser-utils.js` 此前保留直接拉取 Hermes skills index 的函数，当前已改为统一走服务端 `/api/skills/market` 轻量代理。
+- MCP 此前暴露 `getbiji_sync`、`getbiji_status`、`getbiji_force_full` 三个 Get 笔记占位工具，调用结果会返回“占位/待接入”，本轮已从 MCP 工具清单和执行分支下线。
 
 **影响**
 
@@ -130,7 +131,7 @@
 2. 补客户级权限边界、更细的提醒规则配置、附件病毒扫描/敏感信息扫描和更多格式预览。
 3. 收敛 Agent Provider 能力抽象，减少 UI 对 Hermes 私有概念的硬依赖。
 4. 补外部平台发布回执、指标自动采集、内容级权限边界和发布前审批。
-5. 梳理旧 mock 模块和直接外部 fetch 工具。
+5. 持续梳理剩余占位工具、旧 mock 模块和直接外部 fetch 工具。
 
 ## 已修复问题
 
@@ -173,6 +174,7 @@
 | 前端孤立 mock 数据模块容易被误用 | 已修复，删除 `web/src/api/mock-data.js`，并补仓库级测试防止恢复 |
 | 手动 mock 灌库脚本容易污染真实演示环境 | 已修复，删除 `server/seed-mock.js` |
 | 内容作品示例记录默认无条件写入 | 已修复，`seedContentPieces()` 受 `CRAZOR_SEED_DEMO_DATA` 控制，默认不写入 |
+| MCP 暴露 Get 笔记占位同步工具 | 已修复，`getbiji_sync`、`getbiji_status`、`getbiji_force_full` 从 MCP 工具清单和执行分支下线，真实适配完成前不再误导 Agent |
 
 ## 本轮验证记录
 
@@ -202,3 +204,4 @@
 | 连接器与浏览器工具补充验证 | `node --test web/src/api/browser-utils.test.js web/src/integrations-status.test.js` 通过；覆盖 `/api/env` 对象型 metadata、旧数组格式、凭证状态判定和留空保留配置；真实 `/api/env` 返回为对象型 metadata，198 个 key 可归一化；`docker compose build crazor-web` 通过；运行中 Web 容器已替换为最新镜像，`127.0.0.1:5173` 与 `192.168.103.4:5173` 健康检查通过 |
 | Mock 数据清理验证 | `node --test web/src/no-mock-data.test.js` 通过；前端 mock 模块、手动 mock 灌库脚本已删除；内容作品种子已由 `CRAZOR_SEED_DEMO_DATA` 控制 |
 | 当前 Docker 复验 | `docker compose build crazor-server crazor-web`、`docker compose up -d --no-deps --force-recreate crazor-server crazor-web`、`./scripts/hermes smoke`、`./scripts/hermes smoke-strict` 均通过；恢复默认后 `127.0.0.1:5173` 与 `192.168.103.4:5173` 健康检查通过 |
+| MCP 占位工具清理验证 | `node --test web/src/no-placeholder-mcp-tools.test.js` 通过；`docker compose build crazor-server` 通过；运行态 `/mcp tools/list` 不再包含 Get 笔记占位同步工具；`./scripts/hermes smoke` 通过 |
