@@ -96,7 +96,6 @@
 
 **现象**
 
-- `web/src/api/mock-data.js` 仍存在，但当前未发现业务入口直接导入。
 - 连接器页面当前只能管理 Provider 环境变量凭证，不能证明飞书、企业微信、小红书、GitHub 等外部平台已经完成真实 API 连通、回调接收或数据同步。
 - 连接器卡片此前会把凭证填满显示为“已连接”，本轮已改为“凭证完整/部分填写”，避免把配置状态误判成真实业务链路。
 - 连接器页面此前按数组格式解析 `/api/env`，但当前服务实际返回按环境变量名索引的对象；本轮已补统一归一化，保存后的凭证状态可以从 Dashboard metadata 正确读回。
@@ -171,6 +170,9 @@
 | 连接器凭证填满后显示“已连接”容易误导真实链路 | 已修复，页面改为“凭证完整/部分填写” |
 | 连接器页面无法从对象型 `/api/env` 读回已配置状态 | 已修复，新增 `buildConnectorEnvMap` 兼容 Dashboard metadata 对象和旧数组格式 |
 | 连接器字段留空保存可能误删已有凭证 | 已修复，留空保存保留当前配置，清除走独立按钮 |
+| 前端孤立 mock 数据模块容易被误用 | 已修复，删除 `web/src/api/mock-data.js`，并补仓库级测试防止恢复 |
+| 手动 mock 灌库脚本容易污染真实演示环境 | 已修复，删除 `server/seed-mock.js` |
+| 内容作品示例记录默认无条件写入 | 已修复，`seedContentPieces()` 受 `CRAZOR_SEED_DEMO_DATA` 控制，默认不写入 |
 
 ## 本轮验证记录
 
@@ -198,3 +200,5 @@
 | 协作审计页面烟测 | Web Docker 构建通过；身份 API、token API、审计 API 均通过统一入口验证 |
 | 自动交付烟测脚本 | `node --check scripts/crazor-smoke.mjs`、`bash -n scripts/hermes`、`./scripts/hermes smoke`、`./scripts/hermes smoke-strict` 均通过；严格模式匿名 REST/MCP 写入被拒绝；MCP initialize/tools/list/create_contact/get_task_reminders 通过；临时客户、MCP 客户、文档、附件、渠道、流水、项目、任务、内容和身份已清理 |
 | 连接器与浏览器工具补充验证 | `node --test web/src/api/browser-utils.test.js web/src/integrations-status.test.js` 通过；覆盖 `/api/env` 对象型 metadata、旧数组格式、凭证状态判定和留空保留配置；真实 `/api/env` 返回为对象型 metadata，198 个 key 可归一化；`docker compose build crazor-web` 通过；运行中 Web 容器已替换为最新镜像，`127.0.0.1:5173` 与 `192.168.103.4:5173` 健康检查通过 |
+| Mock 数据清理验证 | `node --test web/src/no-mock-data.test.js` 通过；前端 mock 模块、手动 mock 灌库脚本已删除；内容作品种子已由 `CRAZOR_SEED_DEMO_DATA` 控制 |
+| 当前 Docker 复验 | `docker compose build crazor-server crazor-web`、`docker compose up -d --no-deps --force-recreate crazor-server crazor-web`、`./scripts/hermes smoke`、`./scripts/hermes smoke-strict` 均通过；恢复默认后 `127.0.0.1:5173` 与 `192.168.103.4:5173` 健康检查通过 |

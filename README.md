@@ -371,11 +371,13 @@ Docker 环境会启动：
 ./data/hermes/
 ```
 
-默认不会写入 mock-data：
+默认不会写入 mock-data，也不会写入内容作品示例记录：
 
 ```env
 CRAZOR_SEED_DEMO_DATA=false
 ```
+
+只有明确需要演示数据时才改为 `true`。
 
 需要强制所有业务写入都带可审计身份时开启：
 

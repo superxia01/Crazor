@@ -244,7 +244,7 @@ hermes mcp add crazor --url http://局域网IP:5173/mcp/sse --transport sse
 CRAZOR_SEED_DEMO_DATA=false
 ```
 
-这表示首启只初始化目录和正式模板，不把 `server/data/vault/mock-data` 写入运行数据目录。
+这表示首启只初始化目录和正式模板，不把 `server/data/vault/mock-data` 或内容作品示例记录写入运行数据目录。
 
 只有明确需要演示数据时才改为：
 

@@ -1,4 +1,4 @@
-// Seed vault templates & mock-data into filesystem vault
+// Seed vault templates and optional demo data into filesystem vault
 // Creates real directories and .md files instead of SQLite rows
 
 import { resolve, join } from "path"

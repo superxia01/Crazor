@@ -22,6 +22,8 @@
 
 当前代码已经具备 Docker 化交付、统一 Web 入口、业务数据 API、文档知识库、Hermes 对话/技能/记忆/任务管理等基础能力。
 
+当前默认部署不会写入前端 mock 数据、手动 mock 灌库数据或内容作品示例记录；内容作品演示记录与知识库 mock-data 均受 `CRAZOR_SEED_DEMO_DATA=true` 控制。
+
 本轮已补齐第一层业务写入能力：客户、渠道、流水、内容作品、项目、任务都通过统一入口或统一表单组件进入可创建、可更新、可删除的最小闭环，并通过 API 写入烟测确认。
 
 客户 Case 的最小工作台也已接入并完成深链路验证：客户详情可以新增跟进记录、处理待跟进提醒、新建需求文档、搜索并打开客户文档、按策略上传/下载/删除客户附件，且可预览文本/图片附件、登记成交、建立渠道转介绍，从客户生成项目机会，并从客户项目直接拆解任务。
@@ -88,7 +90,8 @@
 | `./scripts/hermes smoke` | 通过 |
 | `./scripts/hermes smoke-strict` | 通过，临时开启严格认证后完成烟测并恢复默认后端配置 |
 | `node --test web/src/api/browser-utils.test.js web/src/integrations-status.test.js` | 通过，覆盖连接器凭证状态、`/api/env` metadata 读回、留空保留配置和技能市场代理 |
-| `docker compose build crazor-web` | 通过，运行中 Web 容器已替换为最新镜像 |
+| `node --test web/src/no-mock-data.test.js` | 通过，覆盖前端 mock 模块删除、手动 mock 灌库脚本删除和内容作品种子开关 |
+| `docker compose build crazor-server crazor-web` | 通过，运行中 Server/Web 容器已替换为最新镜像 |
 | 后端健康检查 | 通过 |
 | Hermes Provider 状态代理 | 通过 |
 | 准备可审计烟测身份 | 通过 |

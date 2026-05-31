@@ -462,11 +462,19 @@ export function deleteContentPiece(id: string) {
   db.prepare("DELETE FROM content_pieces WHERE id = ?").run(id)
 }
 
+function shouldSeedDemoData() {
+  return ["1", "true", "yes", "on"].includes(
+    String(process.env.CRAZOR_SEED_DEMO_DATA || "").toLowerCase()
+  )
+}
+
 export function seedContentPieces() {
+  if (!shouldSeedDemoData()) return 0
+
   const count = (db.prepare("SELECT count(*) as c FROM content_pieces").get() as any).c
   if (count > 0) return 0
 
-  const mockItems = [
+  const demoItems = [
     // 国内平台
     { title: "AI工具选型指南：中小企业如何避坑", platform: "公众号", form: "文章", status: "已发布", published_at: "2026-05-20", views: 2340, likes: 89, comments: 23, shares: 45, topic_source: "选题池" },
     { title: "制造厂用AI报价，效率提升3倍", platform: "小红书", form: "图文", status: "已发布", published_at: "2026-05-18", views: 8900, likes: 312, comments: 67, shares: 128, topic_source: "选题池" },
@@ -490,10 +498,10 @@ export function seedContentPieces() {
     { title: "AI SaaS Dashboard Template Launch", platform: "Shopify", form: "文章", status: "已发布", published_at: "2026-05-14", views: 180, likes: 12, comments: 3, shares: 5, topic_source: "产品推广" },
   ]
 
-  for (const item of mockItems) {
+  for (const item of demoItems) {
     createContentPiece(item)
   }
-  return mockItems.length
+  return demoItems.length
 }
 
 export function getContentPieceStats() {

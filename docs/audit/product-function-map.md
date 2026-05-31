@@ -38,7 +38,7 @@ graph TD
 | 渠道管理 | `channels` | `/api/crazor/channels` | `channels`、`channel_referrals` | 渠道 MCP tools | 渠道新增/编辑/删除基础闭环可用；客户侧转介绍关系已接入，渠道侧批量运营待补 |
 | 财务中心 | `finance` | `/api/crazor/transactions`、`/api/crazor/analytics/*` | `transactions` | 财务 MCP tools | 流水新增可用，API 更新/删除通过；编辑入口需按财务权限继续评估 |
 | 项目看板 | `projects` | `/api/crazor/projects`、`/api/crazor/tasks`、`/api/crazor/task-reminders` | `projects`、`tasks` | 项目/任务 MCP tools + `get_task_reminders` | 项目创建、任务创建、任务拖拽/删除、任务到期提醒读取和处理可用；项目编辑归档待补 |
-| 平台流量 | `content` | `/api/crazor/content-pieces`、`/api/crazor/content-pieces/:id/publish`、`/api/crazor/content-pieces/:id/metrics`、`/api/crazor/docs/knowledge/search`、`/api/crazor/docs/knowledge/notes`、`/api/crazor/docs/knowledge/notes-ops` | `content_pieces`、Markdown Vault | 内容 MCP tools + 文档 MCP tools | 内容作品新增/编辑/删除、发布、指标回收、正文创建/搜索/关联/打开/保存和复盘模板写入可用；外部平台回执和自动指标采集待补 |
+| 平台流量 | `content` | `/api/crazor/content-pieces`、`/api/crazor/content-pieces/:id/publish`、`/api/crazor/content-pieces/:id/metrics`、`/api/crazor/docs/knowledge/search`、`/api/crazor/docs/knowledge/notes`、`/api/crazor/docs/knowledge/notes-ops` | `content_pieces`、Markdown Vault | 内容 MCP tools + 文档 MCP tools | 内容作品新增/编辑/删除、发布、指标回收、正文创建/搜索/关联/打开/保存和复盘模板写入可用；默认不写入内容作品示例记录，演示记录需显式开启 `CRAZOR_SEED_DEMO_DATA=true`；外部平台回执和自动指标采集待补 |
 | 知识库 | `knowledge` | `/api/crazor/docs/knowledge/*` | Markdown Vault | 文档 MCP tools | 可读写，已补旧路径和空白文档兜底 |
 | AI 笔记 | `notebook` | `/api/crazor/docs/notebook/*` | Markdown Vault | 文档 MCP tools | 可读写，编辑体验需持续核验 |
 | 文件管理 | `files` | `/api/files/*` | Hermes workspace files | Provider 文件能力 | 依赖 workspace 配置 |
@@ -127,7 +127,7 @@ graph TD
 | `/api/skills` | 200 | 已安装技能可读 |
 | `/api/skills/market` | 200 | 已降为轻量响应 |
 | `/api/crazor/contacts` | 200 | 当前为空数组 |
-| `/api/crazor/content-pieces` | 200 | 有内容记录 |
+| `/api/crazor/content-pieces` | 200 | 默认新数据目录为空；仅真实写入或显式开启演示数据后有记录 |
 | `/api/crazor/transactions` | 200 | 当前为空数组 |
 | `/api/crazor/projects` | 200 | 当前为空数组 |
 | `/api/crazor/tasks` | 200 | 当前为空数组 |
