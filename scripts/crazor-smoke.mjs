@@ -343,6 +343,11 @@ async function main() {
     await step("Hermes Provider 状态代理", async () => {
       const status = await request("/api/status", { auth: false })
       assert(status.status === 200, "/api/status 未返回 200", status.data)
+
+      const version = await request("/api/hermes/version", { auth: false })
+      assert(version.status === 200, "/api/hermes/version 未返回 200", version.data)
+      assert(version.data?.platform === "hermes-agent", "Hermes 版本代理未返回 provider 平台", version.data)
+      assert(typeof version.data?.version === "string", "Hermes 版本代理未返回版本字段", version.data)
     })
   }
 

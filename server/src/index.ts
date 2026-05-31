@@ -1235,11 +1235,17 @@ app.post('/api/gateway/restart', async (c) => {
 // Hermes version
 app.get('/api/hermes/version', async (c) => {
   try {
-    const resp = await fetch(`${AGENT_GATEWAY_URL}/health`)
+    const resp = await dashboardFetch(`/api/status`)
     const data = await resp.json()
-    return c.json(data)
+    return c.json({
+      status: data.gateway_running ? 'ok' : 'offline',
+      version: data.version || 'unknown',
+      release_date: data.release_date || '',
+      gateway_running: data.gateway_running || false,
+      platform: 'hermes-agent',
+    })
   } catch {
-    return c.json({ status: 'offline' })
+    return c.json({ status: 'offline', version: 'unknown' })
   }
 })
 

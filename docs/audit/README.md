@@ -1,6 +1,6 @@
 # 产品持续审计入口
 
-> 更新日期：2026-05-29
+> 更新日期：2026-05-31
 > 审计范围：Crazor Web、Crazor Server、MCP Server、Docker 交付、Hermes 默认 Provider、业务数据与文档知识库链路。
 
 ## 审计目标
@@ -16,11 +16,14 @@
 ## 文档结构
 
 - [产品功能地图](product-function-map.md)：模块、页面、API、数据层、MCP 能力的对应关系。
+- [客户交付形式可靠性审计](customer-delivery-form-review.md)：客户交付协作链路、正式交付缺口和建议优先级。
 - [审计问题台账](findings.md)：当前发现的问题、风险等级、影响范围和建议修复顺序。
 
 ## 当前结论
 
 当前代码已经具备 Docker 化交付、统一 Web 入口、业务数据 API、文档知识库、Hermes 对话/技能/记忆/任务管理等基础能力。
+
+已同步远程最新代码：`origin/master` 新增的 Hermes 版本号修复已纳入当前 PR 分支，`/api/hermes/version` 现在从 Dashboard `/api/status` 读取版本和运行状态。
 
 当前默认部署不会写入前端 mock 数据、手动 mock 灌库数据或内容作品示例记录；内容作品演示记录与知识库 mock-data 均受 `CRAZOR_SEED_DEMO_DATA=true` 控制。
 
@@ -46,6 +49,7 @@ MCP 文档工具已能自发现知识库结构：`list_docs` 不传 `folder_id` 
 
 但从“团队内部真实使用”的标准看，产品仍不是完整闭环。核心差距在于：
 
+- 当前“客户交付形式”是客户、需求文档、成交、项目、任务、附件和知识库指南组合出来的协作 MVP，适合内部流转和演示，不应包装成正式客户交付管理系统；详见[客户交付形式可靠性审计](customer-delivery-form-review.md)。
 - 客户 Case 已打通第一层业务深链路、项目任务联动、客户文档搜索跳转、附件归档、附件类型/大小策略、文本/图片预览、待跟进提醒处理和项目任务到期提醒；下一步要继续补客户级权限边界和更细的提醒规则配置。
 - 内容作品已打通追踪记录到知识库正文、正文搜索关联、发布动作、指标回收和复盘模板写入链路；下一步要补外部平台真实发布回执、自动采集指标和内容级权限边界。
 - 后端业务 API 与 MCP Tool 已经比较完整，前端已承接基础写入和客户 Case 深链路，下一步要补更细的协作权限和跨模块上下文。
@@ -62,6 +66,7 @@ MCP 文档工具已能自发现知识库结构：`list_docs` 不传 `folder_id` 
 | Docker 服务状态 | `crazor-server`、`crazor-web`、`hermes` 均 healthy |
 | `/api/health` | 200 |
 | `/api/status` | 200 |
+| `/api/hermes/version` | 200，从 Dashboard 状态元数据读取 |
 | `/api/model/info` | 200 |
 | `/api/skills` | 200 |
 | `/api/skills/market` | 200，约 193KB |
