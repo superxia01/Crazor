@@ -880,13 +880,7 @@ async function executeToolAction(name: string, args: any): Promise<any> {
       return docTree.getNote(args.id)
     }
     case "read_doc": return docTree.getNote(args.id)
-    case "list_docs": {
-      const tree = docTree.listTree(args.scope)
-      const notes = args.folder_id
-        ? tree.notes.filter((n: any) => n.folder_id === args.folder_id)
-        : tree.notes.filter((n: any) => !n.folder_id)
-      return notes
-    }
+    case "list_docs": return listDocsForMcp(args.scope, args?.folder_id || null)
     case "search_docs": return docTree.searchNotes(args.scope, args.q)
     case "create_folder": return docTree.createFolder(args.scope, args.parent_id || null, args.name)
     case "read_vault_file": {
@@ -905,6 +899,16 @@ async function executeToolAction(name: string, args: any): Promise<any> {
     }
 
     default: throw new Error(`Unknown tool: ${name}`)
+  }
+}
+
+function listDocsForMcp(scope: string, folderId: string | null) {
+  const tree = docTree.listTree(scope)
+  if (!folderId) return { folders: tree.folders, notes: tree.notes }
+
+  return {
+    folders: tree.folders.filter((folder: any) => folder.parent_id === folderId),
+    notes: tree.notes.filter((note: any) => note.folder_id === folderId),
   }
 }
 

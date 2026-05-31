@@ -369,6 +369,21 @@ async function main() {
     const tools = list.data?.result?.tools || []
     assert(tools.some((tool) => tool.name === "create_contact"), "MCP tools/list 缺少 create_contact", tools)
     assert(tools.some((tool) => tool.name === "get_task_reminders"), "MCP tools/list 缺少 get_task_reminders", tools)
+    assert(tools.some((tool) => tool.name === "list_docs"), "MCP tools/list 缺少 list_docs", tools)
+    assert(
+      !tools.some((tool) => ["getbiji_sync", "getbiji_status", "getbiji_force_full"].includes(tool.name)),
+      "MCP tools/list 不应暴露 Get 笔记占位工具",
+      tools,
+    )
+
+    const docsTree = await callMcpTool("list_docs", { scope: "knowledge" })
+    assert(Array.isArray(docsTree?.folders), "MCP list_docs 未返回 folders 数组", docsTree)
+    assert(Array.isArray(docsTree?.notes), "MCP list_docs 未返回 notes 数组", docsTree)
+    assert(docsTree.folders.length > 0, "MCP list_docs 未返回知识库目录，Agent 无法发现文档路径", docsTree)
+    const folder = docsTree.folders.find((item) => item.name === "20-业务流程") || docsTree.folders[0]
+    const folderDocs = await callMcpTool("list_docs", { scope: "knowledge", folder_id: folder.id })
+    assert(Array.isArray(folderDocs?.folders), "MCP list_docs(folder_id) 未返回子目录数组", folderDocs)
+    assert(Array.isArray(folderDocs?.notes), "MCP list_docs(folder_id) 未返回文档数组", folderDocs)
 
     const mcpContact = await callMcpTool("create_contact", {
       name: unique("烟测MCP客户"),

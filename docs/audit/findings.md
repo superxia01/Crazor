@@ -72,6 +72,23 @@
 
 按能力拆 Provider：对话、模型、技能、记忆、任务、文件、终端、渠道。前端展示“当前 Provider 支持/不支持”状态，不再默认所有 provider 都有 Hermes Dashboard。
 
+### P1：MCP 文档发现链路已修正为可返回目录树
+
+**现象**
+
+- `create_doc` 工具提示 Agent 不确定 `folder_id` 时先调用 `list_docs` 查看目录树。
+- 但此前 `list_docs` 实际只返回根目录文档，不返回 `folders`，导致 Agent 难以发现知识库目录路径，也无法可靠把需求、复盘、客户资料写入正确节点。
+- 本轮已把 `list_docs` 改为：不传 `folder_id` 返回完整 `{ folders, notes }`；传 `folder_id` 返回该目录的直接子目录和文档。
+- 自动交付烟测已新增运行态 MCP 调用验证，确保 `tools/list` 包含 `list_docs`，且 `list_docs` 实际返回 folders/notes。
+
+**影响**
+
+Agent 现在可以通过工具链自发现知识库结构，再创建或更新文档，文档协作中枢不再依赖人工提前告诉每个目录路径。
+
+**建议**
+
+下一步继续补文档工具的权限边界、目录搜索和按业务对象推荐写入目录。
+
 ### P1：内容正文、发布动作和指标回收链路已补，外部平台自动回执仍待接入
 
 **现象**
@@ -175,6 +192,7 @@
 | 手动 mock 灌库脚本容易污染真实演示环境 | 已修复，删除 `server/seed-mock.js` |
 | 内容作品示例记录默认无条件写入 | 已修复，`seedContentPieces()` 受 `CRAZOR_SEED_DEMO_DATA` 控制，默认不写入 |
 | MCP 暴露 Get 笔记占位同步工具 | 已修复，`getbiji_sync`、`getbiji_status`、`getbiji_force_full` 从 MCP 工具清单和执行分支下线，真实适配完成前不再误导 Agent |
+| MCP `list_docs` 只返回根文档，不能按描述返回目录树 | 已修复，不传 `folder_id` 返回完整 `{ folders, notes }`，传 `folder_id` 返回该目录直接子目录和文档 |
 
 ## 本轮验证记录
 
@@ -205,3 +223,4 @@
 | Mock 数据清理验证 | `node --test web/src/no-mock-data.test.js` 通过；前端 mock 模块、手动 mock 灌库脚本已删除；内容作品种子已由 `CRAZOR_SEED_DEMO_DATA` 控制 |
 | 当前 Docker 复验 | `docker compose build crazor-server crazor-web`、`docker compose up -d --no-deps --force-recreate crazor-server crazor-web`、`./scripts/hermes smoke`、`./scripts/hermes smoke-strict` 均通过；恢复默认后 `127.0.0.1:5173` 与 `192.168.103.4:5173` 健康检查通过 |
 | MCP 占位工具清理验证 | `node --test web/src/no-placeholder-mcp-tools.test.js` 通过；`docker compose build crazor-server` 通过；运行态 `/mcp tools/list` 不再包含 Get 笔记占位同步工具；`./scripts/hermes smoke` 通过 |
+| MCP 文档目录发现验证 | `node --test web/src/mcp-doc-tools.test.js` 通过；`docker compose build crazor-server` 通过；`./scripts/hermes smoke` 与 `./scripts/hermes smoke-strict` 已覆盖运行态 `list_docs` 返回 `folders` 与 `notes`；恢复默认后局域网健康检查通过 |
