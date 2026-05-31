@@ -21,7 +21,14 @@ class ApiClient {
 
     if (!response.ok) {
       const text = await response.text().catch(() => response.statusText)
-      throw new Error(`HTTP ${response.status}: ${text}`)
+      let message = text
+      try {
+        const data = JSON.parse(text)
+        message = data?.error?.message || data?.error || data?.message || text
+      } catch {
+        // Keep raw text when the server did not return JSON.
+      }
+      throw new Error(`HTTP ${response.status}: ${message}`)
     }
 
     return response.json()
@@ -58,7 +65,15 @@ class ApiClient {
       signal,
     })
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+      const text = await response.text().catch(() => response.statusText)
+      let message = text || response.statusText
+      try {
+        const data = JSON.parse(text)
+        message = data?.error?.message || data?.error || data?.message || message
+      } catch {
+        // Keep raw text when the server did not return JSON.
+      }
+      throw new Error(`HTTP ${response.status}: ${message}`)
     }
     return response
   }

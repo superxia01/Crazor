@@ -47,6 +47,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
   Settings2Icon,
+  ShieldCheckIcon,
   SparklesIcon,
   SquareTerminalIcon,
   SunMediumIcon,
@@ -208,6 +209,7 @@ const ProjectsView = lazy(() => import("@/ProjectsView"))
 const KnowledgeBaseView = lazy(() => import("@/KnowledgeBaseView"))
 const DataAnalyticsView = lazy(() => import("@/DataAnalyticsView"))
 const IntegrationsView = lazy(() => import("@/IntegrationsView"))
+const TeamOpsView = lazy(() => import("@/TeamOpsView"))
 import { MainViewHeader } from "@/components/layout/MainViewHeader"
 import { HermesSubmenu } from "@/components/layout/HermesSubmenu"
 import { SessionsList } from "@/components/layout/SessionsList"
@@ -261,6 +263,7 @@ const SIDEBAR_GROUPS = [
       { id: "content", labelKey: "nav.content", descriptionKey: "nav.content", icon: MegaphoneIcon },
       { id: "channels", labelKey: "nav.channels", descriptionKey: "nav.channels", icon: GlobeIcon },
       { id: "contacts", labelKey: "nav.contacts", descriptionKey: "nav.contacts", icon: UsersIcon },
+      { id: "teamops", labelKey: "nav.teamops", descriptionKey: "nav.teamopsDescription", icon: ShieldCheckIcon },
       { id: "finance", labelKey: "nav.finance", descriptionKey: "nav.finance", icon: LandmarkIcon },
       { id: "projects", labelKey: "nav.projects", descriptionKey: "nav.projects", icon: KanbanSquareIcon },
       { id: "knowledge", labelKey: "nav.knowledge", descriptionKey: "nav.knowledge", icon: FileTextIcon },
@@ -3060,6 +3063,7 @@ export function AppInner() {
                         )}
                         {view === "content" && <ContentPiecesView />}
                         {view === "contacts" && <ContactsView />}
+                        {view === "teamops" && <TeamOpsView />}
                         {view === "finance" && <FinanceView />}
                         {view === "channels" && <ChannelsView />}
                         {view === "projects" && <ProjectsView />}

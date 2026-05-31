@@ -79,7 +79,9 @@ export async function savePrimaryModelConfig(config) {
     provider: String(config?.provider || '').trim(),
     baseUrl: String(config?.baseUrl || '').trim(),
     apiKey: String(config?.apiKey || '').trim(),
+    apiMode: String(config?.apiMode || '').trim(),
     contextLength: config?.contextLength ?? null,
+    clearFields: Array.isArray(config?.clearFields) ? config.clearFields : [],
   }
 
   return api.patch('/api/config', payload)

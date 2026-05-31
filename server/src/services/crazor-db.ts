@@ -2,8 +2,10 @@
 // Crazor business data — SQLite via Bun built-in
 
 import { Database } from "bun:sqlite"
+import { createHash, randomBytes } from "node:crypto"
 import { resolve } from "path"
 import { CRAZOR_DB_PATH, HERMES_HOME } from "./crazor-config"
+import { normalizeScopes, serializeScopes } from "./crazor-permissions"
 
 const db = new Database(CRAZOR_DB_PATH)
 db.exec("PRAGMA journal_mode = WAL")
@@ -171,6 +173,48 @@ db.exec(`
     updated_at TEXT NOT NULL,
     UNIQUE(entity, field_key)
   );
+
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id TEXT PRIMARY KEY,
+    actor_type TEXT NOT NULL DEFAULT 'unknown',
+    actor_id TEXT NOT NULL DEFAULT 'unknown',
+    source TEXT NOT NULL DEFAULT '',
+    action TEXT NOT NULL,
+    entity TEXT NOT NULL,
+    entity_id TEXT DEFAULT '',
+    payload_hash TEXT DEFAULT '',
+    summary TEXT DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity, entity_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_type, actor_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS team_members (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    actor_type TEXT NOT NULL DEFAULT 'human',
+    role TEXT NOT NULL DEFAULT 'member',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS actor_tokens (
+    id TEXT PRIMARY KEY,
+    member_id TEXT NOT NULL REFERENCES team_members(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    token_prefix TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL DEFAULT '',
+    token_type TEXT NOT NULL DEFAULT 'api',
+    scopes TEXT NOT NULL DEFAULT '*',
+    status TEXT NOT NULL DEFAULT 'active',
+    last_used_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_actor_tokens_member ON actor_tokens(member_id, status);
 `)
 
 // ── Schema migrations (idempotent) ──────────────────────────
@@ -210,6 +254,7 @@ const migrations = [
   "ALTER TABLE contacts ADD COLUMN custom_data TEXT DEFAULT '{}'",
   "ALTER TABLE transactions ADD COLUMN custom_data TEXT DEFAULT '{}'",
   "ALTER TABLE channels ADD COLUMN custom_data TEXT DEFAULT '{}'",
+  "ALTER TABLE actor_tokens ADD COLUMN scopes TEXT NOT NULL DEFAULT '*'",
 ]
 for (const sql of migrations) {
   try { db.exec(sql) } catch { /* column already exists */ }
@@ -223,6 +268,20 @@ function id(): string {
 
 function now(): string {
   return new Date().toISOString()
+}
+
+function hashPayload(payload: unknown): string {
+  if (payload === undefined || payload === null || payload === "") return ""
+  const text = typeof payload === "string" ? payload : JSON.stringify(payload)
+  return createHash("sha256").update(text).digest("hex")
+}
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex")
+}
+
+function tokenPrefix(token: string): string {
+  return token.slice(0, 12)
 }
 
 function mapContact(row: any) {
@@ -403,11 +462,19 @@ export function deleteContentPiece(id: string) {
   db.prepare("DELETE FROM content_pieces WHERE id = ?").run(id)
 }
 
+function shouldSeedDemoData() {
+  return ["1", "true", "yes", "on"].includes(
+    String(process.env.CRAZOR_SEED_DEMO_DATA || "").toLowerCase()
+  )
+}
+
 export function seedContentPieces() {
+  if (!shouldSeedDemoData()) return 0
+
   const count = (db.prepare("SELECT count(*) as c FROM content_pieces").get() as any).c
   if (count > 0) return 0
 
-  const mockItems = [
+  const demoItems = [
     // 国内平台
     { title: "AI工具选型指南：中小企业如何避坑", platform: "公众号", form: "文章", status: "已发布", published_at: "2026-05-20", views: 2340, likes: 89, comments: 23, shares: 45, topic_source: "选题池" },
     { title: "制造厂用AI报价，效率提升3倍", platform: "小红书", form: "图文", status: "已发布", published_at: "2026-05-18", views: 8900, likes: 312, comments: 67, shares: 128, topic_source: "选题池" },
@@ -431,10 +498,10 @@ export function seedContentPieces() {
     { title: "AI SaaS Dashboard Template Launch", platform: "Shopify", form: "文章", status: "已发布", published_at: "2026-05-14", views: 180, likes: 12, comments: 3, shares: 5, topic_source: "产品推广" },
   ]
 
-  for (const item of mockItems) {
+  for (const item of demoItems) {
     createContentPiece(item)
   }
-  return mockItems.length
+  return demoItems.length
 }
 
 export function getContentPieceStats() {
@@ -563,6 +630,39 @@ export function deleteProject(id: string) {
 export function listTasks(projectId?: string) {
   if (projectId) return db.prepare("SELECT * FROM tasks WHERE project_id = ? ORDER BY status, sort_order").all(projectId)
   return db.prepare("SELECT * FROM tasks ORDER BY project_id, status, sort_order").all()
+}
+
+export function listTasksByContact(contactId: string) {
+  return db.prepare(`
+    SELECT t.*, p.name as project_name, p.contact_id
+    FROM tasks t
+    JOIN projects p ON p.id = t.project_id
+    WHERE p.contact_id = ?
+    ORDER BY p.updated_at DESC, t.status, t.sort_order
+  `).all(contactId)
+}
+
+export function getTaskReminders(limit: number = 20) {
+  const today = now().slice(0, 10)
+  return db.prepare(`
+    SELECT
+      t.*,
+      p.name as project_name,
+      p.contact_id,
+      c.name as contact_name
+    FROM tasks t
+    LEFT JOIN projects p ON p.id = t.project_id
+    LEFT JOIN contacts c ON c.id = p.contact_id
+    WHERE t.status != 'done'
+      AND t.due_date IS NOT NULL
+      AND t.due_date != ''
+      AND t.due_date <= ?
+    ORDER BY
+      t.due_date ASC,
+      CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+      t.updated_at DESC
+    LIMIT ?
+  `).all(today, Math.max(1, Math.min(100, Number(limit) || 20)))
 }
 
 export function createTask(data: Partial<any>) {
@@ -856,27 +956,6 @@ export function contentCheckDaily() {
   return { date: today, stats, todayPublished, dailyCheck: results }
 }
 
-// ── Getbiji Stubs ────────────────────────────────────────────
-
-const getbijiState = { lastSync: "", status: "未连接", totalNotes: 0 }
-
-export function getbijiSync() {
-  // TODO: integrate with actual getbiji API
-  getbijiState.lastSync = now()
-  getbijiState.status = "已同步（占位）"
-  return { ...getbijiState, message: "getbiji 同步功能待接入，当前为占位返回" }
-}
-
-export function getbijiStatus() {
-  return getbijiState
-}
-
-export function getbijiForceFull() {
-  getbijiState.lastSync = now()
-  getbijiState.status = "全量同步（占位）"
-  return { ...getbijiState, message: "getbiji 全量同步功能待接入，当前为占位返回" }
-}
-
 // ── CRM Composite Functions ─────────────────────────────────
 
 export function crmGetClient(nameOrId: string) {
@@ -993,10 +1072,172 @@ export function getProjectStats() {
   const todo = (db.prepare("SELECT count(*) as c FROM tasks WHERE status = 'todo'").get() as any).c
   const doing = (db.prepare("SELECT count(*) as c FROM tasks WHERE status = 'doing'").get() as any).c
   const done = (db.prepare("SELECT count(*) as c FROM tasks WHERE status = 'done'").get() as any).c
-  return { totalProjects: total, todoTasks: todo, doingTasks: doing, doneTasks: done }
+  const tasksDue = (db.prepare("SELECT count(*) as c FROM tasks WHERE status != 'done' AND due_date IS NOT NULL AND due_date != '' AND due_date <= ?").get(now().slice(0, 10)) as any).c
+  return { totalProjects: total, todoTasks: todo, doingTasks: doing, doneTasks: done, tasksDue }
 }
 
-// ── Hermes sessions analytics (read-only from state.db) ─────
+// ── Audit logs ───────────────────────────────────────────────
+
+type AuditLogInput = {
+  actor_type?: string
+  actor_id?: string
+  source?: string
+  action: string
+  entity: string
+  entity_id?: string
+  payload?: unknown
+  payload_hash?: string
+  summary?: string
+}
+
+export function createAuditLog(data: AuditLogInput) {
+  const row = {
+    id: id(),
+    actor_type: data.actor_type || "unknown",
+    actor_id: data.actor_id || "unknown",
+    source: data.source || "",
+    action: data.action,
+    entity: data.entity,
+    entity_id: data.entity_id || "",
+    payload_hash: data.payload_hash || hashPayload(data.payload),
+    summary: data.summary || "",
+    created_at: now(),
+  }
+
+  db.prepare(`INSERT INTO audit_logs (id,actor_type,actor_id,source,action,entity,entity_id,payload_hash,summary,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(row.id, row.actor_type, row.actor_id, row.source, row.action, row.entity, row.entity_id, row.payload_hash, row.summary, row.created_at)
+  return row
+}
+
+export function listAuditLogs(filter?: { entity?: string; entity_id?: string; actor_id?: string; limit?: number }) {
+  let sql = "SELECT * FROM audit_logs WHERE 1=1"
+  const params: any[] = []
+  if (filter?.entity) { sql += " AND entity = ?"; params.push(filter.entity) }
+  if (filter?.entity_id) { sql += " AND entity_id = ?"; params.push(filter.entity_id) }
+  if (filter?.actor_id) { sql += " AND actor_id = ?"; params.push(filter.actor_id) }
+  const limit = Math.max(1, Math.min(Number(filter?.limit || 100), 500))
+  sql += " ORDER BY created_at DESC LIMIT ?"
+  params.push(limit)
+  return db.prepare(sql).all(...params)
+}
+
+// ── Identity / actor tokens ─────────────────────────────────
+
+export function createTeamMember(data: { name: string; actor_type?: string; role?: string; status?: string }) {
+  const row = {
+    id: id(),
+    name: data.name,
+    actor_type: data.actor_type || "human",
+    role: data.role || "member",
+    status: data.status || "active",
+    created_at: now(),
+    updated_at: now(),
+  }
+  db.prepare("INSERT INTO team_members (id,name,actor_type,role,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)")
+    .run(row.id, row.name, row.actor_type, row.role, row.status, row.created_at, row.updated_at)
+  return row
+}
+
+export function listTeamMembers() {
+  return db.prepare("SELECT * FROM team_members ORDER BY created_at DESC").all()
+}
+
+export function getTeamMember(id: string) {
+  return db.prepare("SELECT * FROM team_members WHERE id = ?").get(id) as any
+}
+
+export function updateTeamMember(id: string, data: Partial<{ name: string; actor_type: string; role: string; status: string }>) {
+  const sets: string[] = []
+  const params: any[] = []
+  for (const key of ["name", "actor_type", "role", "status"]) {
+    if ((data as any)[key] !== undefined) { sets.push(`${key} = ?`); params.push((data as any)[key]) }
+  }
+  if (sets.length === 0) return getTeamMember(id)
+  sets.push("updated_at = ?"); params.push(now()); params.push(id)
+  db.prepare(`UPDATE team_members SET ${sets.join(", ")} WHERE id = ?`).run(...params)
+  return getTeamMember(id)
+}
+
+export function deleteTeamMember(id: string) {
+  db.prepare("DELETE FROM team_members WHERE id = ?").run(id)
+}
+
+export function createActorToken(data: { member_id: string; label?: string; token_type?: string; scopes?: unknown }) {
+  const member = getTeamMember(data.member_id)
+  if (!member) throw new Error(`成员不存在: ${data.member_id}`)
+
+  const tokenType = data.token_type === "agent" || member.actor_type === "agent" ? "agent" : "api"
+  const token = `czr_${tokenType}_${randomBytes(24).toString("base64url")}`
+  const row = {
+    id: id(),
+    member_id: data.member_id,
+    token_hash: hashToken(token),
+    token_prefix: tokenPrefix(token),
+    label: data.label || "",
+    token_type: tokenType,
+    scopes: serializeScopes(data.scopes),
+    status: "active",
+    last_used_at: null as string | null,
+    created_at: now(),
+    updated_at: now(),
+  }
+  db.prepare(`INSERT INTO actor_tokens (id,member_id,token_hash,token_prefix,label,token_type,scopes,status,last_used_at,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(row.id, row.member_id, row.token_hash, row.token_prefix, row.label, row.token_type, row.scopes, row.status, row.last_used_at, row.created_at, row.updated_at)
+  return { ...sanitizeActorToken(row), scopes: normalizeScopes(row.scopes), token }
+}
+
+export function listActorTokens(filter?: { member_id?: string; status?: string }) {
+  let sql = `SELECT t.id,t.member_id,t.token_prefix,t.label,t.token_type,t.scopes,t.status,t.last_used_at,t.created_at,t.updated_at,
+    m.name as member_name,m.actor_type,m.role as member_role,m.status as member_status
+    FROM actor_tokens t LEFT JOIN team_members m ON m.id = t.member_id WHERE 1=1`
+  const params: any[] = []
+  if (filter?.member_id) { sql += " AND t.member_id = ?"; params.push(filter.member_id) }
+  if (filter?.status) { sql += " AND t.status = ?"; params.push(filter.status) }
+  sql += " ORDER BY t.created_at DESC"
+  return (db.prepare(sql).all(...params) as any[]).map((row) => ({ ...row, scopes: normalizeScopes(row.scopes) }))
+}
+
+export function hasActiveActorTokens() {
+  const row = db.prepare(`SELECT count(*) as count
+    FROM actor_tokens t JOIN team_members m ON m.id = t.member_id
+    WHERE t.status = 'active' AND m.status = 'active'`).get() as any
+  return Number(row?.count || 0) > 0
+}
+
+export function revokeActorToken(id: string) {
+  db.prepare("UPDATE actor_tokens SET status = 'revoked', updated_at = ? WHERE id = ?").run(now(), id)
+  const row = db.prepare("SELECT id,member_id,token_prefix,label,token_type,scopes,status,last_used_at,created_at,updated_at FROM actor_tokens WHERE id = ?").get(id) as any
+  return row ? { ...row, scopes: normalizeScopes(row.scopes) } : row
+}
+
+export function resolveActorToken(token: string) {
+  if (!token) return null
+  const tokenHash = hashToken(token.trim())
+  const row = db.prepare(`SELECT t.id as token_id,t.member_id,t.token_prefix,t.label,t.token_type,t.scopes,t.status as token_status,
+      m.name as actor_name,m.actor_type,m.role,m.status as member_status
+    FROM actor_tokens t JOIN team_members m ON m.id = t.member_id
+    WHERE t.token_hash = ?`).get(tokenHash) as any
+  if (!row || row.token_status !== "active" || row.member_status !== "active") return null
+  db.prepare("UPDATE actor_tokens SET last_used_at = ?, updated_at = ? WHERE id = ?").run(now(), now(), row.token_id)
+  return {
+    actor_type: row.actor_type || (row.token_type === "agent" ? "agent" : "human"),
+    actor_id: row.member_id,
+    actor_name: row.actor_name,
+    role: row.role,
+    scopes: normalizeScopes(row.scopes),
+    source: row.token_type === "agent" ? "agent-token" : "api-token",
+    token_id: row.token_id,
+    token_label: row.label,
+  }
+}
+
+function sanitizeActorToken(row: any) {
+  const safe = { ...row }
+  delete safe.token_hash
+  return safe
+}
+
+// ── Agent sessions analytics (Hermes-compatible state.db) ────
 
 export function getHermesSessionStats() {
   try {

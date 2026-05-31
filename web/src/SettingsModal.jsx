@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { LANGUAGE_OPTIONS, useI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
+import { loadBrowserEnvVars, saveBrowserEnvVars } from "@/api/browser-utils"
 
 export default function SettingsModal({
   open,
@@ -70,8 +71,8 @@ export default function SettingsModal({
   const [testingConnection, setTestingConnection] = useState(false)
   const [connectionTestResult, setConnectionTestResult] = useState(null)
   const [serverHost, setServerHost] = useState("127.0.0.1")
-  const [dashboardHost] = useState("127.0.0.1")
-  const [dashboardPort, setDashboardPort] = useState("9119")
+  const [dashboardHost] = useState(() => loadBrowserEnvVars().DASHBOARD_HOST || "127.0.0.1")
+  const [dashboardPort, setDashboardPort] = useState(() => loadBrowserEnvVars().DASHBOARD_PORT || "9119")
   const [testingDashboard, setTestingDashboard] = useState(false)
   const [dashboardTestResult, setDashboardTestResult] = useState(null)
   const [savingDashboard, setSavingDashboard] = useState(false)
@@ -401,12 +402,17 @@ export default function SettingsModal({
   }
 
   const handleSaveDashboard = async () => {
+    const nextPort = dashboardPort.trim()
+    if (!/^\d+$/.test(nextPort)) {
+      toast.error("请输入有效端口")
+      return
+    }
+
     setSavingDashboard(true)
     try {
       // Dashboard 配置目前仅用于显示，保存到本地存储
-      const { saveBrowserEnvVars } = await import("@/api/browser-utils")
-      const current = {}
-      saveBrowserEnvVars({ ...current, DASHBOARD_HOST: dashboardHost, DASHBOARD_PORT: dashboardPort })
+      const current = loadBrowserEnvVars()
+      saveBrowserEnvVars({ ...current, DASHBOARD_HOST: dashboardHost, DASHBOARD_PORT: nextPort })
       setDashboardSaved(true)
       toast.success("Dashboard 设置已保存")
     } catch {

@@ -1,4 +1,4 @@
-// Seed vault templates & mock-data into filesystem vault
+// Seed vault templates and optional demo data into filesystem vault
 // Creates real directories and .md files instead of SQLite rows
 
 import { resolve, join } from "path"
@@ -6,6 +6,9 @@ import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSy
 import { CRAZOR_VAULT_ROOT, VAULT_META_FILE } from "./crazor-config"
 
 const VAULT_DATA = resolve(import.meta.dirname, "../../data/vault")
+const SEED_DEMO_DATA = ["1", "true", "yes", "on"].includes(
+  String(process.env.CRAZOR_SEED_DEMO_DATA || "").toLowerCase()
+)
 
 interface FolderDef {
   name: string
@@ -164,20 +167,22 @@ export function seedVault(): { folders: number; notes: number } {
     noteCount++
   }
 
-  // 6. Mock-data
-  const MOCK_MAP = [
-    { dir: "mock-data/00-me", folder: ["00-关于我"] },
-    { dir: "mock-data/20-wiki", folder: ["10-百科"] },
-    { dir: "mock-data/30-flow/10-公域流量", folder: ["20-业务流程", "10-公域流量"] },
-    { dir: "mock-data/30-flow/20-私域运营/10-朋友圈", folder: ["20-业务流程", "20-私域运营", "10-朋友圈"] },
-    { dir: "mock-data/30-flow/30-CRM", folder: ["20-业务流程", "30-客户管理"] },
-    { dir: "mock-data/50-projects", folder: ["20-业务流程", "45-项目管理"] },
-  ]
-  for (const m of MOCK_MAP) {
-    for (const f of readMdFiles(join(VAULT_DATA, m.dir))) {
-      const dir = resolve(knowledgeDir, ...m.folder)
-      copyNote(dir, f.filename, f.content)
-      noteCount++
+  // 6. Demo data is opt-in. Production/team deployments must not be seeded with mock business records.
+  if (SEED_DEMO_DATA) {
+    const MOCK_MAP = [
+      { dir: "mock-data/00-me", folder: ["00-关于我"] },
+      { dir: "mock-data/20-wiki", folder: ["10-百科"] },
+      { dir: "mock-data/30-flow/10-公域流量", folder: ["20-业务流程", "10-公域流量"] },
+      { dir: "mock-data/30-flow/20-私域运营/10-朋友圈", folder: ["20-业务流程", "20-私域运营", "10-朋友圈"] },
+      { dir: "mock-data/30-flow/30-CRM", folder: ["20-业务流程", "30-客户管理"] },
+      { dir: "mock-data/50-projects", folder: ["20-业务流程", "45-项目管理"] },
+    ]
+    for (const m of MOCK_MAP) {
+      for (const f of readMdFiles(join(VAULT_DATA, m.dir))) {
+        const dir = resolve(knowledgeDir, ...m.folder)
+        copyNote(dir, f.filename, f.content)
+        noteCount++
+      }
     }
   }
 
@@ -185,9 +190,11 @@ export function seedVault(): { folders: number; notes: number } {
   const notebookDir = resolve(CRAZOR_VAULT_ROOT, "notebook", "inbox")
   mkdirSync(notebookDir, { recursive: true })
   writeDirMeta(resolve(CRAZOR_VAULT_ROOT, "notebook"), { sort: ["inbox"] })
-  for (const f of readMdFiles(join(VAULT_DATA, "mock-data/10-raw/inbox"))) {
-    copyNote(notebookDir, f.filename, f.content)
-    noteCount++
+  if (SEED_DEMO_DATA) {
+    for (const f of readMdFiles(join(VAULT_DATA, "mock-data/10-raw/inbox"))) {
+      copyNote(notebookDir, f.filename, f.content)
+      noteCount++
+    }
   }
   // Raw guides → notebook inbox
   const RAW_GUIDES = ["20-raw-填写指南.md", "raw-cleaned-填写指南.md", "raw-tagged-填写指南.md"]

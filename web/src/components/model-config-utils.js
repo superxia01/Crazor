@@ -73,6 +73,7 @@ export function getPrimaryModelConfig(config) {
     provider: normalizeString(safeConfig.provider ?? nestedModel?.provider),
     baseUrl: normalizeString(safeConfig.baseUrl ?? safeConfig.base_url ?? nestedModel?.base_url),
     apiKey: normalizeString(safeConfig.apiKey ?? safeConfig.api_key ?? nestedModel?.api_key),
+    apiMode: normalizeString(safeConfig.apiMode ?? safeConfig.api_mode ?? nestedModel?.api_mode),
     contextLength:
       (safeConfig.contextLength ?? contextLengthValue) === null ||
       (safeConfig.contextLength ?? contextLengthValue) === undefined

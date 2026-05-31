@@ -1,0 +1,132 @@
+name: ${COMPOSE_PROJECT_NAME:-crazor}
+
+services:
+  hermes:
+    profiles:
+      - hermes
+    image: ${HERMES_IMAGE:-nousresearch/hermes-agent:latest}
+    restart: unless-stopped
+    command: gateway run
+    working_dir: ${HERMES_USER_WORKDIR:-/opt/data/workspaces/users/default}
+    ports:
+      - "${HERMES_GATEWAY_BIND:-127.0.0.1}:8642:8642"
+      - "${HERMES_DASHBOARD_BIND:-127.0.0.1}:9119:9119"
+    environment:
+      HOME: /opt/data
+      TZ: ${TZ:-Asia/Shanghai}
+      CRON_TZ: ${CRON_TZ:-Asia/Shanghai}
+      HERMES_WORKSPACE_ROOT: ${HERMES_WORKSPACE_ROOT:-/opt/data/workspaces}
+      HERMES_USER_WORKDIR: ${HERMES_USER_WORKDIR:-/opt/data/workspaces/users/default}
+      WORKSPACE_ROOT: ${HERMES_WORKSPACE_ROOT:-/opt/data/workspaces}
+      USER_WORKDIR: ${HERMES_USER_WORKDIR:-/opt/data/workspaces/users/default}
+      AGENT_WORKDIR: ${HERMES_USER_WORKDIR:-/opt/data/workspaces/users/default}
+      HERMES_UID: ${HERMES_UID:-1000}
+      HERMES_GID: ${HERMES_GID:-1000}
+      HERMES_DASHBOARD: ${HERMES_DASHBOARD:-1}
+      HERMES_DASHBOARD_HOST: ${HERMES_DASHBOARD_HOST:-0.0.0.0}
+      HERMES_DASHBOARD_PORT: ${HERMES_DASHBOARD_PORT:-9119}
+      HERMES_DASHBOARD_TUI: ${HERMES_DASHBOARD_TUI:-1}
+      API_SERVER_ENABLED: ${API_SERVER_ENABLED:-true}
+      API_SERVER_HOST: ${API_SERVER_HOST:-0.0.0.0}
+      API_SERVER_KEY: ${AGENT_GATEWAY_API_KEY:-change-me-run-scripts-hermes-init}
+      API_SERVER_CORS_ORIGINS: ${API_SERVER_CORS_ORIGINS:-http://localhost:9119,http://localhost:5173}
+      # 模型 provider 凭证。真实密钥只写入 .env，不提交到 Git。
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_BASE_URL: ${GEMINI_BASE_URL:-}
+      NOUS_API_KEY: ${NOUS_API_KEY:-}
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      MINIMAX_CN_API_KEY: ${MINIMAX_CN_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      XIAOMI_API_KEY: ${XIAOMI_API_KEY:-}
+      ARCEEAI_API_KEY: ${ARCEEAI_API_KEY:-}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      LM_API_KEY: ${LM_API_KEY:-}
+      LM_BASE_URL: ${LM_BASE_URL:-}
+      KILOCODE_API_KEY: ${KILOCODE_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    shm_size: ${HERMES_SHM_SIZE:-1gb}
+    volumes:
+      - ./data/hermes/state:/opt/data
+      - ./data/hermes/workspaces:/opt/data/workspaces
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8642/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-20m}
+        max-file: ${LOG_MAX_FILE:-5}
+
+  crazor-server:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      CRAZOR_HOME: /data/crazor
+      AGENT_PROVIDER: ${AGENT_PROVIDER:-hermes}
+      AGENT_GATEWAY_URL: ${AGENT_GATEWAY_URL:-http://hermes:8642}
+      AGENT_DASHBOARD_URL: ${AGENT_DASHBOARD_URL:-http://hermes:9119}
+      AGENT_GATEWAY_API_KEY: ${AGENT_GATEWAY_API_KEY:-}
+      AGENT_STATE_HOME: /data/agent-state
+      HERMES_HOME: /data/agent-state
+      HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-http://hermes:8642}
+      HERMES_DASHBOARD_URL: ${HERMES_DASHBOARD_URL:-http://hermes:9119}
+      HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      NOUS_API_KEY: ${NOUS_API_KEY:-}
+      CRAZOR_SEED_DEMO_DATA: ${CRAZOR_SEED_DEMO_DATA:-false}
+      CRAZOR_REQUIRE_WRITE_TOKEN: ${CRAZOR_REQUIRE_WRITE_TOKEN:-false}
+      CRAZOR_REQUIRE_READ_TOKEN: ${CRAZOR_REQUIRE_READ_TOKEN:-}
+      CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN: ${CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN:-}
+      CRAZOR_REQUIRE_BUSINESS_READ_TOKEN: ${CRAZOR_REQUIRE_BUSINESS_READ_TOKEN:-false}
+      CRAZOR_ATTACHMENT_MAX_BYTES: ${CRAZOR_ATTACHMENT_MAX_BYTES:-20971520}
+      CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES: ${CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES:-524288}
+      CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS: ${CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS:-txt,md,csv,json,pdf,doc,docx,xls,xlsx,ppt,pptx,png,jpg,jpeg,webp,gif,zip,mp3,m4a,wav,mp4,mov}
+    volumes:
+      - ./data/crazor:/data/crazor
+      - ./data/hermes/state:/data/agent-state
+    expose:
+      - "3001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  crazor-web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      crazor-server:
+        condition: service_healthy
+    ports:
+      - "${CRAZOR_WEB_PORT:-5173}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 5s

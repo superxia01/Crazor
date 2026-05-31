@@ -2,18 +2,23 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { stream } from 'hono/streaming'
 import { HTTPException } from 'hono/http-exception'
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { Buffer } from 'node:buffer'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
 import {
   listContacts, getContact, createContact, updateContact, deleteContact,
   listTransactions, createTransaction, updateTransaction, deleteTransaction,
   getMonthlyRevenue, listProjects, createProject, updateProject, deleteProject,
-  listTasks, createTask, updateTask, deleteTask, moveTask,
+  listTasks, listTasksByContact, getTaskReminders, createTask, updateTask, deleteTask, moveTask,
   getContactStats, getFinanceStats, getProjectStats, getHermesSessionStats,
   listFollowUps, createFollowUp, updateFollowUp, deleteFollowUp, getFollowUpReminders,
   listChannels, getChannel, createChannel, updateChannel, deleteChannel, getChannelStats,
   listChannelReferrals, createChannelReferral, listContactChannels,
   listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats, seedContentPieces,
+  contentPublish, contentUpdateMetrics,
+  createAuditLog, listAuditLogs,
+  createTeamMember, listTeamMembers, updateTeamMember, deleteTeamMember,
+  createActorToken, listActorTokens, revokeActorToken, resolveActorToken, hasActiveActorTokens,
 } from './services/crazor-db'
 import { seedFieldDefinitions, discoverCustomFields, listFieldDefinitions, getFieldDefinition, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, reorderFieldDefinitions } from './services/field-definitions'
 import * as docs from './services/crazor-docs'
@@ -23,14 +28,44 @@ import { seedVault } from './services/seed-vault'
 import { seedSkills } from './services/seed-skills'
 import { migrateVault } from './services/migrate-vault'
 import { handleSSEConnect, handleSSEMessage, handleStreamableHTTP } from './services/crazor-mcp'
-import { CRAZOR_SKILLS_DIR } from './services/crazor-config'
+import { CRAZOR_HOME, CRAZOR_SKILLS_DIR } from './services/crazor-config'
+import {
+  AGENT_DASHBOARD_URL,
+  AGENT_GATEWAY_URL,
+  agentGatewayHeaders,
+} from './services/agent-gateway'
+import { evaluateReadPermission, evaluateWritePermission } from './services/crazor-permissions'
 
 const app = new Hono()
 
 // --- Config ---
-const HERMES_GATEWAY_URL = process.env.HERMES_GATEWAY_URL || 'http://127.0.0.1:8642'
-const HERMES_DASHBOARD_URL = process.env.HERMES_DASHBOARD_URL || 'http://127.0.0.1:9119'
 const PORT = parseInt(process.env.PORT || '3001')
+const CRAZOR_REQUIRE_WRITE_TOKEN = truthyEnv(process.env.CRAZOR_REQUIRE_WRITE_TOKEN || process.env.CRAZOR_REQUIRE_TOKEN_AUTH)
+const CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN = truthyEnv(
+  process.env.CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN ||
+  process.env.CRAZOR_REQUIRE_READ_TOKEN ||
+  process.env.CRAZOR_REQUIRE_WRITE_TOKEN ||
+  process.env.CRAZOR_REQUIRE_TOKEN_AUTH,
+)
+const CRAZOR_REQUIRE_BUSINESS_READ_TOKEN = truthyEnv(
+  process.env.CRAZOR_REQUIRE_BUSINESS_READ_TOKEN ||
+  process.env.CRAZOR_REQUIRE_READ_TOKEN ||
+  process.env.CRAZOR_REQUIRE_TOKEN_AUTH,
+)
+const CRAZOR_CONTACT_ATTACHMENTS_ROOT = resolve(CRAZOR_HOME, 'attachments', 'contacts')
+const DEFAULT_ATTACHMENT_EXTENSIONS = [
+  'txt', 'md', 'csv', 'json', 'pdf',
+  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  'png', 'jpg', 'jpeg', 'webp', 'gif',
+  'zip', 'mp3', 'm4a', 'wav', 'mp4', 'mov',
+]
+const TEXT_ATTACHMENT_EXTENSIONS = new Set(['txt', 'md', 'csv', 'json', 'log', 'yaml', 'yml'])
+const IMAGE_ATTACHMENT_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif'])
+const CRAZOR_ATTACHMENT_MAX_BYTES = parsePositiveInt(process.env.CRAZOR_ATTACHMENT_MAX_BYTES, 20 * 1024 * 1024)
+const CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES = parsePositiveInt(process.env.CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES, 512 * 1024)
+const CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS = parseAttachmentExtensionList(
+  process.env.CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS || DEFAULT_ATTACHMENT_EXTENSIONS.join(','),
+)
 
 // --- Dashboard session token management ---
 let _dashboardToken: string | null = null
@@ -42,7 +77,7 @@ async function getDashboardToken(): Promise<string | null> {
     return _dashboardToken
   }
   try {
-    const resp = await fetch(`${HERMES_DASHBOARD_URL}/`)
+    const resp = await fetch(`${AGENT_DASHBOARD_URL}/`)
     const html = await resp.text()
     const match = html.match(/__HERMES_SESSION_TOKEN__="([^"]+)"/)
     if (match) {
@@ -66,7 +101,7 @@ async function dashboardFetch(path: string, options: RequestInit = {}): Promise<
   if (token) {
     headers['X-Hermes-Session-Token'] = token
   }
-  return fetch(`${HERMES_DASHBOARD_URL}${path}`, {
+  return fetch(`${AGENT_DASHBOARD_URL}${path}`, {
     ...options,
     headers,
   })
@@ -84,6 +119,230 @@ async function safeDashboardJson<T>(c: any, path: string, options: RequestInit =
   }
 }
 
+function parseUpstreamError(text: string): { message: string; detail?: unknown } {
+  try {
+    const data = JSON.parse(text)
+    const message =
+      data?.error?.message ||
+      data?.message ||
+      data?.error ||
+      text
+    return { message: String(message), detail: data }
+  } catch {
+    return { message: text }
+  }
+}
+
+async function parseResponsePayload(resp: Response): Promise<unknown> {
+  const text = await resp.text()
+  if (!text) return { ok: resp.ok }
+  try {
+    return JSON.parse(text)
+  } catch {
+    return resp.ok ? { ok: true, message: text } : { error: text }
+  }
+}
+
+async function proxyJsonResponse(c: any, resp: Response) {
+  return c.json(await parseResponsePayload(resp), resp.status as 200)
+}
+
+function formatSseEvent(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+}
+
+function responseFailedEvent(message: string, detail?: unknown): string {
+  return formatSseEvent('response.failed', {
+    type: 'response.failed',
+    response: {
+      status: 'failed',
+      error: { message },
+    },
+    error: {
+      message,
+      detail,
+    },
+  })
+}
+
+async function gatewayFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  return fetch(`${AGENT_GATEWAY_URL}${path}`, {
+    ...options,
+    headers: {
+      ...agentGatewayHeaders(),
+      ...(options.headers as Record<string, string> || {}),
+    },
+  })
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key)
+}
+
+function cleanString(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  return String(value).trim()
+}
+
+function readFirstString(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    if (hasOwn(record, key)) return cleanString(record[key])
+  }
+  return ''
+}
+
+function readContextLength(record: Record<string, unknown>): { hasValue: boolean; value: number } {
+  const hasValue = hasOwn(record, 'contextLength') || hasOwn(record, 'model_context_length')
+  if (!hasValue) return { hasValue: false, value: 0 }
+  const raw = hasOwn(record, 'contextLength') ? record.contextLength : record.model_context_length
+  const parsed = Number(raw)
+  return { hasValue: true, value: Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0 }
+}
+
+function inferApiMode(provider: string, model: string, currentApiMode: unknown): string {
+  const existing = cleanString(currentApiMode)
+  if (existing) return existing
+
+  const normalizedProvider = provider.toLowerCase()
+  const normalizedModel = model.toLowerCase()
+  if (
+    (normalizedProvider === 'custom' || normalizedProvider.startsWith('custom:')) &&
+    (normalizedModel.includes('codex') || normalizedModel.includes('gpt-5') || /\bo[1-4]\b/.test(normalizedModel))
+  ) {
+    return 'codex_responses'
+  }
+  return ''
+}
+
+function readClearFields(record: Record<string, unknown>): Set<string> {
+  const raw = record.clearFields
+  if (!Array.isArray(raw)) return new Set()
+  return new Set(raw.map((item) => cleanString(item)).filter(Boolean))
+}
+
+function unquoteYamlScalar(value: string): string {
+  const trimmed = value.trim()
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
+
+function parseModelBlockFromYaml(yamlText: string): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  const lines = yamlText.split(/\r?\n/)
+  let inModel = false
+  let modelIndent = 0
+
+  for (const line of lines) {
+    const indent = line.match(/^\s*/)?.[0].length ?? 0
+    const trimmed = line.trim()
+
+    if (!inModel) {
+      if (/^model:\s*(?:#.*)?$/.test(trimmed)) {
+        inModel = true
+        modelIndent = indent
+      }
+      continue
+    }
+
+    if (!trimmed || trimmed.startsWith('#')) continue
+    if (indent <= modelIndent) break
+
+    const match = line.match(/^\s+([A-Za-z0-9_]+):\s*(.*)$/)
+    if (!match) continue
+
+    const key = match[1]
+    let value = match[2].trim()
+    const commentIndex = value.search(/\s+#/)
+    if (commentIndex >= 0) value = value.slice(0, commentIndex).trim()
+    result[key] = unquoteYamlScalar(value)
+  }
+
+  return result
+}
+
+async function loadDashboardModelBlock(): Promise<Record<string, unknown>> {
+  try {
+    const resp = await dashboardFetch(`/api/config/raw`)
+    if (!resp.ok) return {}
+    const payload = asRecord(await resp.json())
+    return parseModelBlockFromYaml(cleanString(payload.yaml))
+  } catch {
+    return {}
+  }
+}
+
+function shouldUseModelSet(provider: string, body: Record<string, unknown>, contextLength: { hasValue: boolean }): boolean {
+  const normalizedProvider = provider.toLowerCase()
+  const hasBaseUrl = hasOwn(body, 'baseUrl') || hasOwn(body, 'base_url')
+  const hasApiKey = hasOwn(body, 'apiKey') || hasOwn(body, 'api_key')
+  const hasApiMode = hasOwn(body, 'apiMode') || hasOwn(body, 'api_mode')
+  const hasClearFields = Array.isArray(body.clearFields) && body.clearFields.length > 0
+
+  return (
+    normalizedProvider !== 'custom' &&
+    !normalizedProvider.startsWith('custom:') &&
+    !hasBaseUrl &&
+    !hasApiKey &&
+    !hasApiMode &&
+    !contextLength.hasValue &&
+    !hasClearFields
+  )
+}
+
+const sessionResponseIds = new Map<string, string | null>()
+const sessionPinnedIds = new Set<string>()
+const sessionModelOverrides = new Map<string, string | null>()
+
+function sessionTimestamp(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(value * 1000).toISOString()
+  }
+  const text = cleanString(value)
+  return text || new Date().toISOString()
+}
+
+function normalizeGatewaySession(payload: unknown): Record<string, unknown> {
+  const record = asRecord(payload)
+  const session = asRecord(record.session || record)
+  const id = cleanString(session.id)
+  const lastActive = session.last_active ?? session.started_at ?? session.updated_at
+  const overriddenModel = id ? sessionModelOverrides.get(id) : undefined
+
+  return {
+    ...session,
+    id,
+    title: cleanString(session.title) || cleanString(session.preview) || '新会话',
+    model: overriddenModel !== undefined ? overriddenModel : (session.model ?? null),
+    pinned: id ? sessionPinnedIds.has(id) : false,
+    updated_at: sessionTimestamp(lastActive),
+    created_at: sessionTimestamp(session.started_at ?? lastActive),
+    response_id: id ? sessionResponseIds.get(id) || null : null,
+  }
+}
+
+function normalizeGatewaySessionList(payload: unknown): Record<string, unknown>[] {
+  const record = asRecord(payload)
+  const items = Array.isArray(record.data)
+    ? record.data
+    : Array.isArray(record.sessions)
+      ? record.sessions
+      : Array.isArray(payload)
+        ? payload
+        : []
+  return items.map((item) => normalizeGatewaySession(item)).filter((item) => item.id)
+}
+
 // --- Middleware ---
 const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
@@ -92,9 +351,453 @@ const CORS_ORIGINS = process.env.CORS_ORIGINS
 app.use('*', cors({
   origin: CORS_ORIGINS,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id'],
+  allowHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id', 'X-Crazor-Token', 'X-Crazor-Actor-Type', 'X-Crazor-Actor-Id', 'X-Crazor-Source'],
   exposeHeaders: ['X-Hermes-Session-Id', 'Mcp-Session-Id'],
 }))
+
+const AUDIT_WRITE_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
+const BUSINESS_READ_ROOTS = new Set([
+  'contacts',
+  'follow-ups',
+  'follow-up-reminders',
+  'transactions',
+  'projects',
+  'tasks',
+  'task-reminders',
+  'channels',
+  'content-pieces',
+  'docs',
+  'doc-files',
+  'analytics',
+])
+
+app.use('/api/crazor/*', async (c, next) => {
+  const method = c.req.method.toUpperCase()
+  const shouldAudit = AUDIT_WRITE_METHODS.has(method)
+  const url = new URL(c.req.url)
+  const sensitiveRead = deriveSensitiveReadAudit(method, url.pathname)
+  const businessRead = sensitiveRead ? null : deriveBusinessReadAudit(method, url.pathname, url.searchParams)
+  const requestText = shouldAudit
+    ? await c.req.raw.clone().text().catch(() => '')
+    : ''
+  const actor = shouldAudit || sensitiveRead || businessRead
+    ? resolveRequestActor(c, { actor_type: 'human', actor_id: 'anonymous', source: 'rest-api' })
+    : null
+
+  if (sensitiveRead && shouldProtectSensitiveRead()) {
+    const readActor = extractActorToken(c)
+      ? actor
+      : { actor_type: 'human', actor_id: 'missing-token', source: 'missing-token' }
+    const permission = evaluateReadPermission(readActor, sensitiveRead.entity)
+    if (!permission.allowed) {
+      recordDeniedRestRead(readActor, sensitiveRead, method, url.pathname, permission.required_scope)
+      return c.json({
+        error: permission.error,
+        required_scope: permission.required_scope,
+        auth_required: permission.status === 401,
+        actor_id: readActor?.actor_id || '',
+      }, permission.status || 403)
+    }
+  }
+
+  if (businessRead && shouldProtectBusinessRead()) {
+    const readActor = extractActorToken(c)
+      ? actor
+      : { actor_type: 'human', actor_id: 'missing-token', source: 'missing-token' }
+    const permission = evaluateReadPermission(readActor, businessRead.entity)
+    if (!permission.allowed) {
+      recordDeniedRestRead(readActor, businessRead, method, url.pathname, permission.required_scope)
+      return c.json({
+        error: permission.error,
+        required_scope: permission.required_scope,
+        auth_required: permission.status === 401,
+        actor_id: readActor?.actor_id || '',
+      }, permission.status || 403)
+    }
+  }
+
+  if (shouldAudit && CRAZOR_REQUIRE_WRITE_TOKEN && !extractActorToken(c) && !canBootstrapIdentityWrite(url.pathname)) {
+    const audit = deriveRestAudit(method, url.pathname, null, url.searchParams)
+    const missingActor = { actor_type: 'human', actor_id: 'missing-token', source: 'missing-token' }
+    const permission = evaluateWritePermission(missingActor, audit.action, audit.entity)
+    recordDeniedRestWrite(missingActor, audit, method, url.pathname, requestText, permission.required_scope)
+    return c.json({
+      error: permission.error,
+      required_scope: permission.required_scope,
+      auth_required: true,
+    }, permission.status || 401)
+  }
+
+  if (shouldAudit && extractActorToken(c)) {
+    const audit = deriveRestAudit(method, url.pathname, null, url.searchParams)
+    const permission = evaluateWritePermission(actor, audit.action, audit.entity)
+    if (!permission.allowed) {
+      recordDeniedRestWrite(actor, audit, method, url.pathname, requestText, permission.required_scope)
+      return c.json({
+        error: permission.error,
+        required_scope: permission.required_scope,
+        actor_id: actor?.actor_id || '',
+      }, permission.status || 403)
+    }
+  }
+
+  await next()
+
+  if (!shouldAudit || c.res.status < 200 || c.res.status >= 400) return
+
+  const responseBody = await c.res.clone().json().catch(() => null)
+  const audit = deriveRestAudit(method, url.pathname, responseBody, url.searchParams)
+  try {
+    createAuditLog({
+      actor_type: actor?.actor_type || 'human',
+      actor_id: actor?.actor_id || 'anonymous',
+      source: actor?.source || c.req.header('X-Crazor-Source') || 'rest-api',
+      action: audit.action,
+      entity: audit.entity,
+      entity_id: audit.entity_id,
+      payload: requestText,
+      summary: `${method} ${url.pathname}`,
+    })
+  } catch (err) {
+    console.error('[audit] failed to record REST write:', err)
+  }
+})
+
+function truthyEnv(value: unknown): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase())
+}
+
+function canBootstrapIdentityWrite(pathname: string): boolean {
+  if (!CRAZOR_REQUIRE_WRITE_TOKEN || hasActiveActorTokens()) return false
+  return pathname === '/api/crazor/identity/members' || pathname === '/api/crazor/identity/tokens'
+}
+
+function shouldProtectSensitiveRead(): boolean {
+  return CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN && hasActiveActorTokens()
+}
+
+function shouldProtectBusinessRead(): boolean {
+  return CRAZOR_REQUIRE_BUSINESS_READ_TOKEN && hasActiveActorTokens()
+}
+
+function deriveSensitiveReadAudit(method: string, pathname: string): { entity: string; entity_id: string } | null {
+  if (method !== 'GET') return null
+  if (pathname === '/api/crazor/audit-logs') return { entity: 'audit_log', entity_id: '' }
+  if (pathname === '/api/crazor/identity/members') return { entity: 'team_member', entity_id: '' }
+  if (pathname === '/api/crazor/identity/tokens') return { entity: 'actor_token', entity_id: '' }
+  return null
+}
+
+function deriveBusinessReadAudit(method: string, pathname: string, searchParams: URLSearchParams): { entity: string; entity_id: string } | null {
+  if (method !== 'GET') return null
+  if (deriveSensitiveReadAudit(method, pathname)) return null
+
+  const segments = pathname.replace(/^\/api\/crazor\/?/, '').split('/').filter(Boolean)
+  if (segments[0] === 'identity') return null
+  if (!BUSINESS_READ_ROOTS.has(segments[0])) return null
+
+  const entity = deriveAuditEntity(segments)
+  return {
+    entity,
+    entity_id: deriveRestEntityId(segments, null, searchParams),
+  }
+}
+
+function recordDeniedRestRead(actor: any, audit: { entity: string; entity_id: string }, method: string, pathname: string, requiredScope: string) {
+  try {
+    createAuditLog({
+      actor_type: actor?.actor_type || 'human',
+      actor_id: actor?.actor_id || 'missing-token',
+      source: actor?.source || 'permission-denied',
+      action: 'deny_read',
+      entity: audit.entity,
+      entity_id: audit.entity_id,
+      payload: '',
+      summary: `${method} ${pathname} denied: ${requiredScope}`,
+    })
+  } catch (err) {
+    console.error('[audit] failed to record read permission denial:', err)
+  }
+}
+
+function recordDeniedRestWrite(actor: any, audit: { action: string; entity: string; entity_id: string }, method: string, pathname: string, requestText: string, requiredScope: string) {
+  try {
+    createAuditLog({
+      actor_type: actor?.actor_type || 'human',
+      actor_id: actor?.actor_id || 'missing-token',
+      source: actor?.source || 'permission-denied',
+      action: `deny_${audit.action}`,
+      entity: audit.entity,
+      entity_id: audit.entity_id,
+      payload: requestText,
+      summary: `${method} ${pathname} denied: ${requiredScope}`,
+    })
+  } catch (err) {
+    console.error('[audit] failed to record permission denial:', err)
+  }
+}
+
+function resolveRequestActor(c: any, fallback = { actor_type: 'human', actor_id: 'anonymous', source: 'rest-api' }) {
+  const token = extractActorToken(c)
+  if (token) {
+    const actor = resolveActorToken(token)
+    if (actor) return actor
+    return {
+      actor_type: fallback.actor_type,
+      actor_id: 'invalid-token',
+      source: 'invalid-token',
+    }
+  }
+  return {
+    actor_type: c.req.header('X-Crazor-Actor-Type') || fallback.actor_type,
+    actor_id: c.req.header('X-Crazor-Actor-Id') || fallback.actor_id,
+    source: c.req.header('X-Crazor-Source') || fallback.source,
+  }
+}
+
+function extractActorToken(c: any): string {
+  const auth = c.req.header('Authorization') || ''
+  const match = auth.match(/^Bearer\s+(.+)$/i)
+  return (match?.[1] || c.req.header('X-Crazor-Token') || '').trim()
+}
+
+function resolveMcpRequestActor(c: any) {
+  if (CRAZOR_REQUIRE_WRITE_TOKEN && !extractActorToken(c)) {
+    return { actor_type: 'agent', actor_id: 'missing-token', source: 'missing-token' }
+  }
+  return resolveRequestActor(c, { actor_type: 'agent', actor_id: 'mcp-client', source: 'mcp-tool' })
+}
+
+function deriveRestAudit(method: string, path: string, responseBody: any, searchParams: URLSearchParams) {
+  const segments = path.replace(/^\/api\/crazor\/?/, '').split('/').filter(Boolean)
+  const last = segments[segments.length - 1] || ''
+  const action = deriveAuditAction(method, last)
+  const entity = deriveAuditEntity(segments)
+  const entity_id = deriveRestEntityId(segments, responseBody, searchParams)
+  return { action, entity, entity_id }
+}
+
+function deriveRestEntityId(segments: string[], responseBody: any, searchParams: URLSearchParams) {
+  return (
+    stringOrEmpty(responseBody?.id) ||
+    stringOrEmpty(searchParams.get('id')) ||
+    stringOrEmpty(segments[1]) ||
+    ''
+  )
+}
+
+function deriveAuditAction(method: string, lastSegment: string) {
+  if (lastSegment === 'move') return 'move'
+  if (lastSegment === 'reorder') return 'reorder'
+  if (lastSegment === 'discover') return 'discover'
+  if (lastSegment === 'install') return 'install'
+  if (lastSegment === 'publish') return 'publish'
+  if (lastSegment === 'metrics') return 'update_metrics'
+  if (method === 'POST') return 'create'
+  if (method === 'PATCH') return 'update'
+  if (method === 'DELETE') return 'delete'
+  return method.toLowerCase()
+}
+
+function deriveAuditEntity(segments: string[]) {
+  if (segments[0] === 'contacts' && segments[2] === 'docs') return 'contact_doc'
+  if (segments[0] === 'contacts' && segments[2] === 'attachments') return 'contact_attachment'
+  if (segments[0] === 'channels' && segments[2] === 'referrals') return 'channel_referral'
+  if (segments[0] === 'doc-files') return 'doc_file'
+  if (segments[0] === 'docs') {
+    if (segments[2]?.startsWith('folders')) return 'doc_folder'
+    if (segments[2]?.startsWith('notes')) return 'doc_note'
+    return 'doc'
+  }
+  if (segments[0] === 'schema') return 'field_definition'
+  if (segments[0] === 'identity' && segments[1] === 'members') return 'team_member'
+  if (segments[0] === 'identity' && segments[1] === 'tokens') return 'actor_token'
+  if (segments[0] === 'skills') return 'skill'
+
+  const entityMap: Record<string, string> = {
+    contacts: 'contact',
+    'content-pieces': 'content_piece',
+    transactions: 'transaction',
+    projects: 'project',
+    tasks: 'task',
+    'task-reminders': 'task',
+    'follow-ups': 'follow_up',
+    'follow-up-reminders': 'follow_up',
+    channels: 'channel',
+    analytics: 'analytics',
+  }
+  return entityMap[segments[0]] || segments[0] || 'unknown'
+}
+
+function stringOrEmpty(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  return String(value)
+}
+
+function parsePositiveInt(value: unknown, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback
+}
+
+function parseAttachmentExtensionList(value: unknown): string[] {
+  const extensions = String(value || '')
+    .split(/[\s,，]+/)
+    .map((item) => normalizeAttachmentExtension(item))
+    .filter(Boolean)
+  return extensions.length > 0 ? Array.from(new Set(extensions)) : DEFAULT_ATTACHMENT_EXTENSIONS
+}
+
+function normalizeAttachmentExtension(value: unknown): string {
+  const raw = String(value || '').trim().toLowerCase()
+  if (!raw) return ''
+  if (raw === '*') return '*'
+  return raw.replace(/^\.+/, '')
+}
+
+function attachmentExtension(filename: string): string {
+  const dotIndex = filename.lastIndexOf('.')
+  if (dotIndex <= 0 || dotIndex === filename.length - 1) return ''
+  return normalizeAttachmentExtension(filename.slice(dotIndex + 1))
+}
+
+function attachmentPolicy() {
+  const allowed = CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS
+  return {
+    max_bytes: CRAZOR_ATTACHMENT_MAX_BYTES,
+    max_mb: Number((CRAZOR_ATTACHMENT_MAX_BYTES / 1024 / 1024).toFixed(1)),
+    preview_max_bytes: CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES,
+    allowed_extensions: allowed,
+    accept: allowed.includes('*') ? '' : allowed.map((ext) => `.${ext}`).join(','),
+  }
+}
+
+function isAttachmentExtensionAllowed(filename: string): boolean {
+  const allowed = CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS
+  if (allowed.includes('*')) return true
+  const ext = attachmentExtension(filename)
+  return Boolean(ext && allowed.includes(ext))
+}
+
+function contactAttachmentsDir(contactId: string): string {
+  const safeContactId = sanitizePathSegment(contactId)
+  const dir = resolve(CRAZOR_CONTACT_ATTACHMENTS_ROOT, safeContactId)
+  if (!dir.startsWith(`${CRAZOR_CONTACT_ATTACHMENTS_ROOT}/`) && dir !== CRAZOR_CONTACT_ATTACHMENTS_ROOT) {
+    throw new Error('invalid contact attachment path')
+  }
+  return dir
+}
+
+function sanitizePathSegment(value: unknown): string {
+  return String(value || '').trim().replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown'
+}
+
+function sanitizeAttachmentFilename(value: unknown): string {
+  const source = basename(String(value || 'attachment'))
+  const cleaned = source.replace(/[\\/:*?"<>|\x00-\x1f]+/g, '-').replace(/\s+/g, ' ').trim()
+  return cleaned || 'attachment'
+}
+
+function uniqueAttachmentName(dir: string, filename: string): string {
+  const dotIndex = filename.lastIndexOf('.')
+  const baseName = dotIndex > 0 ? filename.slice(0, dotIndex) : filename
+  const ext = dotIndex > 0 ? filename.slice(dotIndex) : ''
+  let candidate = filename
+  let index = 2
+  while (existsSync(resolve(dir, candidate))) {
+    candidate = `${baseName}-${index}${ext}`
+    index += 1
+  }
+  return candidate
+}
+
+function attachmentKind(filename: string): 'text' | 'image' | 'file' {
+  const ext = attachmentExtension(filename)
+  if (TEXT_ATTACHMENT_EXTENSIONS.has(ext)) return 'text'
+  if (IMAGE_ATTACHMENT_EXTENSIONS.has(ext)) return 'image'
+  return 'file'
+}
+
+function attachmentMimeType(filename: string): string {
+  const ext = attachmentExtension(filename)
+  const mimeMap: Record<string, string> = {
+    txt: 'text/plain; charset=utf-8',
+    md: 'text/markdown; charset=utf-8',
+    csv: 'text/csv; charset=utf-8',
+    json: 'application/json; charset=utf-8',
+    log: 'text/plain; charset=utf-8',
+    yaml: 'text/yaml; charset=utf-8',
+    yml: 'text/yaml; charset=utf-8',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+    gif: 'image/gif',
+    pdf: 'application/pdf',
+    zip: 'application/zip',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ppt: 'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    mp3: 'audio/mpeg',
+    m4a: 'audio/mp4',
+    wav: 'audio/wav',
+    mp4: 'video/mp4',
+    mov: 'video/quicktime',
+  }
+  return mimeMap[ext] || 'application/octet-stream'
+}
+
+function contactAttachmentResponse(contactId: string, name: string, stat: any) {
+  const encodedContactId = encodeURIComponent(contactId)
+  const encodedName = encodeURIComponent(name)
+  const kind = attachmentKind(name)
+  return {
+    id: name,
+    name,
+    path: `attachments/contacts/${sanitizePathSegment(contactId)}/${name}`,
+    size: stat.size,
+    extension: attachmentExtension(name),
+    kind,
+    mime_type: attachmentMimeType(name),
+    can_preview: kind !== 'file' && stat.size <= CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES,
+    created_at: stat.birthtime.toISOString(),
+    updated_at: stat.mtime.toISOString(),
+    download_url: `/api/crazor/contacts/${encodedContactId}/attachments/${encodedName}`,
+    preview_url: `/api/crazor/contacts/${encodedContactId}/attachments/${encodedName}/preview`,
+  }
+}
+
+function listContactAttachments(contactId: string) {
+  const dir = contactAttachmentsDir(contactId)
+  if (!existsSync(dir)) return []
+  return readdirSync(dir)
+    .filter((name) => name !== '.DS_Store')
+    .flatMap((name) => {
+      const filePath = resolve(dir, name)
+      try {
+        const stat = statSync(filePath)
+        if (!stat.isFile()) return []
+        return [contactAttachmentResponse(contactId, name, stat)]
+      } catch {
+        return []
+      }
+    })
+    .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))
+}
+
+function buildDocSearchSnippet(content: string, query: string): string {
+  const text = String(content || '').replace(/\s+/g, ' ').trim()
+  if (!text) return ''
+  const q = query.trim().toLowerCase()
+  if (!q) return text.slice(0, 160)
+  const index = text.toLowerCase().indexOf(q)
+  if (index < 0) return text.slice(0, 160)
+  const start = Math.max(0, index - 50)
+  const end = Math.min(text.length, index + q.length + 90)
+  return `${start > 0 ? '...' : ''}${text.slice(start, end)}${end < text.length ? '...' : ''}`
+}
 
 // --- Health ---
 app.get('/api/health', (c) => c.json({ status: 'ok', service: 'crazor-api' }))
@@ -104,7 +807,7 @@ app.get('/mcp/sse', (c) => handleSSEConnect())
 app.post('/mcp/sse', async (c) => {
   const body = await c.req.json()
   const sessionIdParam = c.req.query('sessionId')
-  const response = await handleSSEMessage(body, sessionIdParam)
+  const response = await handleSSEMessage(body, sessionIdParam, resolveMcpRequestActor(c))
   if (response === null) return c.json({})
   return c.json(response)
 })
@@ -113,7 +816,7 @@ app.post('/mcp/sse', async (c) => {
 app.post('/mcp', async (c) => {
   const body = await c.req.json()
   const sessionHeader = c.req.header('mcp-session-id') || null
-  return handleStreamableHTTP(body, sessionHeader)
+  return handleStreamableHTTP(body, sessionHeader, resolveMcpRequestActor(c))
 })
 
 // Handle DELETE for session cleanup (optional, MCP spec)
@@ -126,21 +829,22 @@ app.delete('/mcp', async (c) => {
   return c.json({ ok: true })
 })
 
-// --- Hermes Gateway Proxy (port 8642) ---
+// --- Agent Gateway Proxy (Hermes-compatible OpenAI API) ---
 // Chat completions with SSE streaming
 app.post('/api/chat/completions', async (c) => {
   const body = await c.req.json()
-  const upstreamUrl = `${HERMES_GATEWAY_URL}/v1/chat/completions`
+  const upstreamUrl = `${AGENT_GATEWAY_URL}/v1/chat/completions`
 
   const resp = await fetch(upstreamUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: agentGatewayHeaders(),
     body: JSON.stringify(body),
   })
 
   if (!resp.ok) {
     const text = await resp.text()
-    throw new HTTPException(resp.status as any, { message: text })
+    const error = parseUpstreamError(text)
+    return c.json({ error: error.message, detail: error.detail }, resp.status as 500)
   }
 
   // Check if streaming
@@ -172,34 +876,69 @@ app.post('/api/chat/completions', async (c) => {
 // Responses API (alternative chat endpoint)
 app.post('/api/responses', async (c) => {
   const body = await c.req.json()
-  const upstreamUrl = `${HERMES_GATEWAY_URL}/v1/responses`
+  const upstreamUrl = `${AGENT_GATEWAY_URL}/v1/responses`
+
+  if (body.stream) {
+    c.header('Content-Type', 'text/event-stream')
+    c.header('Cache-Control', 'no-cache')
+    c.header('Connection', 'keep-alive')
+    c.header('X-Accel-Buffering', 'no')
+
+    return stream(c, async (stream) => {
+      await stream.write(': connected\n\n')
+
+      let resp: Response
+      try {
+        resp = await fetch(upstreamUrl, {
+          method: 'POST',
+          headers: agentGatewayHeaders(),
+          body: JSON.stringify(body),
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Hermes Responses API connection failed'
+        await stream.write(responseFailedEvent(message))
+        return
+      }
+
+      if (!resp.ok) {
+        const text = await resp.text()
+        const error = parseUpstreamError(text)
+        await stream.write(responseFailedEvent(error.message, error.detail))
+        return
+      }
+
+      const reader = resp.body?.getReader()
+      if (!reader) {
+        await stream.write(responseFailedEvent('Hermes Responses API returned an empty stream'))
+        return
+      }
+
+      const decoder = new TextDecoder()
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          await stream.write(decoder.decode(value, { stream: true }))
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Hermes Responses API stream interrupted'
+        await stream.write(responseFailedEvent(message))
+      } finally {
+        reader.releaseLock()
+      }
+    })
+  }
 
   const resp = await fetch(upstreamUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: agentGatewayHeaders(),
     body: JSON.stringify(body),
   })
 
   if (!resp.ok) {
     const text = await resp.text()
-    throw new HTTPException(resp.status as any, { message: text })
-  }
-
-  if (body.stream) {
-    return stream(c, async (stream) => {
-      c.header('Content-Type', 'text/event-stream')
-      c.header('Cache-Control', 'no-cache')
-      c.header('Connection', 'keep-alive')
-      c.header('X-Accel-Buffering', 'no')
-
-      const reader = resp.body!.getReader()
-      const decoder = new TextDecoder()
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        await stream.write(decoder.decode(value, { stream: true }))
-      }
-    })
+    const error = parseUpstreamError(text)
+    return c.json({ error: error.message, detail: error.detail }, resp.status as 500)
   }
 
   const sessionId = resp.headers.get('x-hermes-session-id')
@@ -210,15 +949,15 @@ app.post('/api/responses', async (c) => {
 
 // Models
 app.get('/api/models', async (c) => {
-  const resp = await fetch(`${HERMES_GATEWAY_URL}/v1/models`)
+  const resp = await fetch(`${AGENT_GATEWAY_URL}/v1/models`, { headers: agentGatewayHeaders() })
   const data = await resp.json()
   return c.json(data)
 })
 
-// Cron jobs (Hermes Gateway :8642)
+// Cron jobs (Agent Gateway provider)
 app.get('/api/cron', async (c) => {
   try {
-    const resp = await fetch(`${HERMES_GATEWAY_URL}/api/jobs?include_disabled=true`)
+    const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs?include_disabled=true`, { headers: agentGatewayHeaders() })
     const data = await resp.json()
     return c.json(data)
   } catch {
@@ -228,9 +967,9 @@ app.get('/api/cron', async (c) => {
 
 app.post('/api/cron', async (c) => {
   const body = await c.req.json()
-  const resp = await fetch(`${HERMES_GATEWAY_URL}/api/jobs`, {
+  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: agentGatewayHeaders(),
     body: JSON.stringify(body),
   })
   const data = await resp.json()
@@ -238,71 +977,66 @@ app.post('/api/cron', async (c) => {
 })
 
 app.post('/api/cron/:id/pause', async (c) => {
-  const resp = await fetch(`${HERMES_GATEWAY_URL}/api/jobs/${c.req.param('id')}/pause`, { method: 'POST' })
+  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs/${c.req.param('id')}/pause`, { method: 'POST', headers: agentGatewayHeaders() })
   return c.json(await resp.json())
 })
 
 app.post('/api/cron/:id/resume', async (c) => {
-  const resp = await fetch(`${HERMES_GATEWAY_URL}/api/jobs/${c.req.param('id')}/resume`, { method: 'POST' })
+  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs/${c.req.param('id')}/resume`, { method: 'POST', headers: agentGatewayHeaders() })
   return c.json(await resp.json())
 })
 
 app.post('/api/cron/:id/run', async (c) => {
-  const resp = await fetch(`${HERMES_GATEWAY_URL}/api/jobs/${c.req.param('id')}/run`, { method: 'POST' })
+  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs/${c.req.param('id')}/run`, { method: 'POST', headers: agentGatewayHeaders() })
   return c.json(await resp.json())
 })
 
 app.delete('/api/cron/:id', async (c) => {
-  const resp = await fetch(`${HERMES_GATEWAY_URL}/api/jobs/${c.req.param('id')}`, { method: 'DELETE' })
+  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs/${c.req.param('id')}`, { method: 'DELETE', headers: agentGatewayHeaders() })
   return c.json(await resp.json())
 })
 
 // --- Hermes Dashboard Proxy (port 9119) ---
 // Sessions
 app.get('/api/sessions', async (c) => {
-  const resp = await dashboardFetch(`/api/sessions`)
-  const data = await resp.json()
-  // Dashboard returns {sessions:[], total:0} — unwrap to array
-  let dashboardSessions: any[] = []
-  if (data && Array.isArray(data.sessions)) {
-    dashboardSessions = data.sessions
-  } else if (Array.isArray(data)) {
-    dashboardSessions = data
-  }
-  // Merge: Dashboard sessions + local sessions not yet synced to Dashboard
-  const dashboardIds = new Set(dashboardSessions.map((s: any) => s.id))
-  const localOnly = Object.values(_localSessions).filter((s: any) => !dashboardIds.has(s.id))
-  return c.json([...localOnly, ...dashboardSessions])
+  const resp = await gatewayFetch(`/api/sessions?limit=100`)
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+  return c.json(normalizeGatewaySessionList(await resp.json()))
 })
 
 app.get('/api/sessions/search', async (c) => {
   const q = c.req.query('q') || ''
-  const resp = await dashboardFetch(`/api/sessions/search?q=${encodeURIComponent(q)}`)
-  const data = await resp.json()
-  return c.json(data)
+  const resp = await gatewayFetch(`/api/sessions?limit=100`)
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+  const sessions = normalizeGatewaySessionList(await resp.json())
+  const normalizedQuery = q.trim().toLowerCase()
+  return c.json(
+    normalizedQuery
+      ? sessions.filter((session) => cleanString(session.title).toLowerCase().includes(normalizedQuery))
+      : sessions
+  )
 })
 
 app.get('/api/sessions/:id', async (c) => {
-  const resp = await dashboardFetch(`/api/sessions/${c.req.param('id')}`)
-  const data = await resp.json()
-  return c.json(data)
+  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(c.req.param('id'))}`)
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+  return c.json(normalizeGatewaySession(await resp.json()))
 })
 
 app.get('/api/sessions/:id/messages', async (c) => {
-  const resp = await dashboardFetch(`/api/sessions/${c.req.param('id')}/messages`)
-  const data = await resp.json()
-  // Dashboard returns { session_id, messages: [...] }, frontend expects array
-  return c.json(Array.isArray(data) ? data : data.messages || [])
+  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(c.req.param('id'))}/messages`)
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+  const payload = asRecord(await resp.json())
+  return c.json(Array.isArray(payload.data) ? payload.data : [])
 })
 
 app.delete('/api/sessions/:id', async (c) => {
-  const id = c.req.param('id')
-  // Clean up local session if present
-  if (_localSessions[id]) {
-    delete _localSessions[id]
-  }
-  const resp = await dashboardFetch(`/api/sessions/${id}`, { method: 'DELETE' })
-  return c.json({ ok: true })
+  const sessionId = c.req.param('id')
+  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+  sessionResponseIds.delete(sessionId)
+  sessionPinnedIds.delete(sessionId)
+  sessionModelOverrides.delete(sessionId)
+  return proxyJsonResponse(c, resp)
 })
 
 // Config
@@ -319,13 +1053,97 @@ app.get('/api/config/raw', async (c) => {
 })
 
 app.patch('/api/config', async (c) => {
-  const body = await c.req.json()
+  const body = asRecord(await c.req.json())
+
+  if (body.config && typeof body.config === 'object' && !Array.isArray(body.config)) {
+    const resp = await dashboardFetch(`/api/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: body.config }),
+    })
+    return proxyJsonResponse(c, resp)
+  }
+
+  const provider = readFirstString(body, ['provider'])
+  const model = readFirstString(body, ['model'])
+  const baseUrl = readFirstString(body, ['baseUrl', 'base_url'])
+  const apiKey = readFirstString(body, ['apiKey', 'api_key'])
+  const apiMode = readFirstString(body, ['apiMode', 'api_mode'])
+  const hasBaseUrl = hasOwn(body, 'baseUrl') || hasOwn(body, 'base_url')
+  const hasApiKey = hasOwn(body, 'apiKey') || hasOwn(body, 'api_key')
+  const hasApiMode = hasOwn(body, 'apiMode') || hasOwn(body, 'api_mode')
+  const clearFields = readClearFields(body)
+  const contextLength = readContextLength(body)
+
+  if ((provider || model) && shouldUseModelSet(provider, body, contextLength)) {
+    const resp = await dashboardFetch(`/api/model/set`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'main',
+        provider,
+        model,
+      }),
+    })
+    return proxyJsonResponse(c, resp)
+  }
+
+  const configResp = await dashboardFetch(`/api/config`)
+  if (!configResp.ok) return proxyJsonResponse(c, configResp)
+
+  const infoResp = await dashboardFetch(`/api/model/info`)
+  const currentConfig = asRecord(await configResp.json())
+  const currentModelInfo = infoResp.ok ? asRecord(await infoResp.json()) : {}
+  const currentModelBlock = await loadDashboardModelBlock()
+  const nextConfig: Record<string, unknown> = { ...currentConfig }
+  const existingModel = {
+    ...currentModelBlock,
+    ...asRecord(nextConfig.model),
+  }
+  const nextModel: Record<string, unknown> = { ...existingModel }
+
+  const resolvedProvider = clearFields.has('provider')
+    ? ''
+    : provider || cleanString(nextModel.provider) || cleanString(currentModelInfo.provider) || 'auto'
+  const resolvedModel = clearFields.has('model')
+    ? ''
+    : model || cleanString(nextModel.default) || cleanString(nextModel.model) || cleanString(currentModelInfo.model) || cleanString(currentConfig.model)
+
+  nextModel.provider = resolvedProvider
+  nextModel.default = resolvedModel
+  if (clearFields.has('baseUrl') || clearFields.has('base_url')) {
+    nextModel.base_url = ''
+  } else if (hasBaseUrl && baseUrl) {
+    nextModel.base_url = baseUrl
+  }
+  if (clearFields.has('apiKey') || clearFields.has('api_key')) {
+    nextModel.api_key = ''
+  } else if (hasApiKey && apiKey) {
+    nextModel.api_key = apiKey
+  }
+  if (clearFields.has('apiMode') || clearFields.has('api_mode')) {
+    delete nextModel.api_mode
+  } else if (hasApiMode && apiMode) {
+    nextModel.api_mode = apiMode
+  }
+  const inferredApiMode = inferApiMode(resolvedProvider, resolvedModel, nextModel.api_mode)
+  if (inferredApiMode) nextModel.api_mode = inferredApiMode
+  if (contextLength.hasValue) {
+    if (contextLength.value > 0) {
+      nextModel.context_length = contextLength.value
+    } else {
+      delete nextModel.context_length
+    }
+  }
+  nextConfig.model = nextModel
+  if (contextLength.hasValue) nextConfig.model_context_length = contextLength.value
+
   const resp = await dashboardFetch(`/api/config`, {
-    method: 'PATCH',
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ config: nextConfig }),
   })
-  return c.json({ ok: true })
+  return proxyJsonResponse(c, resp)
 })
 
 // Skills
@@ -344,7 +1162,15 @@ app.get('/api/tools/toolsets', async (c) => {
 // Models
 app.get('/api/model/info', async (c) => {
   const resp = await dashboardFetch(`/api/model/info`)
-  const data = await resp.json()
+  const data = asRecord(await resp.json())
+  const modelBlock = await loadDashboardModelBlock()
+  const baseUrl = cleanString(modelBlock.base_url)
+  const apiKey = cleanString(modelBlock.api_key)
+  const apiMode = cleanString(modelBlock.api_mode)
+
+  if (baseUrl) data.baseUrl = baseUrl
+  if (apiMode) data.apiMode = apiMode
+  data.apiKeySet = Boolean(apiKey)
   return c.json(data)
 })
 
@@ -355,13 +1181,14 @@ app.get('/api/model/options', async (c) => {
 })
 
 app.post('/api/model/set', async (c) => {
-  const body = await c.req.json()
+  const body = asRecord(await c.req.json())
+  if (!cleanString(body.scope)) body.scope = 'main'
   const resp = await dashboardFetch(`/api/model/set`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return c.json({ ok: true })
+  return proxyJsonResponse(c, resp)
 })
 
 // Env vars
@@ -371,19 +1198,26 @@ app.get('/api/env', async (c) => {
   return c.json(data)
 })
 
-app.post('/api/env', async (c) => {
+async function setDashboardEnvVar(c: any) {
   const body = await c.req.json()
   const resp = await dashboardFetch(`/api/env`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return c.json({ ok: true })
-})
+  return proxyJsonResponse(c, resp)
+}
+
+app.post('/api/env', setDashboardEnvVar)
+app.put('/api/env', setDashboardEnvVar)
 
 app.delete('/api/env/:key', async (c) => {
-  const resp = await dashboardFetch(`/api/env/${c.req.param('key')}`, { method: 'DELETE' })
-  return c.json({ ok: true })
+  const resp = await dashboardFetch(`/api/env`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: c.req.param('key') }),
+  })
+  return proxyJsonResponse(c, resp)
 })
 
 // Gateway status
@@ -416,87 +1250,151 @@ app.get('/api/hermes/version', async (c) => {
 })
 
 // --- Sessions (write operations) ---
-// Dashboard only supports GET /api/sessions; sessions are created by the Gateway during chat.
-// Generate a local session stub so the frontend can track the conversation.
-const _localSessions: Record<string, any> = {}
+// Session writes go through Agent Gateway. Dashboard remains read/config only.
 
 app.post('/api/sessions', async (c) => {
   const body = await c.req.json()
-  const id = crypto.randomUUID()
-  const now = new Date().toISOString()
-  const session = {
-    id,
-    title: body.title || 'New Conversation',
-    agent_id: body.agent_id || 'hermes-agent',
-    workspace_path: body.workspace_path || null,
-    model: body.model || null,
-    created_at: now,
-    updated_at: now,
-    messages: [],
+  const resp = await gatewayFetch(`/api/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: body?.title,
+      model: body?.model,
+    }),
+  })
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+
+  const session = normalizeGatewaySession(await resp.json())
+  if (session.id && body?.model !== undefined) {
+    sessionModelOverrides.set(String(session.id), body.model || null)
+    session.model = body.model || null
   }
-  _localSessions[id] = session
-  return c.json(session, 201)
+  return c.json(session, resp.status as 201)
 })
 
 app.patch('/api/sessions/:id', async (c) => {
-  const id = c.req.param('id')
+  const sessionId = c.req.param('id')
   const body = await c.req.json()
-  if (_localSessions[id]) {
-    Object.assign(_localSessions[id], body, { updated_at: new Date().toISOString() })
-    return c.json(_localSessions[id])
+  const patchBody: Record<string, unknown> = {}
+
+  if (Object.prototype.hasOwnProperty.call(body, 'response_id')) {
+    sessionResponseIds.set(sessionId, body.response_id ? String(body.response_id) : null)
   }
-  // Session might exist in Dashboard only — best-effort forward
-  try {
-    const resp = await dashboardFetch(`/api/sessions/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    return c.json(await resp.json())
-  } catch {
-    return c.json({ ok: true })
+  if (Object.prototype.hasOwnProperty.call(body, 'model')) {
+    sessionModelOverrides.set(sessionId, body.model ? String(body.model) : null)
   }
+  if (Object.prototype.hasOwnProperty.call(body, 'title')) {
+    patchBody.title = body.title
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'end_reason')) {
+    patchBody.end_reason = body.end_reason
+  }
+
+  if (Object.keys(patchBody).length === 0) {
+    const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
+    if (!resp.ok) return proxyJsonResponse(c, resp)
+    return c.json(normalizeGatewaySession(await resp.json()))
+  }
+
+  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patchBody),
+  })
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+  return c.json(normalizeGatewaySession(await resp.json()))
 })
 
 app.post('/api/sessions/:id/pin', async (c) => {
-  const id = c.req.param('id')
-  if (_localSessions[id]) {
-    _localSessions[id].pinned = !(_localSessions[id].pinned)
-    return c.json({ ok: true, pinned: _localSessions[id].pinned })
+  const sessionId = c.req.param('id')
+  if (sessionPinnedIds.has(sessionId)) {
+    sessionPinnedIds.delete(sessionId)
+  } else {
+    sessionPinnedIds.add(sessionId)
   }
-  return c.json({ ok: true })
+  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+  return c.json(normalizeGatewaySession(await resp.json()))
 })
 
 app.post('/api/sessions/:id/messages', async (c) => {
-  const id = c.req.param('id')
-  const body = await c.req.json()
-  if (_localSessions[id]) {
-    const msg = { role: body.role, content: body.content, created_at: new Date().toISOString() }
-    _localSessions[id].messages.push(msg)
-    return c.json(msg, 201)
-  }
-  return c.json({ ok: true })
+  return c.json({ ok: true, session_id: c.req.param('id') })
 })
 
 // --- Skills (detail, toggle, market, install, uninstall, update) ---
 
 const SKILLS_INDEX_URL = 'https://hermes-agent.nousresearch.com/docs/api/skills-index.json'
+const DEFAULT_MARKET_SKILLS_LIMIT = 500
+const MAX_MARKET_SKILLS_LIMIT = 1000
 let _skillsCache: { data: any[]; fetchedAt: number } | null = null
 
+function marketSkillsLimit(rawLimit: string | undefined): number {
+  const parsed = Number.parseInt(rawLimit || '', 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MARKET_SKILLS_LIMIT
+  return Math.min(parsed, MAX_MARKET_SKILLS_LIMIT)
+}
+
+function compactMarketString(value: unknown, maxLength = 240): string {
+  const text = String(value || '').trim()
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength - 3)}...`
+}
+
+function compactMarketTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(item => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 8)
+}
+
+function compactMarketSkill(skill: any) {
+  const identifier = compactMarketString(skill?.identifier || skill?.id || skill?.name || skill?.path, 180)
+  const path = compactMarketString(skill?.path, 180)
+  const source = compactMarketString(skill?.source || 'market', 40)
+  const tags = compactMarketTags(skill?.tags)
+  const category = compactMarketString(skill?.category || path.split('/')[0] || tags[0] || source || 'general', 80)
+  const fallbackName = identifier.split('/').filter(Boolean).pop() || 'unnamed-skill'
+  const name = compactMarketString(skill?.name || skill?.label || fallbackName, 120)
+
+  return {
+    name,
+    label: compactMarketString(skill?.label || name, 120),
+    description: compactMarketString(skill?.description || skill?.summary, 280),
+    source,
+    identifier,
+    trust_level: compactMarketString(skill?.trust_level || skill?.trustLevel, 60),
+    repo: compactMarketString(skill?.repo, 180),
+    path,
+    category,
+    tags,
+    installed: Boolean(skill?.installed),
+  }
+}
+
+function compactMarketSkills(payload: any): any[] {
+  const rawSkills = Array.isArray(payload) ? payload : Array.isArray(payload?.skills) ? payload.skills : []
+  return rawSkills
+    .map(compactMarketSkill)
+    .filter(skill => skill.identifier && skill.name)
+    .slice(0, MAX_MARKET_SKILLS_LIMIT)
+}
+
 app.get('/api/skills/market', async (c) => {
+  const limit = marketSkillsLimit(c.req.query('limit'))
   try {
     // Cache for 10 minutes
     if (_skillsCache && Date.now() - _skillsCache.fetchedAt < 600_000) {
-      return c.json(_skillsCache.data)
+      return c.json(_skillsCache.data.slice(0, limit))
     }
     const resp = await fetch(SKILLS_INDEX_URL, { headers: { 'Accept': 'application/json' } })
     if (!resp.ok) return c.json([])
     const payload = await resp.json()
-    const skills = Array.isArray(payload?.skills) ? payload.skills : []
+    const skills = compactMarketSkills(payload)
     _skillsCache = { data: skills, fetchedAt: Date.now() }
-    return c.json(skills)
+    return c.json(skills.slice(0, limit))
   } catch {
-    return c.json(_skillsCache?.data ?? [])
+    return c.json((_skillsCache?.data ?? []).slice(0, limit))
   }
 })
 
@@ -611,9 +1509,12 @@ app.get('/api/logs', async (c) => {
 
 // --- Env reveal ---
 app.get('/api/env/:key/reveal', async (c) => {
-  const resp = await dashboardFetch(`/api/env/${c.req.param('key')}/reveal`)
-  const data = await resp.json()
-  return c.json(data)
+  const resp = await dashboardFetch(`/api/env/reveal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: c.req.param('key') }),
+  })
+  return proxyJsonResponse(c, resp)
 })
 
 // --- Memories (Dashboard :9119) ---
@@ -948,6 +1849,80 @@ app.onError((err, c) => {
 // Crazor business data routes (SQLite + local files, no Dashboard dependency)
 // ==========================================================================
 
+app.get('/api/crazor/audit-logs', (c) => {
+  const entity = c.req.query('entity')
+  const entity_id = c.req.query('entity_id')
+  const actor_id = c.req.query('actor_id')
+  const limit = Number(c.req.query('limit') || 100)
+  return c.json(listAuditLogs({
+    entity: entity || undefined,
+    entity_id: entity_id || undefined,
+    actor_id: actor_id || undefined,
+    limit,
+  }))
+})
+
+app.get('/api/crazor/identity/me', (c) => {
+  return c.json(resolveRequestActor(c))
+})
+
+app.get('/api/crazor/identity/members', (c) => {
+  return c.json(listTeamMembers())
+})
+
+app.post('/api/crazor/identity/members', async (c) => {
+  const body = await c.req.json()
+  if (!body.name) return c.json({ error: 'name is required' }, 400)
+  return c.json(createTeamMember({
+    name: body.name,
+    actor_type: body.actor_type || 'human',
+    role: body.role || 'member',
+    status: body.status || 'active',
+  }), 201)
+})
+
+app.patch('/api/crazor/identity/members/:id', async (c) => {
+  const body = await c.req.json()
+  const updated = updateTeamMember(c.req.param('id'), body)
+  if (!updated) return c.json({ error: 'not found' }, 404)
+  return c.json(updated)
+})
+
+app.delete('/api/crazor/identity/members/:id', (c) => {
+  deleteTeamMember(c.req.param('id'))
+  return c.json({ ok: true, id: c.req.param('id') })
+})
+
+app.get('/api/crazor/identity/tokens', (c) => {
+  const member_id = c.req.query('member_id')
+  const status = c.req.query('status')
+  return c.json(listActorTokens({
+    member_id: member_id || undefined,
+    status: status || undefined,
+  }))
+})
+
+app.post('/api/crazor/identity/tokens', async (c) => {
+  const body = await c.req.json()
+  if (!body.member_id) return c.json({ error: 'member_id is required' }, 400)
+  try {
+    return c.json(createActorToken({
+      member_id: body.member_id,
+      label: body.label || '',
+      token_type: body.token_type || 'api',
+      scopes: body.scopes,
+    }), 201)
+  } catch (err: any) {
+    return c.json({ error: err?.message || 'failed to create token' }, 404)
+  }
+})
+
+app.delete('/api/crazor/identity/tokens/:id', (c) => {
+  const revoked = revokeActorToken(c.req.param('id'))
+  if (!revoked) return c.json({ error: 'not found' }, 404)
+  return c.json(revoked)
+})
+
 // --- Contacts ---
 app.get('/api/crazor/contacts', (c) => {
   const status = c.req.query('status')
@@ -983,8 +1958,55 @@ app.delete('/api/crazor/contacts/:id', (c) => {
 })
 
 // --- Contact docs (Markdown) ---
+app.get('/api/crazor/contacts/:id/docs/search', (c) => {
+  const contactId = c.req.param('id')
+  const q = (c.req.query('q') || '').trim()
+  const lower = q.toLowerCase()
+
+  const treeDocs = docTree.listNotesByContact('knowledge', contactId).flatMap((note: any) => {
+    const fullNote = docTree.getNote(note.id)
+    if (!fullNote) return []
+    const title = String(fullNote.title || note.title || '')
+    const content = String(fullNote.content || '')
+    if (lower && !title.toLowerCase().includes(lower) && !content.toLowerCase().includes(lower)) return []
+    return [{
+      ...note,
+      title,
+      source: 'knowledge',
+      snippet: buildDocSearchSnippet(content, q),
+      updated_at: fullNote.updated_at || note.updated_at,
+    }]
+  })
+
+  const legacyDocs = docs.listContactDocs(contactId).flatMap((doc: any) => {
+    const content = docs.readDoc(doc.path) || ''
+    const title = String(doc.name?.replace(/\.md$/, '') || doc.path || '')
+    if (lower && !title.toLowerCase().includes(lower) && !content.toLowerCase().includes(lower)) return []
+    return [{
+      ...doc,
+      id: `legacy:${doc.path}`,
+      title,
+      source: 'legacy',
+      snippet: buildDocSearchSnippet(content, q),
+    }]
+  })
+
+  return c.json([...treeDocs, ...legacyDocs].slice(0, 30))
+})
+
 app.get('/api/crazor/contacts/:id/docs', (c) => {
-  return c.json(docs.listContactDocs(c.req.param('id')))
+  const contactId = c.req.param('id')
+  const treeDocs = docTree.listNotesByContact('knowledge', contactId).map((note: any) => ({
+    ...note,
+    source: 'knowledge',
+  }))
+  const legacyDocs = docs.listContactDocs(contactId).map((doc: any) => ({
+    ...doc,
+    id: `legacy:${doc.path}`,
+    title: doc.name?.replace(/\.md$/, '') || doc.path,
+    source: 'legacy',
+  }))
+  return c.json([...treeDocs, ...legacyDocs])
 })
 
 app.post('/api/crazor/contacts/:id/docs', async (c) => {
@@ -996,6 +2018,122 @@ app.post('/api/crazor/contacts/:id/docs', async (c) => {
   // Create the doc in tree + filesystem
   const note = docTree.createContactNote(contactId, body.filename, body.content || '')
   return c.json(note || docs.createContactDoc(contactId, body.filename, body.content || ''), 201)
+})
+
+// --- Contact attachments ---
+app.get('/api/crazor/attachments/policy', (c) => {
+  return c.json(attachmentPolicy())
+})
+
+app.get('/api/crazor/contacts/:id/attachments', (c) => {
+  const contactId = c.req.param('id')
+  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
+  return c.json(listContactAttachments(contactId))
+})
+
+app.post('/api/crazor/contacts/:id/attachments', async (c) => {
+  const contactId = c.req.param('id')
+  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
+
+  const body = await c.req.parseBody() as Record<string, any>
+  const rawFile = Array.isArray(body.file) ? body.file[0] : body.file
+  if (!rawFile || typeof rawFile.arrayBuffer !== 'function') {
+    return c.json({ error: 'file is required' }, 400)
+  }
+
+  const dir = contactAttachmentsDir(contactId)
+  mkdirSync(dir, { recursive: true })
+
+  const originalName = sanitizeAttachmentFilename(rawFile.name || body.filename || 'attachment')
+  if (!isAttachmentExtensionAllowed(originalName)) {
+    return c.json({
+      error: 'attachment type is not allowed',
+      allowed_extensions: CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS,
+    }, 415)
+  }
+
+  if (Number(rawFile.size || 0) > CRAZOR_ATTACHMENT_MAX_BYTES) {
+    return c.json({
+      error: 'attachment is too large',
+      max_bytes: CRAZOR_ATTACHMENT_MAX_BYTES,
+    }, 413)
+  }
+
+  const filename = uniqueAttachmentName(dir, originalName)
+  const filePath = resolve(dir, filename)
+  const arrayBuffer = await rawFile.arrayBuffer()
+  const fileBuffer = Buffer.from(arrayBuffer)
+  if (fileBuffer.byteLength > CRAZOR_ATTACHMENT_MAX_BYTES) {
+    return c.json({
+      error: 'attachment is too large',
+      max_bytes: CRAZOR_ATTACHMENT_MAX_BYTES,
+    }, 413)
+  }
+  writeFileSync(filePath, fileBuffer)
+
+  const stat = statSync(filePath)
+  return c.json(contactAttachmentResponse(contactId, filename, stat), 201)
+})
+
+app.get('/api/crazor/contacts/:id/attachments/:filename/preview', (c) => {
+  const contactId = c.req.param('id')
+  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
+  const filename = sanitizeAttachmentFilename(c.req.param('filename'))
+  const filePath = resolve(contactAttachmentsDir(contactId), filename)
+  if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
+
+  const stat = statSync(filePath)
+  const kind = attachmentKind(filename)
+  const base = {
+    name: filename,
+    kind,
+    size: stat.size,
+    mime_type: attachmentMimeType(filename),
+    max_preview_bytes: CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES,
+  }
+
+  if (kind === 'file') {
+    return c.json({ ...base, previewable: false, reason: '该附件类型暂不支持预览，请下载查看' })
+  }
+  if (stat.size > CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES) {
+    return c.json({ ...base, previewable: false, reason: '附件超过预览大小限制，请下载查看' })
+  }
+  if (kind === 'text') {
+    return c.json({
+      ...base,
+      previewable: true,
+      content: readFileSync(filePath, 'utf-8'),
+    })
+  }
+  return c.json({
+    ...base,
+    previewable: true,
+    content_base64: Buffer.from(readFileSync(filePath)).toString('base64'),
+  })
+})
+
+app.get('/api/crazor/contacts/:id/attachments/:filename', (c) => {
+  const contactId = c.req.param('id')
+  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
+  const filename = sanitizeAttachmentFilename(c.req.param('filename'))
+  const filePath = resolve(contactAttachmentsDir(contactId), filename)
+  if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
+  return new Response(readFileSync(filePath), {
+    headers: {
+      'Content-Type': attachmentMimeType(filename),
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    },
+  })
+})
+
+app.delete('/api/crazor/contacts/:id/attachments/:filename', (c) => {
+  const contactId = c.req.param('id')
+  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
+  const filename = sanitizeAttachmentFilename(c.req.param('filename'))
+  const filePath = resolve(contactAttachmentsDir(contactId), filename)
+  if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
+  rmSync(filePath)
+  return c.json({ ok: true, id: filename })
 })
 
 // --- Content Pieces ---
@@ -1029,6 +2167,23 @@ app.patch('/api/crazor/content-pieces/:id', async (c) => {
   const updated = updateContentPiece(c.req.param('id'), body)
   if (!updated) return c.json({ error: 'not found' }, 404)
   return c.json(updated)
+})
+
+app.post('/api/crazor/content-pieces/:id/publish', (c) => {
+  try {
+    return c.json(contentPublish(c.req.param('id')))
+  } catch (err: any) {
+    return c.json({ error: err?.message || 'publish failed' }, 404)
+  }
+})
+
+app.patch('/api/crazor/content-pieces/:id/metrics', async (c) => {
+  try {
+    const body = await c.req.json()
+    return c.json(contentUpdateMetrics(c.req.param('id'), body))
+  } catch (err: any) {
+    return c.json({ error: err?.message || 'metrics update failed' }, 404)
+  }
 })
 
 app.delete('/api/crazor/content-pieces/:id', (c) => {
@@ -1094,7 +2249,7 @@ app.post('/api/crazor/docs/:scope/folders-ops/move', async (c) => {
 app.post('/api/crazor/docs/:scope/notes', async (c) => {
   const scope = c.req.param('scope')
   const body = await c.req.json()
-  return c.json(docTree.createNote(scope, body.folderId || null, body.title || '未命名笔记'), 201)
+  return c.json(docTree.createNote(scope, body.folderId || null, body.title || '未命名笔记', body.content || '', body.contact_id || null), 201)
 })
 
 app.get('/api/crazor/docs/:scope/notes-ops', (c) => {
@@ -1183,6 +2338,8 @@ app.delete('/api/crazor/projects/:id', (c) => {
 // --- Tasks ---
 app.get('/api/crazor/tasks', (c) => {
   const project = c.req.query('project')
+  const contactId = c.req.query('contact_id')
+  if (contactId) return c.json(listTasksByContact(contactId))
   return c.json(listTasks(project || undefined))
 })
 
@@ -1209,6 +2366,10 @@ app.patch('/api/crazor/tasks/:id/move', async (c) => {
   if (!body.status) return c.json({ error: 'status is required' }, 400)
   const updated = moveTask(c.req.param('id'), body.status, body.sort_order)
   return c.json(updated)
+})
+
+app.get('/api/crazor/task-reminders', (c) => {
+  return c.json(getTaskReminders(parsePositiveInt(c.req.query('limit'), 20)))
 })
 
 // --- Follow-ups ---
@@ -1297,6 +2458,7 @@ app.get('/api/crazor/analytics/overview', (c) => {
     hermes: getHermesSessionStats(),
     channels: getChannelStats(),
     followUpReminders: getFollowUpReminders(),
+    taskReminders: getTaskReminders(),
   })
 })
 
@@ -1403,8 +2565,8 @@ for (const entity of ['contacts', 'channels', 'transactions']) {
   discoverCustomFields(entity)
 }
 console.log(`🚀 Crazor API Server starting on port ${PORT}`)
-console.log(`   Hermes Gateway: ${HERMES_GATEWAY_URL}`)
-console.log(`   Hermes Dashboard: ${HERMES_DASHBOARD_URL}`)
+console.log(`   Agent Gateway: ${AGENT_GATEWAY_URL}`)
+console.log(`   Agent Dashboard: ${AGENT_DASHBOARD_URL}`)
 if (seedResult.folders > 0 || seedResult.notes > 0) {
   console.log(`   📦 Seeded vault: ${seedResult.folders} folders, ${seedResult.notes} notes`)
 }

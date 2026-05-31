@@ -1,0 +1,275 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+ENV_FILE="$PROJECT_ROOT/.env"
+ENV_EXAMPLE_FILE="$PROJECT_ROOT/.env.example"
+HERMES_ROOT="$PROJECT_ROOT/data/hermes"
+HERMES_STATE_DIR="$HERMES_ROOT/state"
+HERMES_WORKSPACES_DIR="$HERMES_ROOT/workspaces"
+HERMES_BACKUPS_DIR="$HERMES_ROOT/backups"
+HERMES_API_KEY_FILE="$HERMES_ROOT/.api-key"
+
+usage() {
+  cat <<'EOF'
+用法：
+  ./scripts/hermes init                 初始化 .env、Hermes 数据目录和工作目录
+  ./scripts/hermes setup                运行 Hermes 官方 setup
+  ./scripts/hermes up                   启动完整 Crazor + Hermes Compose
+  ./scripts/hermes down                 停止完整 Compose
+  ./scripts/hermes restart              重启 Hermes 服务
+  ./scripts/hermes logs [参数...]       查看 Hermes 日志
+  ./scripts/hermes status               查看 Compose 服务状态
+  ./scripts/hermes health               检查 Hermes 健康状态
+  ./scripts/hermes smoke                运行 Crazor Docker MVP 烟测
+  ./scripts/hermes smoke-strict         临时开启严格认证后运行烟测，结束后恢复
+  ./scripts/hermes backup               备份 data/hermes/state
+  ./scripts/hermes regen-api-key        重新生成 Agent Gateway API Key
+
+运行数据：
+  data/hermes/state       Hermes 运行状态、会话、记忆、技能和配置
+  data/hermes/workspaces  Hermes 用户工作区
+  data/hermes/backups     Hermes 本地备份
+EOF
+}
+
+die() {
+  printf '错误：%s\n' "$*" >&2
+  exit 1
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || die "缺少命令：$1"
+}
+
+compose() {
+  docker compose --project-directory "$PROJECT_ROOT" "$@"
+}
+
+ensure_dirs() {
+  mkdir -p \
+    "$HERMES_STATE_DIR" \
+    "$HERMES_WORKSPACES_DIR/users/default" \
+    "$HERMES_WORKSPACES_DIR/projects" \
+    "$HERMES_WORKSPACES_DIR/inbox" \
+    "$HERMES_WORKSPACES_DIR/outputs" \
+    "$HERMES_WORKSPACES_DIR/artifacts" \
+    "$HERMES_WORKSPACES_DIR/shared" \
+    "$HERMES_WORKSPACES_DIR/tmp" \
+    "$HERMES_WORKSPACES_DIR/cache" \
+    "$HERMES_BACKUPS_DIR"
+}
+
+generate_hex_secret() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 32
+  elif [[ -r /dev/urandom ]]; then
+    od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+  else
+    die "无法生成随机密钥：需要 openssl 或 /dev/urandom"
+  fi
+}
+
+read_env_value() {
+  local key="$1"
+  [[ -f "$ENV_FILE" ]] || return 1
+  awk -F= -v key="$key" '
+    $1 == key {
+      value = $2
+      gsub(/^[ \t"'\''"]+|[ \t"'\''"]+$/, "", value)
+      print value
+      exit
+    }
+  ' "$ENV_FILE"
+}
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+
+  if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+    sed -i.bak "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+    rm -f "$ENV_FILE.bak"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+  fi
+}
+
+ensure_env_value() {
+  local key="$1"
+  local value="$2"
+  local current
+  current="$(read_env_value "$key" || true)"
+  if [[ -z "$current" ]]; then
+    set_env_value "$key" "$value"
+  fi
+}
+
+ensure_env_file() {
+  if [[ ! -f "$ENV_FILE" ]]; then
+    [[ -f "$ENV_EXAMPLE_FILE" ]] || die "缺少 .env.example"
+    cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+  fi
+}
+
+regen_api_key() {
+  ensure_dirs
+  ensure_env_file
+  generate_hex_secret > "$HERMES_API_KEY_FILE"
+  chmod 600 "$HERMES_API_KEY_FILE"
+  set_env_value AGENT_GATEWAY_API_KEY "$(cat "$HERMES_API_KEY_FILE")"
+  set_env_value HERMES_API_SERVER_KEY "$(cat "$HERMES_API_KEY_FILE")"
+  printf 'Agent Gateway API Key 已生成并写入 .env\n'
+}
+
+init() {
+  ensure_dirs
+  ensure_env_file
+  ensure_env_value COMPOSE_PROJECT_NAME crazor
+  ensure_env_value COMPOSE_PROFILES hermes
+  ensure_env_value CRAZOR_WEB_PORT 5173
+  ensure_env_value AGENT_PROVIDER hermes
+  ensure_env_value AGENT_GATEWAY_URL http://hermes:8642
+  ensure_env_value AGENT_DASHBOARD_URL http://hermes:9119
+  ensure_env_value HERMES_IMAGE nousresearch/hermes-agent:main
+  ensure_env_value HERMES_GATEWAY_URL http://hermes:8642
+  ensure_env_value HERMES_DASHBOARD_URL http://hermes:9119
+  ensure_env_value HERMES_GATEWAY_BIND 127.0.0.1
+  ensure_env_value HERMES_DASHBOARD_BIND 127.0.0.1
+  ensure_env_value HERMES_WORKSPACE_ROOT /opt/data/workspaces
+  ensure_env_value HERMES_USER_WORKDIR /opt/data/workspaces/users/default
+  ensure_env_value HERMES_UID "$(id -u)"
+  ensure_env_value HERMES_GID "$(id -g)"
+  ensure_env_value TZ Asia/Shanghai
+  ensure_env_value CRON_TZ Asia/Shanghai
+  ensure_env_value CRAZOR_SEED_DEMO_DATA false
+
+  local current_image
+  current_image="$(read_env_value HERMES_IMAGE || true)"
+  if [[ "$current_image" == "nousresearch/hermes-agent:latest" ]]; then
+    set_env_value HERMES_IMAGE nousresearch/hermes-agent:main
+  fi
+
+  local agent_key
+  local hermes_key
+  agent_key="$(read_env_value AGENT_GATEWAY_API_KEY || true)"
+  hermes_key="$(read_env_value HERMES_API_SERVER_KEY || true)"
+  if [[ -n "$agent_key" && "$agent_key" != change-me-* && "$agent_key" != *"请替换"* ]]; then
+    set_env_value HERMES_API_SERVER_KEY "$agent_key"
+  elif [[ -n "$hermes_key" && "$hermes_key" != change-me-* && "$hermes_key" != *"请替换"* ]]; then
+    set_env_value AGENT_GATEWAY_API_KEY "$hermes_key"
+  else
+    regen_api_key
+  fi
+
+  printf '默认 Agent Provider 已初始化：hermes，数据目录：%s\n' "$HERMES_ROOT"
+}
+
+setup() {
+  need docker
+  init
+  compose run --rm --no-deps \
+    -e HOME=/opt/data \
+    -w "${HERMES_USER_WORKDIR:-/opt/data/workspaces/users/default}" \
+    hermes setup "$@"
+}
+
+backup() {
+  need tar
+  ensure_dirs
+  local ts
+  local target
+  ts="$(date +%F-%H%M%S)"
+  target="$HERMES_BACKUPS_DIR/hermes-state-$ts.tgz"
+  tar -C "$HERMES_ROOT" -czf "$target" state
+  printf '备份已创建：%s\n' "$target"
+}
+
+health() {
+  need curl
+  curl -fsS http://127.0.0.1:8642/health
+  printf '\n'
+}
+
+smoke_strict() {
+  need docker
+  need node
+
+  local status=0
+
+  printf '临时开启严格认证边界并重建后端...\n'
+  CRAZOR_REQUIRE_WRITE_TOKEN=true \
+  CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true \
+    compose up -d --no-deps --force-recreate crazor-server
+
+  CRAZOR_SMOKE_STRICT_AUTH=1 node "$PROJECT_ROOT/scripts/crazor-smoke.mjs" "$@" || status=$?
+
+  printf '恢复 Compose 默认后端配置...\n'
+  compose up -d --no-deps --force-recreate crazor-server || status=$?
+
+  return "$status"
+}
+
+cmd="${1:-help}"
+if [[ $# -gt 0 ]]; then
+  shift || true
+fi
+
+case "$cmd" in
+  help|-h|--help)
+    usage
+    ;;
+  init)
+    init
+    ;;
+  setup)
+    setup "$@"
+    ;;
+  up)
+    need docker
+    init
+    compose up -d "$@"
+    ;;
+  down)
+    need docker
+    compose down "$@"
+    ;;
+  restart)
+    need docker
+    compose restart hermes
+    ;;
+  logs)
+    need docker
+    if [[ $# -eq 0 ]]; then
+      compose logs -f --tail=200 hermes
+    else
+      compose logs "$@" hermes
+    fi
+    ;;
+  status)
+    need docker
+    compose ps
+    ;;
+  health)
+    health
+    ;;
+  smoke)
+    need node
+    node "$PROJECT_ROOT/scripts/crazor-smoke.mjs" "$@"
+    ;;
+  smoke-strict)
+    smoke_strict "$@"
+    ;;
+  backup)
+    backup
+    ;;
+  regen-api-key)
+    regen_api_key
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

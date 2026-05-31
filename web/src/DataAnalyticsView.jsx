@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
-  BarChart3Icon, BellIcon, FilterIcon, GlobeIcon, MessageSquareIcon, SparklesIcon, TrendingUpIcon, UsersIcon,
+  BarChart3Icon, BellIcon, CalendarIcon, CheckSquareIcon, FilterIcon, MessageSquareIcon, SparklesIcon, TrendingUpIcon, UsersIcon,
 } from "lucide-react"
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis,
@@ -10,8 +10,10 @@ import {
 } from "recharts"
 import { ViewFrame } from "@/components/view-frame"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 
 export default function DataAnalyticsView() {
   const [overview, setOverview] = useState(null)
@@ -28,12 +30,53 @@ export default function DataAnalyticsView() {
 
   useEffect(() => { void loadData() }, [loadData])
 
+  const handleCompleteReminder = useCallback(async (reminder) => {
+    try {
+      await patchJson(`/api/crazor/follow-ups/${reminder.id}`, { status: "已完成" })
+      toast.success("跟进提醒已完成")
+      await loadData()
+    } catch (error) {
+      toast.error("提醒处理失败", { description: String(error?.message || error) })
+    }
+  }, [loadData])
+
+  const handleSnoozeReminder = useCallback(async (reminder, days) => {
+    try {
+      await patchJson(`/api/crazor/follow-ups/${reminder.id}`, { date: dateDaysFromNow(days), status: "待跟进" })
+      toast.success(days >= 7 ? "已顺延到下周" : "已顺延到明天")
+      await loadData()
+    } catch (error) {
+      toast.error("提醒顺延失败", { description: String(error?.message || error) })
+    }
+  }, [loadData])
+
+  const handleCompleteTaskReminder = useCallback(async (task) => {
+    try {
+      await patchJson(`/api/crazor/tasks/${task.id}`, { status: "done" })
+      toast.success("任务已完成")
+      await loadData()
+    } catch (error) {
+      toast.error("任务处理失败", { description: String(error?.message || error) })
+    }
+  }, [loadData])
+
+  const handleSnoozeTaskReminder = useCallback(async (task, days) => {
+    try {
+      await patchJson(`/api/crazor/tasks/${task.id}`, { due_date: dateDaysFromNow(days) })
+      toast.success(days >= 7 ? "任务已顺延到下周" : "任务已顺延到明天")
+      await loadData()
+    } catch (error) {
+      toast.error("任务顺延失败", { description: String(error?.message || error) })
+    }
+  }, [loadData])
+
   const hermes = overview?.hermes || { todayConversations: 0, weekConversations: 0, toolCalls: 0, dailyTrend: [] }
   const contacts = overview?.contacts || { total: 0, active: 0, totalDeal: 0, followUpsDue: 0, byStage: {} }
   const finance = overview?.finance || { totalIncome: 0, totalExpense: 0, net: 0, channelRevenue: 0 }
-  const projects = overview?.projects || { totalProjects: 0, todoTasks: 0, doingTasks: 0, doneTasks: 0 }
+  const projects = overview?.projects || { totalProjects: 0, todoTasks: 0, doingTasks: 0, doneTasks: 0, tasksDue: 0 }
   const channels = overview?.channels || { total: 0, active: 0, totalRevenue: 0, totalCustomers: 0 }
   const followUpReminders = overview?.followUpReminders || []
+  const taskReminders = overview?.taskReminders || []
 
   const kpis = [
     { icon: MessageSquareIcon, label: "今日对话", value: hermes.todayConversations, color: "text-blue-600" },
@@ -41,7 +84,7 @@ export default function DataAnalyticsView() {
     { icon: UsersIcon, label: "活跃客户", value: contacts.active, color: "text-emerald-600" },
     { icon: SparklesIcon, label: "工具调用", value: hermes.toolCalls, color: "text-amber-600" },
     { icon: BellIcon, label: "待跟进", value: contacts.followUpsDue, color: "text-rose-600" },
-    { icon: GlobeIcon, label: "活跃渠道", value: channels.active, color: "text-violet-600" },
+    { icon: CheckSquareIcon, label: "任务到期", value: projects.tasksDue || taskReminders.length, color: "text-orange-600" },
   ]
 
   // Task status bar
@@ -81,6 +124,17 @@ export default function DataAnalyticsView() {
         : null,
     }))
   }, [contacts.byStage])
+  const hasDashboardData = Boolean(
+    hermes.dailyTrend.length ||
+    revenue.length ||
+    followUpReminders.length ||
+    taskReminders.length ||
+    contacts.total ||
+    projects.totalProjects ||
+    channels.total ||
+    finance.totalIncome ||
+    finance.totalExpense,
+  )
 
   return (
     <ViewFrame icon={BarChart3Icon} badge="Analytics" title="数据分析" description="业务指标、使用趋势与客户洞察">
@@ -173,8 +227,8 @@ export default function DataAnalyticsView() {
           </Card>
         </div>
 
-        {/* Channel stats + Follow-up reminders */}
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {/* Channel stats + reminder cards */}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {/* Channel stats */}
           <Card className="shadow-none">
             <CardHeader className="pb-2"><CardTitle className="text-[13px] font-medium">渠道概览</CardTitle></CardHeader>
@@ -195,6 +249,61 @@ export default function DataAnalyticsView() {
             </CardContent>
           </Card>
 
+          {/* Task reminders */}
+          <Card className="shadow-none">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-[13px] font-medium">任务到期提醒</CardTitle>
+                {taskReminders.length > 0 && (
+                  <Badge variant="outline" className="text-[10px] border-orange-200 text-orange-600">{taskReminders.length} 条</Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {taskReminders.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  {taskReminders.slice(0, 5).map((task) => (
+                    <div key={task.id} className="rounded-lg border p-2 text-[12px]">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-medium">
+                            <span>{task.title}</span>
+                            {task.priority && <Badge variant="outline" className="ml-1.5 h-4 text-[10px]">{priorityLabel(task.priority)}</Badge>}
+                          </div>
+                          <div className="mt-1 line-clamp-2 text-muted-foreground">
+                            {task.project_name || "未关联项目"}{task.contact_name ? ` · ${task.contact_name}` : ""}
+                          </div>
+                        </div>
+                        <span className="shrink-0 text-muted-foreground">{task.due_date}</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap justify-end gap-1">
+                        <Button size="xs" variant="outline" onClick={() => void handleSnoozeTaskReminder(task, 1)}>
+                          <CalendarIcon className="size-3" />
+                          明天
+                        </Button>
+                        <Button size="xs" variant="outline" onClick={() => void handleSnoozeTaskReminder(task, 7)}>
+                          <CalendarIcon className="size-3" />
+                          下周
+                        </Button>
+                        <Button size="xs" onClick={() => void handleCompleteTaskReminder(task)}>
+                          <CheckSquareIcon className="size-3" />
+                          完成
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {taskReminders.length > 5 && (
+                    <div className="text-center text-[11px] text-muted-foreground">
+                      还有 {taskReminders.length - 5} 条...
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="py-6 text-center text-[12px] text-muted-foreground">暂无到期任务</div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Follow-up reminders */}
           <Card className="shadow-none">
             <CardHeader className="pb-2">
@@ -209,12 +318,31 @@ export default function DataAnalyticsView() {
               {followUpReminders.length > 0 ? (
                 <div className="flex flex-col gap-2">
                   {followUpReminders.slice(0, 5).map((fu) => (
-                    <div key={fu.id} className="flex items-center justify-between rounded-lg border p-2 text-[12px]">
-                      <div>
-                        <span className="font-medium">{fu.contact_name}</span>
-                        {fu.method && <Badge variant="outline" className="ml-1.5 text-[10px] h-4">{fu.method}</Badge>}
+                    <div key={fu.id} className="rounded-lg border p-2 text-[12px]">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-medium">
+                            <span>{fu.contact_name}</span>
+                            {fu.method && <Badge variant="outline" className="ml-1.5 text-[10px] h-4">{fu.method}</Badge>}
+                          </div>
+                          {fu.content && <div className="mt-1 line-clamp-2 text-muted-foreground">{fu.content}</div>}
+                        </div>
+                        <span className="shrink-0 text-muted-foreground">{fu.date}</span>
                       </div>
-                      <span className="text-muted-foreground">{fu.date}</span>
+                      <div className="mt-2 flex flex-wrap justify-end gap-1">
+                        <Button size="xs" variant="outline" onClick={() => void handleSnoozeReminder(fu, 1)}>
+                          <CalendarIcon className="size-3" />
+                          明天
+                        </Button>
+                        <Button size="xs" variant="outline" onClick={() => void handleSnoozeReminder(fu, 7)}>
+                          <CalendarIcon className="size-3" />
+                          下周
+                        </Button>
+                        <Button size="xs" onClick={() => void handleCompleteReminder(fu)}>
+                          <CheckSquareIcon className="size-3" />
+                          完成
+                        </Button>
+                      </div>
                     </div>
                   ))}
                   {followUpReminders.length > 5 && (
@@ -328,7 +456,7 @@ export default function DataAnalyticsView() {
             加载中...
           </div>
         )}
-        {overview && hermes.dailyTrend.length === 0 && revenue.length === 0 && (
+        {overview && !hasDashboardData && (
           <div className="py-12 text-center text-sm text-muted-foreground">
             暂无数据，开始使用后将自动生成分析图表
           </div>
@@ -345,4 +473,28 @@ function MiniStat({ label, value }) {
       <div className="mt-0.5 text-[15px] font-semibold">{value}</div>
     </div>
   )
+}
+
+function dateDaysFromNow(days) {
+  const date = new Date()
+  date.setDate(date.getDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+function priorityLabel(priority) {
+  const map = { high: "高", medium: "中", low: "低" }
+  return map[priority] || priority
+}
+
+async function patchJson(url, payload) {
+  const resp = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  const body = await resp.json().catch(() => null)
+  if (!resp.ok) {
+    throw new Error(body?.error || body?.message || `请求失败：${resp.status}`)
+  }
+  return body
 }

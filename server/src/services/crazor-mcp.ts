@@ -6,7 +6,7 @@ import {
   listTransactions, createTransaction, updateTransaction, deleteTransaction,
   getMonthlyRevenue, getContactStats, getFinanceStats, getProjectStats,
   listProjects, createProject, updateProject, deleteProject,
-  listTasks, createTask, updateTask, deleteTask, moveTask,
+  listTasks, getTaskReminders, createTask, updateTask, deleteTask, moveTask,
   listFollowUps, createFollowUp, updateFollowUp, deleteFollowUp, getFollowUpReminders,
   listChannels, getChannel, createChannel, updateChannel, deleteChannel, getChannelStats,
   listChannelReferrals, createChannelReferral,
@@ -15,10 +15,11 @@ import {
   listContentPieces, getContentPiece, createContentPiece,
   updateContentPiece, deleteContentPiece, getContentPieceStats,
   contentPublish, contentUpdateMetrics, contentCheckDaily,
-  getbijiSync, getbijiStatus, getbijiForceFull,
+  createAuditLog,
 } from "./crazor-db"
 import { listFieldDefinitions, createFieldDefinition, discoverCustomFields } from "./field-definitions"
 import * as docTree from "./crazor-doc-tree"
+import { evaluateWritePermission } from "./crazor-permissions"
 
 // ── SSE session management ───────────────────────────────────
 
@@ -272,6 +273,16 @@ const TOOLS: any[] = [
       type: "object",
       properties: {
         project: { type: "string", description: "按项目ID筛选" },
+      },
+    },
+  },
+  {
+    name: "get_task_reminders",
+    description: "获取今日到期或已逾期的未完成任务提醒，包含所属项目和关联客户信息",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "最多返回条数，默认 20" },
       },
     },
   },
@@ -600,22 +611,6 @@ const TOOLS: any[] = [
     description: "每日内容指标检查：检查今日各平台发布完成情况（公众号≥1、小红书≥1、知识星球≥1），返回完成度报告",
     inputSchema: { type: "object", properties: {} },
   },
-  // --- Getbiji (Material Sync) ---
-  {
-    name: "getbiji_sync",
-    description: "同步 Get 笔记素材到系统（占位，待接入）",
-    inputSchema: { type: "object", properties: {} },
-  },
-  {
-    name: "getbiji_status",
-    description: "查看 Get 笔记同步状态（占位，待接入）",
-    inputSchema: { type: "object", properties: {} },
-  },
-  {
-    name: "getbiji_force_full",
-    description: "强制全量同步 Get 笔记（占位，待接入）",
-    inputSchema: { type: "object", properties: {} },
-  },
   // --- Stats ---
   {
     name: "get_contacts_stats",
@@ -760,7 +755,45 @@ const TOOLS: any[] = [
 
 // ── Tool execution ───────────────────────────────────────────
 
-async function executeTool(name: string, args: any): Promise<any> {
+type ToolActor = {
+  actor_type?: string
+  actor_id?: string
+  source?: string
+  role?: string
+  scopes?: unknown
+}
+
+async function executeTool(name: string, args: any, actor?: ToolActor): Promise<any> {
+  assertMcpWriteAllowed(name, args, actor)
+  const result = await executeToolAction(name, args)
+  recordMcpAudit(name, args, result, actor)
+  return result
+}
+
+function assertMcpWriteAllowed(name: string, args: any, actor?: ToolActor) {
+  const audit = deriveMcpAudit(name, args, null)
+  if (!audit) return
+  const permission = evaluateWritePermission(actor, audit.action, audit.entity)
+  if (!permission.allowed) {
+    try {
+      createAuditLog({
+        actor_type: actor?.actor_type || "agent",
+        actor_id: String(actor?.actor_id || "invalid-token"),
+        source: actor?.source || "permission-denied",
+        action: `deny_${audit.action}`,
+        entity: audit.entity,
+        entity_id: audit.entity_id,
+        payload: args,
+        summary: `MCP ${name} denied: ${permission.required_scope}`,
+      })
+    } catch (err) {
+      console.error("[audit] failed to record MCP permission denial:", err)
+    }
+    throw new Error(`${permission.error}: required scope ${permission.required_scope}`)
+  }
+}
+
+async function executeToolAction(name: string, args: any): Promise<any> {
   switch (name) {
     // Contacts
     case "create_contact": return createContact(args)
@@ -788,6 +821,7 @@ async function executeTool(name: string, args: any): Promise<any> {
     case "update_task": return updateTask(args.id, args)
     case "move_task": return moveTask(args.id, args.status)
     case "list_tasks": return listTasks(args?.project)
+    case "get_task_reminders": return getTaskReminders(args?.limit || 20)
 
     // Stats
     case "get_contacts_stats": return getContactStats()
@@ -828,11 +862,6 @@ async function executeTool(name: string, args: any): Promise<any> {
     case "content_update_metrics": return contentUpdateMetrics(args.name, args)
     case "content_check_daily": return contentCheckDaily()
 
-    // Getbiji
-    case "getbiji_sync": return getbijiSync()
-    case "getbiji_status": return getbijiStatus()
-    case "getbiji_force_full": return getbijiForceFull()
-
     // Documents
     case "create_doc": {
       // Find folder_id by name path if needed, or use provided folder_id
@@ -851,13 +880,7 @@ async function executeTool(name: string, args: any): Promise<any> {
       return docTree.getNote(args.id)
     }
     case "read_doc": return docTree.getNote(args.id)
-    case "list_docs": {
-      const tree = docTree.listTree(args.scope)
-      const notes = args.folder_id
-        ? tree.notes.filter((n: any) => n.folder_id === args.folder_id)
-        : tree.notes.filter((n: any) => !n.folder_id)
-      return notes
-    }
+    case "list_docs": return listDocsForMcp(args.scope, args?.folder_id || null)
     case "search_docs": return docTree.searchNotes(args.scope, args.q)
     case "create_folder": return docTree.createFolder(args.scope, args.parent_id || null, args.name)
     case "read_vault_file": {
@@ -879,9 +902,75 @@ async function executeTool(name: string, args: any): Promise<any> {
   }
 }
 
+function listDocsForMcp(scope: string, folderId: string | null) {
+  const tree = docTree.listTree(scope)
+  if (!folderId) return { folders: tree.folders, notes: tree.notes }
+
+  return {
+    folders: tree.folders.filter((folder: any) => folder.parent_id === folderId),
+    notes: tree.notes.filter((note: any) => note.folder_id === folderId),
+  }
+}
+
+function recordMcpAudit(name: string, args: any, result: any, actor?: ToolActor) {
+  const audit = deriveMcpAudit(name, args, result)
+  if (!audit) return
+
+  try {
+    createAuditLog({
+      actor_type: actor?.actor_type || "agent",
+      actor_id: String(actor?.actor_id || args?.actor_id || args?.agent_id || "mcp-client"),
+      source: actor?.source || "mcp-tool",
+      action: audit.action,
+      entity: audit.entity,
+      entity_id: audit.entity_id,
+      payload: args,
+      summary: `MCP ${name}`,
+    })
+  } catch (err) {
+    console.error("[audit] failed to record MCP write:", err)
+  }
+}
+
+function deriveMcpAudit(name: string, args: any, result: any): null | { action: string; entity: string; entity_id: string } {
+  switch (name) {
+    case "create_contact": return auditMeta("create", "contact", result?.id)
+    case "update_contact": return auditMeta("update", "contact", args?.id)
+    case "create_transaction": return auditMeta("create", "transaction", result?.id)
+    case "update_transaction": return auditMeta("update", "transaction", args?.id)
+    case "create_project": return auditMeta("create", "project", result?.id)
+    case "update_project": return auditMeta("update", "project", args?.id)
+    case "create_task": return auditMeta("create", "task", result?.id)
+    case "update_task": return auditMeta("update", "task", args?.id)
+    case "move_task": return auditMeta("move", "task", args?.id)
+    case "create_follow_up": return auditMeta("create", "follow_up", result?.id)
+    case "update_follow_up": return auditMeta("update", "follow_up", args?.id)
+    case "create_channel": return auditMeta("create", "channel", result?.id)
+    case "update_channel": return auditMeta("update", "channel", args?.id)
+    case "create_content_piece": return auditMeta("create", "content_piece", result?.id)
+    case "update_content_piece": return auditMeta("update", "content_piece", args?.id)
+    case "delete_content_piece": return auditMeta("delete", "content_piece", args?.id)
+    case "content_publish": return auditMeta("publish", "content_piece", result?.piece?.id || args?.name)
+    case "content_update_metrics": return auditMeta("update_metrics", "content_piece", result?.piece?.id || args?.name)
+    case "crm_add_client": return auditMeta("create", "contact", result?.id)
+    case "crm_add_followup": return auditMeta("create", "follow_up", result?.follow_up?.id)
+    case "crm_update_stage": return auditMeta("update", "contact", result?.contact?.id)
+    case "crm_record_deal": return auditMeta("create", "transaction", result?.transaction?.id)
+    case "create_doc": return auditMeta("create", "doc_note", result?.id)
+    case "update_doc": return auditMeta("update", "doc_note", args?.id)
+    case "create_folder": return auditMeta("create", "doc_folder", result?.id)
+    case "add_field": return auditMeta("create", "field_definition", result?.id)
+    default: return null
+  }
+}
+
+function auditMeta(action: string, entity: string, entityId: unknown) {
+  return { action, entity, entity_id: entityId === null || entityId === undefined ? "" : String(entityId) }
+}
+
 // ── JSON-RPC message handler ─────────────────────────────────
 
-async function handleMessage(message: any): Promise<any> {
+async function handleMessage(message: any, actor?: ToolActor): Promise<any> {
   const { id, method, params } = message
 
   switch (method) {
@@ -903,7 +992,7 @@ async function handleMessage(message: any): Promise<any> {
       const toolName = params?.name
       const toolArgs = params?.arguments || {}
       try {
-        const result = await executeTool(toolName, toolArgs)
+        const result = await executeTool(toolName, toolArgs, actor)
         return jsonRpcResult(id, {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         })
@@ -947,7 +1036,7 @@ export function handleSSEConnect(): Response {
   })
 }
 
-export async function handleSSEMessage(body: any, sessionIdParam: string | null): Promise<any> {
+export async function handleSSEMessage(body: any, sessionIdParam: string | null, actor?: ToolActor): Promise<any> {
   // For notifications (no id), return null (no response)
   if (!body.id && body.method === "notifications/initialized") {
     const session = sessionIdParam ? sessions.get(sessionIdParam) : null
@@ -955,7 +1044,7 @@ export async function handleSSEMessage(body: any, sessionIdParam: string | null)
     return null
   }
 
-  const response = await handleMessage(body)
+  const response = await handleMessage(body, actor)
 
   // Also send via SSE stream if session exists
   if (sessionIdParam && response) {
@@ -991,6 +1080,7 @@ function httpSessionId(): string {
 export async function handleStreamableHTTP(
   body: any,
   headerSessionId: string | null,
+  actor?: ToolActor,
 ): Promise<Response> {
   // Validate JSON-RPC shape
   if (!body || typeof body !== "object") {
@@ -1022,7 +1112,7 @@ export async function handleStreamableHTTP(
   }
 
   // Process the request
-  const response = await handleMessage(body)
+  const response = await handleMessage(body, actor)
 
   // null means "no response" (e.g. notification with id which is unusual)
   if (response === null) {

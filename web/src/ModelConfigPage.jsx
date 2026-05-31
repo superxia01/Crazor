@@ -375,7 +375,7 @@ export default function ModelConfigPage() {
     return ""
   }
 
-  const commitPrimaryModelConfig = async (overrides) => {
+  const commitPrimaryModelConfig = async (overrides, clearFields = []) => {
     const nextConfig = {
       model: String(overrides?.model ?? (resolvePrimaryFieldValue("model") || "")).trim(),
       provider: String(
@@ -383,7 +383,9 @@ export default function ModelConfigPage() {
       ).trim(),
       baseUrl: String(overrides?.baseUrl ?? (resolvePrimaryFieldValue("baseUrl") || "")).trim(),
       apiKey: String(overrides?.apiKey ?? (resolvePrimaryFieldValue("apiKey") || "")).trim(),
+      apiMode: String(overrides?.apiMode ?? (primaryModelConfig.apiMode || "")).trim(),
       contextLength: primaryModelConfig.contextLength ?? null,
+      clearFields,
     }
 
     await savePrimaryModelConfig(nextConfig)
@@ -437,7 +439,7 @@ export default function ModelConfigPage() {
       }
       if (field === "apiKey") overrides.apiKey = ""
 
-      await commitPrimaryModelConfig(overrides)
+      await commitPrimaryModelConfig(overrides, [field])
       toast.success(t("modelsPage.deleteSuccess"), {
         description: `model.${field}`,
       })
