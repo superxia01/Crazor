@@ -2,8 +2,8 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { stream } from 'hono/streaming'
 import { HTTPException } from 'hono/http-exception'
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { join, extname } from 'node:path'
 import {
   listContacts, getContact, createContact, updateContact, deleteContact,
   listTransactions, createTransaction, updateTransaction, deleteTransaction,
@@ -20,10 +20,12 @@ import * as docs from './services/crazor-docs'
 import * as docTree from './services/crazor-doc-tree'
 import * as skillCatalog from './services/skill-catalog'
 import { seedVault } from './services/seed-vault'
-import { seedSkills } from './services/seed-skills'
+import { seedSkills, seedOneSkill } from './services/seed-skills'
 import { migrateVault } from './services/migrate-vault'
 import { handleSSEConnect, handleSSEMessage, handleStreamableHTTP } from './services/crazor-mcp'
-import { CRAZOR_SKILLS_DIR } from './services/crazor-config'
+import { CRAZOR_SKILLS_DIR, WECHAT_APP_ID, DEPLOYMENT_TIER } from './services/crazor-config'
+import { authMiddleware, requirePro } from './middleware/auth'
+import { generateState, getWechatLoginUrl, exchangeCodeForToken, upsertUser, isUserBound, signJWT, verifyJWT } from './services/crazor-auth'
 
 const app = new Hono()
 
@@ -98,6 +100,93 @@ app.use('*', cors({
 
 // --- Health ---
 app.get('/api/health', (c) => c.json({ status: 'ok', service: 'crazor-api' }))
+
+// --- Auth routes (public, no auth middleware) ---
+app.get('/api/auth/wechat/url', (c) => {
+  if (!WECHAT_APP_ID) {
+    return c.json({ error: 'WeChat login not configured' }, 500)
+  }
+  const state = generateState()
+  // Build redirect URI from the request origin
+  const origin = c.req.header('origin') || c.req.header('referer')?.replace(/\/$/, '') || `http://localhost:${PORT}`
+  const redirectUri = `${origin}/api/auth/wechat/callback`
+  const url = getWechatLoginUrl(state, redirectUri)
+  return c.json({ url, state })
+})
+
+app.get('/api/auth/wechat/callback', async (c) => {
+  const code = c.req.query('code')
+  const state = c.req.query('state')
+
+  if (!code) {
+    return c.json({ error: 'Missing code parameter' }, 400)
+  }
+
+  try {
+    const wechatInfo = await exchangeCodeForToken(code)
+    const user = upsertUser(wechatInfo)
+    const token = signJWT({ openid: wechatInfo.openid, nickname: wechatInfo.nickname || user.nickname })
+
+    // Set JWT as httpOnly cookie and redirect to frontend
+    c.header('Set-Cookie', `crazor_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 86400}`, { append: true })
+
+    // Redirect to frontend with token
+    const origin = c.req.header('origin') || new URL(c.req.url).origin
+    return c.redirect(`${origin}/?token=${token}`)
+  } catch (e: any) {
+    console.error('[auth] WeChat callback error:', e.message)
+    return c.json({ error: e.message }, 500)
+  }
+})
+
+app.post('/api/auth/logout', (c) => {
+  c.header('Set-Cookie', 'crazor_token=; Path=/; HttpOnly; Max-Age=0', { append: true })
+  return c.json({ ok: true })
+})
+
+app.get('/api/auth/me', async (c) => {
+  const authHeader = c.req.header('Authorization')
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7)
+    : c.req.query('token')
+    || (() => { try { return getCookieVal(c, 'crazor_token') } catch { return null } })()
+
+  if (!token) {
+    return c.json({ loggedIn: false })
+  }
+
+  try {
+    const payload = verifyJWT(token)
+    return c.json({
+      loggedIn: true,
+      nickname: payload.nickname,
+      plan: DEPLOYMENT_TIER,
+    })
+  } catch {
+    return c.json({ loggedIn: false })
+  }
+})
+
+app.get('/api/auth/status', (c) => {
+  return c.json({
+    bound: isUserBound(),
+    wechatConfigured: !!WECHAT_APP_ID,
+    plan: DEPLOYMENT_TIER,
+  })
+})
+
+app.get('/api/auth/plan', (c) => {
+  return c.json({ plan: DEPLOYMENT_TIER })
+})
+
+// Helper: get cookie value without hono/cookie dependency issues
+function getCookieVal(c: any, name: string): string | null {
+  const header = c.req?.header?.('cookie') || ''
+  const match = header.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`))
+  return match ? match[1] : null
+}
+
+// --- Auth middleware (applied after auth routes, before business routes) ---
+app.use('*', authMiddleware)
 
 // --- MCP SSE endpoint (legacy, for SSE-only clients) ---
 app.get('/mcp/sse', (c) => handleSSEConnect())
@@ -1374,13 +1463,13 @@ app.post('/api/crazor/skills/install', async (c) => {
   const { id } = await c.req.json()
   if (!id) return c.json({ error: 'Missing skill id' }, 400)
 
-  // Re-seed this specific skill (seedSkills is idempotent)
-  const result = seedSkills()
+  const result = seedOneSkill(id)
+  if (result === 'not_found') return c.json({ error: 'Skill source not found' }, 404)
   // Verify the skill now exists
   const content = skillCatalog.getSkillContent(id)
   if (!content) return c.json({ error: 'Skill not found in catalog' }, 404)
 
-  return c.json({ success: true })
+  return c.json({ success: true, result })
 })
 
 app.delete('/api/crazor/skills/:id', async (c) => {
@@ -1411,6 +1500,45 @@ if (seedResult.folders > 0 || seedResult.notes > 0) {
 if (seedSkillsResult.converted > 0 || seedSkillsResult.skipped > 0) {
   console.log(`   📦 Seeded skills: ${seedSkillsResult.converted} converted, ${seedSkillsResult.skipped} unchanged`)
 }
+
+// --- Serve frontend static files (for Tauri production build) ---
+const FRONTEND_DIST = join(import.meta.dir, '../../web/dist')
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+}
+
+app.get('*', async (c: any) => {
+  const urlPath = new URL(c.req.url).pathname
+  // Try to serve static file
+  const filePath = join(FRONTEND_DIST, urlPath === '/' ? 'index.html' : urlPath)
+  if (existsSync(filePath) && statSync(filePath).isFile()) {
+    const ext = extname(filePath)
+    const mimeType = MIME_TYPES[ext] || 'application/octet-stream'
+    return new Response(readFileSync(filePath), {
+      headers: { 'Content-Type': mimeType },
+    })
+  }
+  // SPA fallback: serve index.html for any non-API route
+  const indexPath = join(FRONTEND_DIST, 'index.html')
+  if (existsSync(indexPath)) {
+    return new Response(readFileSync(indexPath), {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })
+  }
+  return c.notFound()
+})
 
 export default {
   port: PORT,

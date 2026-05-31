@@ -52,6 +52,8 @@ import {
   SunMediumIcon,
   Trash2Icon,
   UsersIcon,
+  UserIcon,
+  LogOutIcon,
   WrenchIcon,
   Gamepad2Icon,
 } from "lucide-react"
@@ -93,6 +95,7 @@ import {
   createNotebookNote,
   updateNotebookNote,
 } from "@/api"
+import { LoginDialog } from "@/components/LoginDialog"
 import { Toaster } from "@/components/ui/sonner"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -437,13 +440,14 @@ function OfficeToggle({ onNavigate, onLeave, isActive }) {
   )
 }
 
-export function AppInner() {
+export function AppInner({ userInfo, onLogin, onLogout }) {
   const isMobile = useIsMobile()
   const { theme, resolvedTheme, setTheme } = useTheme()
   const { setLang, t } = useI18n()
 
   const [view, setView] = useState("home")
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
   const [sidebarResizing, setSidebarResizing] = useState(false)
@@ -2694,8 +2698,52 @@ export function AppInner() {
                   <Settings2Icon className="size-3.5 shrink-0" />
                 </Button>
               </div>
+
+              {/* User / Login area */}
+              {userInfo ? (
+                <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 px-2.5 py-2">
+                  {userInfo.avatarUrl ? (
+                    <img src={userInfo.avatarUrl} alt="" className="size-7 rounded-full object-cover" />
+                  ) : (
+                    <div className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <UserIcon className="size-3.5" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-[11px] font-medium text-sidebar-foreground">{userInfo.nickname || '用户'}</p>
+                    <p className="text-[9px] text-sidebar-foreground/50">已认证</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="size-6 rounded-md px-0 text-sidebar-foreground/50 hover:text-sidebar-foreground"
+                    title="退出登录"
+                    aria-label="退出登录"
+                    onClick={onLogout}>
+                    <LogOutIcon className="size-3" />
+                  </Button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setLoginDialogOpen(true)}
+                  className="flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 px-2.5 py-2 text-left transition-colors hover:bg-sidebar-accent/60">
+                  <div className="flex size-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                    <UserIcon className="size-3.5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-medium text-sidebar-foreground/70">点击登录</p>
+                    <p className="text-[9px] text-sidebar-foreground/40">微信扫码登录</p>
+                  </div>
+                </button>
+              )}
             </div>
           </SidebarFooter>
+
+          <LoginDialog
+            open={loginDialogOpen}
+            onOpenChange={setLoginDialogOpen}
+            onLogin={onLogin}
+          />
 
           {!isMobile ? (
             <button

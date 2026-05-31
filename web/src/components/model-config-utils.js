@@ -155,7 +155,7 @@ function buildSpecialEntries(config) {
 
 function buildProviderConfig(definition, envVars) {
   const entries = Object.entries(envVars).filter(([key, info]) => {
-    return key.startsWith(definition.envPrefix) && info?.category === "provider"
+    return key.startsWith(definition.envPrefix + "_") && info?.category === "provider"
   })
 
   const byKey = Object.fromEntries(entries)

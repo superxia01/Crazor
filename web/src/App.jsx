@@ -1,6 +1,6 @@
 // Copyright (c) 2026 MeeJoy
 
-import React from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { I18nProvider } from "@/i18n"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/sonner"
@@ -52,6 +52,50 @@ class ErrorBoundary extends React.Component {
 }
 
 export default function App() {
+  // userInfo: null = not logged in, { nickname, avatarUrl } = logged in
+  const [userInfo, setUserInfo] = useState(null)
+
+  const refreshAuth = useCallback(() => {
+    fetch('/api/auth/me')
+      .then(r => r.json())
+      .then(data => {
+        if (data.loggedIn) {
+          setUserInfo({ nickname: data.nickname, avatarUrl: data.avatarUrl })
+        } else {
+          setUserInfo(null)
+        }
+      })
+      .catch(() => setUserInfo(null))
+  }, [])
+
+  useEffect(() => {
+    // Check if token exists in URL (callback redirect)
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('token')
+    if (token) {
+      localStorage.setItem('crazor_token', token)
+      window.history.replaceState({}, '', '/')
+    }
+
+    // Check auth status on mount
+    refreshAuth()
+
+    // Listen for auth expiry
+    const handleExpired = () => setUserInfo(null)
+    window.addEventListener('crazor:auth-expired', handleExpired)
+    return () => window.removeEventListener('crazor:auth-expired', handleExpired)
+  }, [refreshAuth])
+
+  const handleLogin = useCallback(() => {
+    refreshAuth()
+  }, [refreshAuth])
+
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('crazor_token')
+    setUserInfo(null)
+    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
+  }, [])
+
   return (
     <I18nProvider>
       <TooltipProvider delayDuration={0}>
@@ -62,7 +106,11 @@ export default function App() {
             stack: "查看组件堆栈",
           }}>
           <Toaster richColors closeButton />
-          <AppInner />
+          <AppInner
+            userInfo={userInfo}
+            onLogin={handleLogin}
+            onLogout={handleLogout}
+          />
         </ErrorBoundary>
       </TooltipProvider>
     </I18nProvider>

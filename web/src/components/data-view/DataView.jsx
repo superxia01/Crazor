@@ -88,6 +88,8 @@ export default function DataView({ config }) {
     if (resp.ok) {
       toast.success("状态已更新")
       await Promise.all([loadItems(), loadExtra()])
+    } else {
+      toast.error(`更新失败 (${resp.status})`)
     }
   }, [config, loadItems, loadExtra])
 
@@ -98,6 +100,8 @@ export default function DataView({ config }) {
     if (resp.ok) {
       toast.success("已删除")
       await Promise.all([loadItems(), loadExtra()])
+    } else {
+      toast.error(`删除失败 (${resp.status})`)
     }
   }, [config, loadItems, loadExtra])
 
