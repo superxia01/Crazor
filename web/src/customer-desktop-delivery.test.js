@@ -32,7 +32,7 @@ test("customer desktop build embeds the configured backend API base", () => {
     "Tauri packaging should build the frontend in tauri mode"
   )
   assert.ok(
-      buildCustomerScript.includes('write_web_env "VITE_API_BASE" "$SERVER_URL"') &&
+    buildCustomerScript.includes('write_web_env "VITE_API_BASE" "$SERVER_URL"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_CUSTOMER_NAME" "$CUSTOMER"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DELIVERY_CHANNEL" "customer"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DELIVERY_PROTOCOL_VERSION" "$DELIVERY_PROTOCOL_VERSION"') &&
@@ -73,9 +73,12 @@ test("customer package build can strictly preflight the hosted backend before ha
       customerWorkflowSource.includes("workflow_dispatch") &&
       customerWorkflowSource.includes("preflight_mode") &&
       customerWorkflowSource.includes("inputs.preflight_mode") &&
+      customerWorkflowSource.includes("delivery_protocol_version") &&
+      customerWorkflowSource.includes("inputs.delivery_protocol_version") &&
+      customerWorkflowSource.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION") &&
       customerWorkflowSource.includes("strict") &&
       customerWorkflowSource.includes("skip"),
-    "manual customer package builds should let operators choose strict preflight or LAN-friendly warn/skip mode"
+    "manual customer package builds should let operators choose preflight behavior and delivery protocol version"
   )
 })
 
@@ -119,6 +122,8 @@ test("desktop client exposes the configured backend for delivery verification", 
       settingsModalSource.includes("交付自检") &&
       settingsModalSource.includes("运行自检") &&
       settingsModalSource.includes("交付客户") &&
+      settingsModalSource.includes("交付协议") &&
+      settingsModalSource.includes("deliveryInfo.protocolVersion") &&
       settingsModalSource.includes("客户包") &&
       settingsModalSource.includes("远程服务") &&
       settingsModalSource.includes("同源服务") &&
@@ -148,6 +153,8 @@ test("customer desktop blocks startup when the hosted backend is unavailable", (
       customerDeliveryGateSource.includes("identity.status === \"error\"") &&
       customerDeliveryGateSource.includes("托管服务身份不匹配") &&
       customerDeliveryGateSource.includes("无法连接托管服务") &&
+      customerDeliveryGateSource.includes("交付协议") &&
+      customerDeliveryGateSource.includes("runtime.deliveryInfo.protocolVersion") &&
       customerDeliveryGateSource.includes("构建版本") &&
       customerDeliveryGateSource.includes("构建时间") &&
       customerDeliveryGateSource.includes("重新检测"),
@@ -175,7 +182,7 @@ test("backend exposes a public delivery readiness self-check for installed clien
     "delivery readiness should fail before customer handoff when model configuration is incomplete"
   )
   assert.ok(
-      serverIndex.includes("CRAZOR_DELIVERY_CUSTOMER") &&
+    serverIndex.includes("CRAZOR_DELIVERY_CUSTOMER") &&
       serverIndex.includes("CRAZOR_PUBLIC_BASE_URL") &&
       serverIndex.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION") &&
       serverIndex.includes("deliveryCustomerName") &&
@@ -305,6 +312,7 @@ test("customer desktop package can be built by CI with configured backend", () =
     customerWorkflowSource.includes("workflow_dispatch") &&
       customerWorkflowSource.includes("pull_request") &&
       customerWorkflowSource.includes("server_url") &&
+      customerWorkflowSource.includes("delivery_protocol_version") &&
       customerWorkflowSource.includes("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24") &&
       customerWorkflowSource.includes("actions/checkout@v6.0.2") &&
       customerWorkflowSource.includes("actions/setup-node@v6.4.0") &&

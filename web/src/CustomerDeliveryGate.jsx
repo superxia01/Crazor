@@ -119,6 +119,14 @@ export function CustomerDeliveryGate({ children }) {
                   {runtime.deliveryInfo.customerName || "未指定客户"}
                 </code>
               </div>
+              {runtime.deliveryInfo.protocolVersion ? (
+                <div className="grid gap-1 sm:grid-cols-[5rem_minmax(0,1fr)]">
+                  <span>交付协议</span>
+                  <code className="min-w-0 break-all rounded bg-muted/55 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                    {runtime.deliveryInfo.protocolVersion}
+                  </code>
+                </div>
+              ) : null}
               {runtime.deliveryInfo.buildSha ? (
                 <div className="grid gap-1 sm:grid-cols-[5rem_minmax(0,1fr)]">
                   <span>构建版本</span>

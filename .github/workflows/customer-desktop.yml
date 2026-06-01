@@ -33,6 +33,10 @@ on:
           - warn
           - strict
           - skip
+      delivery_protocol_version:
+        description: 客户端和托管后端必须一致的交付协议版本
+        required: true
+        default: "1"
 
 jobs:
   build:
@@ -46,6 +50,7 @@ jobs:
       SERVER_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.server_url || 'http://127.0.0.1:5173' }}
       CRAZOR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CRAZOR_CUSTOMER_SERVER_PREFLIGHT: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight_mode || 'warn' }}
+      CRAZOR_DELIVERY_PROTOCOL_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_protocol_version || '1' }}
 
     steps:
       - name: 检出代码
