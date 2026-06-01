@@ -68,6 +68,10 @@ const DEFAULT_ATTACHMENT_EXTENSIONS = [
   'zip', 'mp3', 'm4a', 'wav', 'mp4', 'mov',
 ]
 const TEXT_ATTACHMENT_EXTENSIONS = new Set(['txt', 'md', 'csv', 'json', 'log', 'yaml', 'yml'])
+
+function loginRequiredByEnv() {
+  return Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID)
+}
 const IMAGE_ATTACHMENT_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif'])
 const CRAZOR_ATTACHMENT_MAX_BYTES = parsePositiveInt(process.env.CRAZOR_ATTACHMENT_MAX_BYTES, 20 * 1024 * 1024)
 const CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES = parsePositiveInt(process.env.CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES, 512 * 1024)
@@ -487,7 +491,7 @@ async function buildDeliveryReadiness() {
   const dashboard = asRecord(runtime.dashboard)
   const gatewayAvailable = Boolean(gateway.available)
   const dashboardAvailable = Boolean(dashboard.available)
-  const loginRequired = Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID)
+  const loginRequired = loginRequiredByEnv()
   const wechatConfigured = Boolean(WECHAT_APP_ID && WECHAT_APP_SECRET)
   const loginReady = !loginRequired || wechatConfigured
   const supportsChat = agentProviderSupports('gateway.chat_completions') || agentProviderSupports('gateway.responses')
@@ -830,8 +834,51 @@ function extractActorToken(c: any): string {
   return bearer.startsWith('czr_') ? bearer : ''
 }
 
+function extractLoginJwt(c: any): string {
+  const auth = c.req.header('Authorization') || ''
+  const match = auth.match(/^Bearer\s+(.+)$/i)
+  const bearer = String(match?.[1] || '').trim()
+  if (bearer && !bearer.startsWith('czr_')) return bearer
+  try {
+    return getCookieVal(c, 'crazor_token') || ''
+  } catch {
+    return ''
+  }
+}
+
+function resolveLoginJwtActor(c: any) {
+  const token = extractLoginJwt(c)
+  if (!token) return null
+  try {
+    const payload = verifyJWT(token)
+    return {
+      actor_type: 'human',
+      actor_id: payload.openid || payload.nickname || 'wechat-user',
+      source: 'login-jwt',
+    }
+  } catch {
+    return null
+  }
+}
+
+function requireMcpClientAuth(c: any) {
+  if (!loginRequiredByEnv()) return null
+
+  const actorToken = extractActorToken(c)
+  if (actorToken) {
+    if (resolveActorToken(actorToken)) return null
+    return c.json({ error: 'invalid token', needLogin: true, mcp_auth_required: true }, 401)
+  }
+
+  if (resolveLoginJwtActor(c)) return null
+
+  return c.json({ error: 'Unauthorized', needLogin: true, mcp_auth_required: true }, 401)
+}
+
 function resolveMcpRequestActor(c: any) {
-  if (CRAZOR_REQUIRE_WRITE_TOKEN && !extractActorToken(c)) {
+  const loginActor = resolveLoginJwtActor(c)
+  if (loginActor) return loginActor
+  if ((loginRequiredByEnv() || CRAZOR_REQUIRE_WRITE_TOKEN) && !extractActorToken(c)) {
     return { actor_type: 'agent', actor_id: 'missing-token', source: 'missing-token' }
   }
   return resolveRequestActor(c, { actor_type: 'agent', actor_id: 'mcp-client', source: 'mcp-tool' })
@@ -1234,9 +1281,8 @@ app.get('/api/auth/me', async (c) => {
 })
 
 app.get('/api/auth/status', (c) => {
-  const loginRequired = Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID)
   return c.json({
-    loginRequired,
+    loginRequired: loginRequiredByEnv(),
     bound: isUserBound(),
     wechatConfigured: Boolean(WECHAT_APP_ID && WECHAT_APP_SECRET),
     plan: DEPLOYMENT_TIER,
@@ -1258,8 +1304,14 @@ function getCookieVal(c: any, name: string): string | null {
 app.use('*', authMiddleware)
 
 // --- MCP SSE endpoint (legacy, for SSE-only clients) ---
-app.get('/mcp/sse', (c) => handleSSEConnect())
+app.get('/mcp/sse', (c) => {
+  const denied = requireMcpClientAuth(c)
+  if (denied) return denied
+  return handleSSEConnect()
+})
 app.post('/mcp/sse', async (c) => {
+  const denied = requireMcpClientAuth(c)
+  if (denied) return denied
   const body = await c.req.json()
   const sessionIdParam = c.req.query('sessionId')
   const response = await handleSSEMessage(body, sessionIdParam, resolveMcpRequestActor(c))
@@ -1269,6 +1321,8 @@ app.post('/mcp/sse', async (c) => {
 
 // --- MCP StreamableHTTP endpoint (for Hermes Agent / MCP SDK clients) ---
 app.post('/mcp', async (c) => {
+  const denied = requireMcpClientAuth(c)
+  if (denied) return denied
   const body = await c.req.json()
   const sessionHeader = c.req.header('mcp-session-id') || null
   return handleStreamableHTTP(body, sessionHeader, resolveMcpRequestActor(c))
@@ -1276,6 +1330,8 @@ app.post('/mcp', async (c) => {
 
 // Handle DELETE for session cleanup (optional, MCP spec)
 app.delete('/mcp', async (c) => {
+  const denied = requireMcpClientAuth(c)
+  if (denied) return denied
   const sessionHeader = c.req.header('mcp-session-id')
   if (sessionHeader) {
     // Session cleanup would go here if needed

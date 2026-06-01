@@ -156,6 +156,7 @@ test("customer desktop requires login before entering workspace when backend enf
   assert.ok(
     serverIndex.includes("app.get('/api/auth/status'") &&
       serverIndex.includes("loginRequired") &&
+      serverIndex.includes("loginRequiredByEnv") &&
       serverIndex.includes("Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID)"),
     "backend auth status should tell packaged clients whether login is required"
   )
@@ -173,6 +174,31 @@ test("customer desktop requires login before entering workspace when backend enf
       loginPageSource.includes("!loading && allowSkip") &&
       loginPageSource.includes("WECHAT_APP_ID 和 WECHAT_APP_SECRET"),
     "login page should keep dev skip optional but hide it for customer auth-gated clients"
+  )
+})
+
+test("customer MCP endpoint is gated by login or Agent token when auth is enabled", () => {
+  assert.ok(
+    serverIndex.includes("function requireMcpClientAuth") &&
+      serverIndex.includes("mcp_auth_required") &&
+      serverIndex.includes("resolveActorToken(actorToken)") &&
+      serverIndex.includes("resolveLoginJwtActor(c)") &&
+      serverIndex.includes("loginRequiredByEnv()"),
+    "MCP should have an explicit auth gate because it is intentionally outside the generic auth middleware"
+  )
+  assert.ok(
+    serverIndex.includes("app.post('/mcp'") &&
+      serverIndex.includes("const denied = requireMcpClientAuth(c)") &&
+      serverIndex.includes("if (denied) return denied") &&
+      serverIndex.includes("app.get('/mcp/sse'") &&
+      serverIndex.includes("app.delete('/mcp'"),
+    "all MCP transports should reject anonymous access before parsing or executing requests"
+  )
+  assert.ok(
+    serverIndex.includes("source: 'login-jwt'") &&
+      serverIndex.includes("actor_type: 'human'") &&
+      serverIndex.includes("resolveMcpRequestActor"),
+    "logged-in desktop users should be represented in MCP audit context instead of anonymous mcp-client"
   )
 })
 
