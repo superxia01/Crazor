@@ -89,7 +89,7 @@ async function safeDashboardJson<T>(c: any, path: string, options: RequestInit =
 // --- Middleware ---
 const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
-  : ['http://localhost:5173', 'http://localhost:5174']
+  : ['http://localhost:5173', 'http://localhost:5174', 'tauri://localhost', 'https://tauri.localhost']
 
 app.use('*', cors({
   origin: CORS_ORIGINS,

@@ -10,7 +10,6 @@
     "windows": [
       {
         "title": "Crazor 数字员工系统",
-        "url": "http://localhost:3001",
         "width": 1440,
         "height": 900,
         "center": true,
