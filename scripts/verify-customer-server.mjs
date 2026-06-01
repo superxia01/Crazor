@@ -3,6 +3,7 @@
 import { fileURLToPath } from "node:url"
 
 const DEFAULT_TIMEOUT_MS = 8000
+const DEFAULT_PROTOCOL_VERSION = "1"
 
 export function normalizeText(value) {
   return String(value || "").trim().replace(/\s+/g, " ")
@@ -20,12 +21,19 @@ export function normalizeServerUrl(value) {
   }
 }
 
-export function evaluateCustomerServerReadiness(customer, serverUrl, readiness) {
+export function evaluateCustomerServerReadiness(
+  customer,
+  serverUrl,
+  readiness,
+  expectedProtocolVersion = DEFAULT_PROTOCOL_VERSION,
+) {
   const expectedCustomer = normalizeText(customer)
+  const expectedProtocol = normalizeText(expectedProtocolVersion)
   const normalizedServerUrl = normalizeServerUrl(serverUrl)
   const serverDelivery = readiness?.delivery || {}
   const actualCustomer = normalizeText(serverDelivery.customer || serverDelivery.customerName)
   const publicBaseUrl = normalizeServerUrl(serverDelivery.public_base_url || serverDelivery.publicBaseUrl)
+  const actualProtocol = normalizeText(serverDelivery.protocol_version || serverDelivery.protocolVersion)
   const status = normalizeText(readiness?.status)
   const checks = Array.isArray(readiness?.checks) ? readiness.checks : []
   const errors = []
@@ -47,6 +55,11 @@ export function evaluateCustomerServerReadiness(customer, serverUrl, readiness) 
   } else if (normalizedServerUrl && publicBaseUrl !== normalizedServerUrl) {
     errors.push(`托管后端公开地址为 ${publicBaseUrl}，但安装包服务器地址为 ${normalizedServerUrl}`)
   }
+  if (expectedProtocol && !actualProtocol) {
+    errors.push(`托管后端未声明 delivery.protocol_version，安装包需要协议 ${expectedProtocol}`)
+  } else if (expectedProtocol && actualProtocol !== expectedProtocol) {
+    errors.push(`托管后端协议为 ${actualProtocol}，但安装包需要协议 ${expectedProtocol}`)
+  }
   if (status === "blocked") {
     errors.push("托管后端交付自检状态为 blocked")
   } else if (status === "degraded") {
@@ -66,6 +79,7 @@ export function evaluateCustomerServerReadiness(customer, serverUrl, readiness) 
   return {
     ok: errors.length === 0,
     customer: expectedCustomer,
+    protocolVersion: expectedProtocol,
     serverUrl: normalizedServerUrl,
     status,
     errors,
@@ -78,10 +92,11 @@ export async function verifyCustomerServer({
   serverUrl,
   fetchImpl = globalThis.fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  protocolVersion = process.env.CRAZOR_DELIVERY_PROTOCOL_VERSION || DEFAULT_PROTOCOL_VERSION,
 } = {}) {
   const normalizedServerUrl = normalizeServerUrl(serverUrl)
   if (!normalizedServerUrl) {
-    return evaluateCustomerServerReadiness(customer, serverUrl, null)
+    return evaluateCustomerServerReadiness(customer, serverUrl, null, protocolVersion)
   }
 
   const controller = new AbortController()
@@ -95,6 +110,7 @@ export async function verifyCustomerServer({
       return {
         ok: false,
         customer: normalizeText(customer),
+        protocolVersion: normalizeText(protocolVersion),
         serverUrl: normalizedServerUrl,
         status: "",
         errors: [`交付自检接口返回 HTTP ${response.status}`],
@@ -102,11 +118,12 @@ export async function verifyCustomerServer({
       }
     }
     const readiness = await response.json()
-    return evaluateCustomerServerReadiness(customer, normalizedServerUrl, readiness)
+    return evaluateCustomerServerReadiness(customer, normalizedServerUrl, readiness, protocolVersion)
   } catch (error) {
     return {
       ok: false,
       customer: normalizeText(customer),
+      protocolVersion: normalizeText(protocolVersion),
       serverUrl: normalizedServerUrl,
       status: "",
       errors: [`无法连接托管后端交付自检: ${error?.message || error}`],
@@ -121,10 +138,11 @@ async function main() {
   const customer = process.argv[2] || ""
   const serverUrl = process.argv[3] || ""
   const timeoutMs = Number(process.env.CRAZOR_CUSTOMER_SERVER_PREFLIGHT_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)
-  const result = await verifyCustomerServer({ customer, serverUrl, timeoutMs })
+  const protocolVersion = process.env.CRAZOR_DELIVERY_PROTOCOL_VERSION || DEFAULT_PROTOCOL_VERSION
+  const result = await verifyCustomerServer({ customer, serverUrl, timeoutMs, protocolVersion })
 
   if (result.ok) {
-    console.log(`客户服务预检通过: ${result.customer} -> ${result.serverUrl}`)
+    console.log(`客户服务预检通过: ${result.customer} -> ${result.serverUrl}，协议 ${result.protocolVersion}`)
     for (const warning of result.warnings) {
       console.warn(`警告: ${warning}`)
     }

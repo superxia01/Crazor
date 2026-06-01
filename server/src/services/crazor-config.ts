@@ -30,6 +30,7 @@ export const DEPLOYMENT_TIER = process.env.DEPLOYMENT_TIER || 'free'
 export const CRAZOR_DELIVERY_CUSTOMER = process.env.CRAZOR_DELIVERY_CUSTOMER || ''
 export const CRAZOR_DELIVERY_CHANNEL = process.env.CRAZOR_DELIVERY_CHANNEL || ''
 export const CRAZOR_PUBLIC_BASE_URL = process.env.CRAZOR_PUBLIC_BASE_URL || ''
+export const CRAZOR_DELIVERY_PROTOCOL_VERSION = process.env.CRAZOR_DELIVERY_PROTOCOL_VERSION || '1'
 
 // ── Migration notice ─────────────────────────────────────────
 const legacyDb = resolve(HERMES_HOME, 'crazor.db')

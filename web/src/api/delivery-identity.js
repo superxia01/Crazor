@@ -22,6 +22,21 @@ export function evaluateDeliveryIdentity(deliveryInfo = {}, readiness = {}) {
     }
   }
 
+  const clientProtocol = normalizeIdentityText(deliveryInfo.protocolVersion)
+  const serverProtocol = normalizeIdentityText(serverDelivery.protocol_version || serverDelivery.protocolVersion)
+  if (clientProtocol && !serverProtocol) {
+    return {
+      status: "error",
+      message: `当前客户端需要交付协议 ${clientProtocol}，但托管服务未声明协议版本`,
+    }
+  }
+  if (clientProtocol && serverProtocol && clientProtocol !== serverProtocol) {
+    return {
+      status: "error",
+      message: `当前客户端需要交付协议 ${clientProtocol}，但托管服务协议为 ${serverProtocol}`,
+    }
+  }
+
   return { status: "ok", message: "" }
 }
 

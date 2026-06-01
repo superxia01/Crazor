@@ -338,6 +338,7 @@ Crazor 支持四种部署方式，同一套代码通过环境变量切换：
 | `CRAZOR_DELIVERY_CUSTOMER` | 后端声明的交付客户名；客户安装包会用内置客户名核对它 | 空 |
 | `CRAZOR_DELIVERY_CHANNEL` | 交付渠道标识 | `customer` |
 | `CRAZOR_PUBLIC_BASE_URL` | 客户可访问的公网/局域网服务地址；微信回调和交付自检会优先使用它 | 空 |
+| `CRAZOR_DELIVERY_PROTOCOL_VERSION` | 客户端和后端交付协议版本；不一致时客户包会阻止启动 | `1` |
 | `CRAZOR_CUSTOMER_SERVER_PREFLIGHT` | 客户包构建前的托管服务预检模式：`warn` / `strict` / `skip` | `warn` |
 | `CORS_ORIGINS` | CORS 允许的来源（逗号分隔）；Tauri 客户端需保留 `tauri://localhost` / `http://tauri.localhost` | `http://localhost:5173,http://localhost:5174,tauri://localhost,http://tauri.localhost,https://tauri.localhost` |
 

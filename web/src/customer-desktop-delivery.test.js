@@ -32,9 +32,10 @@ test("customer desktop build embeds the configured backend API base", () => {
     "Tauri packaging should build the frontend in tauri mode"
   )
   assert.ok(
-    buildCustomerScript.includes('write_web_env "VITE_API_BASE" "$SERVER_URL"') &&
+      buildCustomerScript.includes('write_web_env "VITE_API_BASE" "$SERVER_URL"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_CUSTOMER_NAME" "$CUSTOMER"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DELIVERY_CHANNEL" "customer"') &&
+      buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DELIVERY_PROTOCOL_VERSION" "$DELIVERY_PROTOCOL_VERSION"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_BUILD_SHA" "$BUILD_SHA"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_BUILD_TIME" "$BUILD_TIME"') &&
       buildCustomerScript.includes("npm run build:tauri") &&
@@ -42,6 +43,8 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes('grep -R -F "$CUSTOMER" "$PROJECT_ROOT/web/dist"') &&
       buildCustomerScript.includes("verify-customer-server.mjs") &&
       buildCustomerScript.includes("CRAZOR_CUSTOMER_SERVER_PREFLIGHT") &&
+      buildCustomerScript.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION") &&
+      buildCustomerScript.includes("deliveryProtocolVersion") &&
       buildCustomerScript.includes("SERVER_PREFLIGHT_RESULT") &&
       buildCustomerScript.includes("serverPreflight") &&
       !buildCustomerScript.includes("__CUSTOMER_SERVER_URL__"),
@@ -61,6 +64,7 @@ test("customer package build can strictly preflight the hosted backend before ha
       verifyCustomerServerScript.includes("/api/delivery/readiness") &&
       verifyCustomerServerScript.includes("CRAZOR_DELIVERY_CUSTOMER") &&
       verifyCustomerServerScript.includes("CRAZOR_PUBLIC_BASE_URL") &&
+      verifyCustomerServerScript.includes("delivery.protocol_version") &&
       verifyCustomerServerScript.includes("托管后端交付自检状态为 blocked"),
     "customer server preflight should verify readiness, delivery identity, and public URL before packaging"
   )
@@ -104,6 +108,7 @@ test("desktop client exposes the configured backend for delivery verification", 
     customerDeliverySource.includes("getCustomerDeliveryRuntimeInfo") &&
       customerDeliverySource.includes("VITE_CRAZOR_CUSTOMER_NAME") &&
       customerDeliverySource.includes("VITE_CRAZOR_DELIVERY_CHANNEL") &&
+      customerDeliverySource.includes("VITE_CRAZOR_DELIVERY_PROTOCOL_VERSION") &&
       customerDeliverySource.includes("VITE_CRAZOR_BUILD_SHA") &&
       customerDeliverySource.includes("VITE_CRAZOR_BUILD_TIME"),
     "desktop client should expose packaged customer identity from build-time env"
@@ -170,10 +175,12 @@ test("backend exposes a public delivery readiness self-check for installed clien
     "delivery readiness should fail before customer handoff when model configuration is incomplete"
   )
   assert.ok(
-    serverIndex.includes("CRAZOR_DELIVERY_CUSTOMER") &&
+      serverIndex.includes("CRAZOR_DELIVERY_CUSTOMER") &&
       serverIndex.includes("CRAZOR_PUBLIC_BASE_URL") &&
+      serverIndex.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION") &&
       serverIndex.includes("deliveryCustomerName") &&
       serverIndex.includes("public_base_url") &&
+      serverIndex.includes("protocol_version") &&
       serverIndex.includes("backendOrigin(c)") &&
       serverIndex.includes("publicBaseUrl() || new URL(c.req.url).origin"),
     "backend readiness and WeChat callback should expose the hosted delivery identity and public base URL"
@@ -181,8 +188,9 @@ test("backend exposes a public delivery readiness self-check for installed clien
   assert.ok(
     deliveryIdentitySource.includes("evaluateDeliveryIdentity") &&
       deliveryIdentitySource.includes("托管服务未声明交付客户") &&
-      deliveryIdentitySource.includes("托管服务声明为"),
-    "customer desktop should reject a hosted backend whose delivery identity does not match the embedded customer"
+      deliveryIdentitySource.includes("托管服务声明为") &&
+      deliveryIdentitySource.includes("交付协议"),
+    "customer desktop should reject a hosted backend whose delivery identity or protocol version does not match the embedded customer package"
   )
   assert.ok(
     authMiddlewareSource.includes("'/api/delivery/'"),
@@ -262,7 +270,8 @@ test("docker customer backend receives hosted login and plan configuration", () 
       composeSource.includes("WECHAT_APP_SECRET: ${WECHAT_APP_SECRET:-}") &&
       composeSource.includes("DEPLOYMENT_TIER: ${DEPLOYMENT_TIER:-free}") &&
       composeSource.includes("CRAZOR_DELIVERY_CUSTOMER: ${CRAZOR_DELIVERY_CUSTOMER:-}") &&
-      composeSource.includes("CRAZOR_PUBLIC_BASE_URL: ${CRAZOR_PUBLIC_BASE_URL:-}"),
+      composeSource.includes("CRAZOR_PUBLIC_BASE_URL: ${CRAZOR_PUBLIC_BASE_URL:-}") &&
+      composeSource.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION: ${CRAZOR_DELIVERY_PROTOCOL_VERSION:-1}"),
     "Compose backend should receive customer login, plan, and delivery identity env vars instead of silently running without them"
   )
 })

@@ -15,6 +15,7 @@ test("customer server preflight passes matching ready hosted backend", () => {
     delivery: {
       customer: "CRAZYAIGC 内部",
       public_base_url: "https://client.example.com/crazor",
+      protocol_version: "1",
     },
     checks: [
       { id: "api", label: "后端 API", status: "ok", detail: "ok" },
@@ -30,6 +31,7 @@ test("customer server preflight fails customer identity mismatch", () => {
     delivery: {
       customer: "测试环境",
       public_base_url: "https://client.example.com",
+      protocol_version: "1",
     },
   })
   assert.equal(result.ok, false)
@@ -42,6 +44,7 @@ test("customer server preflight fails public base URL mismatch", () => {
     delivery: {
       customer: "CRAZYAIGC 内部",
       public_base_url: "https://old.example.com",
+      protocol_version: "1",
     },
   })
   assert.equal(result.ok, false)
@@ -54,6 +57,7 @@ test("customer server preflight reports degraded backend as warning", () => {
     delivery: {
       customer: "CRAZYAIGC 内部",
       public_base_url: "https://client.example.com",
+      protocol_version: "1",
     },
     checks: [
       { id: "agent-dashboard", label: "Agent Dashboard", status: "warn", detail: "不可访问" },
@@ -62,6 +66,19 @@ test("customer server preflight reports degraded backend as warning", () => {
   assert.equal(result.ok, true)
   assert.ok(result.warnings.some((item) => item.includes("degraded")))
   assert.ok(result.warnings.some((item) => item.includes("Agent Dashboard")))
+})
+
+test("customer server preflight fails delivery protocol mismatch", () => {
+  const result = evaluateCustomerServerReadiness("CRAZYAIGC 内部", "https://client.example.com", {
+    status: "ready",
+    delivery: {
+      customer: "CRAZYAIGC 内部",
+      public_base_url: "https://client.example.com",
+      protocol_version: "0",
+    },
+  }, "1")
+  assert.equal(result.ok, false)
+  assert.match(result.errors.join("\n"), /协议为 0/)
 })
 
 test("customer server preflight fetches delivery readiness endpoint", async () => {
@@ -80,6 +97,7 @@ test("customer server preflight fetches delivery readiness endpoint", async () =
             delivery: {
               customer: "CRAZYAIGC 内部",
               public_base_url: "https://client.example.com",
+              protocol_version: "1",
             },
             checks: [],
           }

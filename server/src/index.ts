@@ -33,6 +33,7 @@ import { handleSSEConnect, handleSSEMessage, handleStreamableHTTP } from './serv
 import {
   CRAZOR_DELIVERY_CHANNEL,
   CRAZOR_DELIVERY_CUSTOMER,
+  CRAZOR_DELIVERY_PROTOCOL_VERSION,
   CRAZOR_HOME,
   CRAZOR_PUBLIC_BASE_URL,
   CRAZOR_SKILLS_DIR,
@@ -671,6 +672,7 @@ async function buildDeliveryReadiness() {
       customer: deliveryCustomerName(),
       channel: deliveryChannel(),
       public_base_url: publicBaseUrl(),
+      protocol_version: CRAZOR_DELIVERY_PROTOCOL_VERSION,
       plan: DEPLOYMENT_TIER,
     },
     auth: {

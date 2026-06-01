@@ -7,8 +7,8 @@ import { evaluateDeliveryIdentity } from "./api/delivery-identity.js"
 
 test("delivery identity passes when packaged customer matches hosted backend", () => {
   const result = evaluateDeliveryIdentity(
-    { enabled: true, customerName: " CRAZYAIGC 内部 " },
-    { delivery: { customer: "CRAZYAIGC 内部" } }
+    { enabled: true, customerName: " CRAZYAIGC 内部 ", protocolVersion: "1" },
+    { delivery: { customer: "CRAZYAIGC 内部", protocol_version: "1" } }
   )
   assert.equal(result.status, "ok")
 })
@@ -29,6 +29,15 @@ test("delivery identity blocks packaged client when hosted backend declares anot
   )
   assert.equal(result.status, "error")
   assert.match(result.message, /测试环境/)
+})
+
+test("delivery identity blocks packaged client when delivery protocol mismatches", () => {
+  const result = evaluateDeliveryIdentity(
+    { enabled: true, customerName: "CRAZYAIGC 内部", protocolVersion: "2" },
+    { delivery: { customer: "CRAZYAIGC 内部", protocol_version: "1" } }
+  )
+  assert.equal(result.status, "error")
+  assert.match(result.message, /交付协议 2/)
 })
 
 test("delivery identity stays open for local development clients", () => {
