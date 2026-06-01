@@ -11,6 +11,7 @@ const hermesScript = readFileSync(resolve(repoRoot, "scripts/hermes"), "utf8")
 const customerDesktopSmokeScript = readFileSync(resolve(repoRoot, "scripts/customer-desktop-smoke.mjs"), "utf8")
 const verifyCustomerServerScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-server.mjs"), "utf8")
 const verifyCustomerDeliveryScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-delivery.mjs"), "utf8")
+const customerBackendEnvScript = readFileSync(resolve(repoRoot, "scripts/customer-backend-env.mjs"), "utf8")
 const webPackage = readFileSync(resolve(repoRoot, "web/package.json"), "utf8")
 const desktopPackage = readFileSync(resolve(repoRoot, "desktop/package.json"), "utf8")
 const appSource = readFileSync(resolve(repoRoot, "web/src/App.jsx"), "utf8")
@@ -95,6 +96,17 @@ test("customer package build can strictly preflight the hosted backend before ha
       customerWorkflowSource.includes("strict") &&
       customerWorkflowSource.includes("skip"),
     "manual customer package builds should let operators choose preflight behavior and delivery protocol version"
+  )
+  assert.ok(
+    hermesScript.includes("customer-env") &&
+      customerBackendEnvScript.includes("buildCustomerBackendEnv") &&
+      customerBackendEnvScript.includes("CRAZOR_CUSTOMER_SERVER_PREFLIGHT") &&
+      customerBackendEnvScript.includes("CRAZOR_REQUIRE_BUSINESS_READ_TOKEN") &&
+      customerBackendEnvScript.includes("WECHAT_APP_ID") &&
+      customerBackendEnvScript.includes("CORS_ORIGINS") &&
+      customerBackendEnvScript.includes("--check") &&
+      customerBackendEnvScript.includes("docker compose --env-file <环境文件> up -d --build"),
+    "operators should have a scripted way to generate a customer backend env file before building the desktop package"
   )
 })
 

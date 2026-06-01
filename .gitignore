@@ -3,6 +3,8 @@ dist/
 data/
 .env
 .env.local
+.env.customer
+.env.customer.*
 web/.env.tauri
 *.log
 .DS_Store

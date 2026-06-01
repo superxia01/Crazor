@@ -10,6 +10,8 @@
 
 .env
 .env.local
+.env.customer
+.env.customer.*
 *.log
 
 data

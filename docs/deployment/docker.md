@@ -91,8 +91,13 @@ CRAZOR_DELIVERY_PROTOCOL_VERSION=1
 构建正式客户安装包前建议启用严格预检，脚本会访问 `${CRAZOR_PUBLIC_BASE_URL}/api/delivery/readiness`，确认客户名、公开地址和交付自检状态匹配后才继续打包：
 
 ```bash
+./scripts/hermes customer-env "客户名称" "http://局域网IP:5173" .env.customer --force
+node scripts/customer-backend-env.mjs --check .env.customer --customer "客户名称" --server-url "http://局域网IP:5173"
+docker compose --env-file .env.customer up -d --build
 CRAZOR_CUSTOMER_SERVER_PREFLIGHT=strict ./scripts/build-customer.sh "客户名称" "http://局域网IP:5173" current
 ```
+
+`customer-env` 会生成客户后端专用环境文件，默认开启 `CRAZOR_REQUIRE_WRITE_TOKEN`、`CRAZOR_REQUIRE_BUSINESS_READ_TOKEN`、`CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN`、`CRAZOR_CUSTOMER_SERVER_PREFLIGHT=strict`，并写入 Tauri 客户端需要的 CORS 来源。若要在客户现场启用扫码登录，生成时同时传入 `--wechat-app-id` 和 `--wechat-app-secret`；未配置微信时脚本会给出警告，严格模式 `--strict` 会把这类警告提升为失败。
 
 安装包交付前还可以模拟客户桌面端连接托管后端，检查健康、交付身份、登录门禁、业务上下文和对话能力入口：
 

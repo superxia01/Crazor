@@ -517,10 +517,20 @@ CRAZOR_SMOKE_BASE_URL=http://局域网IP:5173 ./scripts/hermes smoke
 
 ### 客户端交付
 
-客户只需要安装 Tauri 桌面客户端。构建客户安装包时，把我们配置好的后端服务地址写入前端包：
+客户只需要安装 Tauri 桌面客户端。正式交付前先生成客户后端环境文件，确保后端声明客户名、公开地址、登录密钥、严格预检和读写权限边界：
 
 ```bash
-./scripts/build-customer.sh "客户名称" "https://crazor.example.com" macos
+./scripts/hermes customer-env "客户名称" "https://crazor.example.com" .env.customer --force
+node scripts/customer-backend-env.mjs --check .env.customer --customer "客户名称" --server-url "https://crazor.example.com"
+docker compose --env-file .env.customer up -d --build
+```
+
+如果客户环境需要扫码登录，应在生成环境文件时加入 `--wechat-app-id` 和 `--wechat-app-secret`；生成文件已被 `.gitignore` 和 `.dockerignore` 忽略，不能提交到仓库。
+
+构建客户安装包时，把同一个后端服务地址写入前端包：
+
+```bash
+CRAZOR_CUSTOMER_SERVER_PREFLIGHT=strict ./scripts/build-customer.sh "客户名称" "https://crazor.example.com" macos
 ```
 
 脚本会使用 `VITE_API_BASE` 构建 Tauri 前端，客户端内所有 `/api/*` 与 `/mcp/*` 请求都会转到该后端服务。
