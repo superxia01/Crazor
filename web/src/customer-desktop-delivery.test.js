@@ -55,6 +55,8 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes("deliveryProtocolVersion") &&
       buildCustomerScript.includes("SERVER_PREFLIGHT_RESULT") &&
       buildCustomerScript.includes("serverPreflight") &&
+      buildCustomerScript.includes("DELIVERY_DIR") &&
+      buildCustomerScript.includes("customer-delivery") &&
       !buildCustomerScript.includes("__CUSTOMER_SERVER_URL__"),
     "customer build should write package env before packaging, preflight the hosted backend, and verify backend/customer identity is embedded"
   )
@@ -86,6 +88,7 @@ test("customer package build can strictly preflight the hosted backend before ha
       customerWorkflowSource.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION") &&
       customerWorkflowSource.includes("PACKAGE_PLATFORM") &&
       customerWorkflowSource.includes('"$PACKAGE_PLATFORM"') &&
+      customerWorkflowSource.includes("customer-delivery") &&
       customerWorkflowSource.includes("strict") &&
       customerWorkflowSource.includes("skip"),
     "manual customer package builds should let operators choose preflight behavior and delivery protocol version"
@@ -334,6 +337,8 @@ test("customer desktop package can be built by CI with configured backend", () =
       customerWorkflowSource.includes("actions/checkout@v6.0.2") &&
       customerWorkflowSource.includes("actions/setup-node@v6.4.0") &&
       customerWorkflowSource.includes("actions/upload-artifact@v7.0.1") &&
+      customerWorkflowSource.includes("crazor-desktop-${{ env.PACKAGE_PLATFORM }}-${{ github.run_id }}") &&
+      customerWorkflowSource.includes("desktop/src-tauri/target/release/customer-delivery/**/*") &&
       customerWorkflowSource.includes("./scripts/build-customer.sh") &&
       customerWorkflowSource.includes("upload-artifact"),
     "GitHub Actions should expose a manual customer package build that embeds the configured backend URL"
@@ -346,6 +351,8 @@ test("customer desktop package can be built by CI with configured backend", () =
       buildCustomerScript.includes("npx tauri build") &&
       buildCustomerScript.includes("crazor-delivery-manifest.json") &&
       buildCustomerScript.includes("crazor-delivery-checksums.txt") &&
+      buildCustomerScript.includes("copyFileSync") &&
+      buildCustomerScript.includes('if (lowerName.endsWith(".app")) continue') &&
       buildCustomerScript.includes("bundleFiles") &&
       buildCustomerScript.includes("checksumFile") &&
       buildCustomerScript.includes('createHash("sha256")') &&

@@ -24,6 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TAURI_CONF="$PROJECT_ROOT/desktop/src-tauri/tauri.conf.json"
 BUNDLE_DIR="$PROJECT_ROOT/desktop/src-tauri/target/release/bundle"
+DELIVERY_DIR="$PROJECT_ROOT/desktop/src-tauri/target/release/customer-delivery"
 DELIVERY_MANIFEST="$BUNDLE_DIR/crazor-delivery-manifest.json"
 DELIVERY_CHECKSUMS="$BUNDLE_DIR/crazor-delivery-checksums.txt"
 
@@ -177,6 +178,7 @@ npm run build:tauri
 
 # 清理旧 bundle，避免不同客户或不同平台的历史安装包混入本次交付清单。
 rm -rf "$BUNDLE_DIR"
+rm -rf "$DELIVERY_DIR"
 
 # 构建 Tauri 安装包
 cd "$PROJECT_ROOT/desktop"
@@ -251,13 +253,14 @@ case "$PLATFORM" in
 esac
 
 mkdir -p "$BUNDLE_DIR"
-export CUSTOMER SERVER_URL PLATFORM DELIVERY_PROTOCOL_VERSION BUILD_SHA BUILD_TIME BUNDLE_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS SERVER_PREFLIGHT_MODE SERVER_PREFLIGHT_RESULT
+export CUSTOMER SERVER_URL PLATFORM DELIVERY_PROTOCOL_VERSION BUILD_SHA BUILD_TIME BUNDLE_DIR DELIVERY_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS SERVER_PREFLIGHT_MODE SERVER_PREFLIGHT_RESULT
 node <<'NODE'
 const { createHash } = require("node:crypto")
-const { createReadStream, readdirSync, statSync, writeFileSync } = require("node:fs")
-const { extname, join, relative } = require("node:path")
+const { copyFileSync, createReadStream, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs")
+const { dirname, extname, join, relative } = require("node:path")
 
 const bundleDir = process.env.BUNDLE_DIR
+const deliveryDir = process.env.DELIVERY_DIR
 const deliveryManifest = process.env.DELIVERY_MANIFEST
 const deliveryChecksums = process.env.DELIVERY_CHECKSUMS
 const fileExtensions = new Set([".dmg", ".msi", ".exe", ".deb", ".rpm", ".pkg", ".zip"])
@@ -273,10 +276,7 @@ function walkInstallables(dir) {
     const lowerName = entry.name.toLowerCase()
 
     if (entry.isDirectory()) {
-      if (lowerName.endsWith(".app")) {
-        entries.push({ absolutePath, type: "application-bundle" })
-        continue
-      }
+      if (lowerName.endsWith(".app")) continue
       entries.push(...walkInstallables(absolutePath))
       continue
     }
@@ -351,6 +351,18 @@ async function main() {
   }
 
   writeFileSync(deliveryManifest, JSON.stringify(manifest, null, 2) + "\n")
+
+  rmSync(deliveryDir, { recursive: true, force: true })
+  mkdirSync(deliveryDir, { recursive: true })
+  copyFileSync(deliveryManifest, join(deliveryDir, "crazor-delivery-manifest.json"))
+  copyFileSync(deliveryChecksums, join(deliveryDir, "crazor-delivery-checksums.txt"))
+  for (const item of installables) {
+    if (item.type !== "installer") continue
+    const relativePath = normalizePath(relative(bundleDir, item.absolutePath))
+    const targetPath = join(deliveryDir, relativePath)
+    mkdirSync(dirname(targetPath), { recursive: true })
+    copyFileSync(item.absolutePath, targetPath)
+  }
 }
 
 main().catch((error) => {
@@ -362,11 +374,12 @@ NODE
 echo "✅ 交付产物验证通过"
 echo "  Manifest: $DELIVERY_MANIFEST"
 echo "  Checksums: $DELIVERY_CHECKSUMS"
+echo "  客户交付目录: $DELIVERY_DIR"
 
 echo ""
 echo "============================================"
 echo "  ✅ 构建完成！"
 echo "  客户: $CUSTOMER"
 echo "  安装包位置:"
-echo "  $PROJECT_ROOT/desktop/src-tauri/target/release/bundle/"
+echo "  $DELIVERY_DIR/"
 echo "============================================"

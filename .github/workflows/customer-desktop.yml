@@ -83,6 +83,6 @@ jobs:
       - name: 上传安装包
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: crazor-desktop-${{ github.run_id }}
-          path: desktop/src-tauri/target/release/bundle/**/*
+          name: crazor-desktop-${{ env.PACKAGE_PLATFORM }}-${{ github.run_id }}
+          path: desktop/src-tauri/target/release/customer-delivery/**/*
           if-no-files-found: error
