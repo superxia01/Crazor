@@ -73,6 +73,18 @@ curl -sS http://localhost:5173/api/health
 CRAZOR_SMOKE_BASE_URL=http://局域网IP:5173 ./scripts/hermes smoke
 ```
 
+## 客户交付身份
+
+客户安装包会内置客户名和后端地址。正式交付时，后端也要声明同一个客户名，客户端启动自检会核对两边是否一致，避免误连测试环境、旧环境或其他客户环境。
+
+```env
+CRAZOR_DELIVERY_CUSTOMER=客户名称
+CRAZOR_DELIVERY_CHANNEL=customer
+CRAZOR_PUBLIC_BASE_URL=http://局域网IP:5173
+```
+
+`CRAZOR_PUBLIC_BASE_URL` 会优先用于微信登录回调地址。局域网部署时填客户实际访问的局域网入口；公网部署时填 HTTPS 域名。
+
 如果临时切换到非 Hermes provider，可跳过 Hermes 状态代理检查：
 
 ```bash

@@ -335,6 +335,9 @@ Crazor 支持四种部署方式，同一套代码通过环境变量切换：
 | `WECHAT_APP_SECRET` | 微信开放平台 APP_SECRET；需与 `WECHAT_APP_ID` 同时配置才启用扫码登录 | 空 |
 | `JWT_SECRET` | JWT 签名密钥；Docker 默认留空不强制登录，客户交付环境建议设置强密钥 | 空 |
 | `DEPLOYMENT_TIER` | 套餐：`free` / `pro` | `free` |
+| `CRAZOR_DELIVERY_CUSTOMER` | 后端声明的交付客户名；客户安装包会用内置客户名核对它 | 空 |
+| `CRAZOR_DELIVERY_CHANNEL` | 交付渠道标识 | `customer` |
+| `CRAZOR_PUBLIC_BASE_URL` | 客户可访问的公网/局域网服务地址；微信回调和交付自检会优先使用它 | 空 |
 | `CORS_ORIGINS` | CORS 允许的来源（逗号分隔）；Tauri 客户端需保留 `tauri://localhost` / `http://tauri.localhost` | `http://localhost:5173,http://localhost:5174,tauri://localhost,http://tauri.localhost,https://tauri.localhost` |
 
 ### 桌面客户端构建

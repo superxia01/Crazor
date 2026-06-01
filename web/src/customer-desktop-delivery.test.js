@@ -12,6 +12,7 @@ const desktopPackage = readFileSync(resolve(repoRoot, "desktop/package.json"), "
 const appSource = readFileSync(resolve(repoRoot, "web/src/App.jsx"), "utf8")
 const authFetchSource = readFileSync(resolve(repoRoot, "web/src/api/crazor-auth.js"), "utf8")
 const customerDeliverySource = readFileSync(resolve(repoRoot, "web/src/api/customer-delivery.js"), "utf8")
+const deliveryIdentitySource = readFileSync(resolve(repoRoot, "web/src/api/delivery-identity.js"), "utf8")
 const customerDeliveryGateSource = readFileSync(resolve(repoRoot, "web/src/CustomerDeliveryGate.jsx"), "utf8")
 const remoteApiSource = readFileSync(resolve(repoRoot, "web/src/api/remote-api-base.js"), "utf8")
 const settingsModalSource = readFileSync(resolve(repoRoot, "web/src/SettingsModal.jsx"), "utf8")
@@ -112,7 +113,10 @@ test("customer desktop blocks startup when the hosted backend is unavailable", (
     customerDeliveryGateSource.includes("getRemoteApiRuntimeInfo") &&
       customerDeliveryGateSource.includes("getCustomerDeliveryRuntimeInfo") &&
       customerDeliveryGateSource.includes("checkDeliveryReadiness") &&
+      customerDeliveryGateSource.includes("evaluateDeliveryIdentity") &&
       customerDeliveryGateSource.includes("readiness?.status === \"blocked\"") &&
+      customerDeliveryGateSource.includes("identity.status === \"error\"") &&
+      customerDeliveryGateSource.includes("托管服务身份不匹配") &&
       customerDeliveryGateSource.includes("无法连接托管服务") &&
       customerDeliveryGateSource.includes("构建版本") &&
       customerDeliveryGateSource.includes("构建时间") &&
@@ -125,6 +129,7 @@ test("backend exposes a public delivery readiness self-check for installed clien
   assert.ok(
     serverIndex.includes("app.get('/api/delivery/readiness'") &&
       serverIndex.includes("buildDeliveryReadiness") &&
+      serverIndex.includes("'delivery-identity'") &&
       serverIndex.includes("'agent-gateway'") &&
       serverIndex.includes("'chat-api'") &&
       serverIndex.includes("'model-config'") &&
@@ -138,6 +143,21 @@ test("backend exposes a public delivery readiness self-check for installed clien
       serverIndex.includes("apiKeySet") &&
       serverIndex.includes("Base URL"),
     "delivery readiness should fail before customer handoff when model configuration is incomplete"
+  )
+  assert.ok(
+    serverIndex.includes("CRAZOR_DELIVERY_CUSTOMER") &&
+      serverIndex.includes("CRAZOR_PUBLIC_BASE_URL") &&
+      serverIndex.includes("deliveryCustomerName") &&
+      serverIndex.includes("public_base_url") &&
+      serverIndex.includes("backendOrigin(c)") &&
+      serverIndex.includes("publicBaseUrl() || new URL(c.req.url).origin"),
+    "backend readiness and WeChat callback should expose the hosted delivery identity and public base URL"
+  )
+  assert.ok(
+    deliveryIdentitySource.includes("evaluateDeliveryIdentity") &&
+      deliveryIdentitySource.includes("托管服务未声明交付客户") &&
+      deliveryIdentitySource.includes("托管服务声明为"),
+    "customer desktop should reject a hosted backend whose delivery identity does not match the embedded customer"
   )
   assert.ok(
     authMiddlewareSource.includes("'/api/delivery/'"),
@@ -215,8 +235,10 @@ test("docker customer backend receives hosted login and plan configuration", () 
     composeSource.includes("JWT_SECRET: ${JWT_SECRET:-}") &&
       composeSource.includes("WECHAT_APP_ID: ${WECHAT_APP_ID:-}") &&
       composeSource.includes("WECHAT_APP_SECRET: ${WECHAT_APP_SECRET:-}") &&
-      composeSource.includes("DEPLOYMENT_TIER: ${DEPLOYMENT_TIER:-free}"),
-    "Compose backend should receive customer login and plan env vars instead of silently running without them"
+      composeSource.includes("DEPLOYMENT_TIER: ${DEPLOYMENT_TIER:-free}") &&
+      composeSource.includes("CRAZOR_DELIVERY_CUSTOMER: ${CRAZOR_DELIVERY_CUSTOMER:-}") &&
+      composeSource.includes("CRAZOR_PUBLIC_BASE_URL: ${CRAZOR_PUBLIC_BASE_URL:-}"),
+    "Compose backend should receive customer login, plan, and delivery identity env vars instead of silently running without them"
   )
 })
 

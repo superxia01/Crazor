@@ -27,6 +27,9 @@ export const WECHAT_APP_ID = process.env.WECHAT_APP_ID || ''
 export const WECHAT_APP_SECRET = process.env.WECHAT_APP_SECRET || ''
 export const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production'
 export const DEPLOYMENT_TIER = process.env.DEPLOYMENT_TIER || 'free'
+export const CRAZOR_DELIVERY_CUSTOMER = process.env.CRAZOR_DELIVERY_CUSTOMER || ''
+export const CRAZOR_DELIVERY_CHANNEL = process.env.CRAZOR_DELIVERY_CHANNEL || ''
+export const CRAZOR_PUBLIC_BASE_URL = process.env.CRAZOR_PUBLIC_BASE_URL || ''
 
 // ── Migration notice ─────────────────────────────────────────
 const legacyDb = resolve(HERMES_HOME, 'crazor.db')

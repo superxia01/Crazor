@@ -30,7 +30,17 @@ import { seedVault } from './services/seed-vault'
 import { seedSkills, seedOneSkill } from './services/seed-skills'
 import { migrateVault } from './services/migrate-vault'
 import { handleSSEConnect, handleSSEMessage, handleStreamableHTTP } from './services/crazor-mcp'
-import { CRAZOR_HOME, CRAZOR_SKILLS_DIR, CRAZOR_VAULT_ROOT, WECHAT_APP_ID, WECHAT_APP_SECRET, DEPLOYMENT_TIER } from './services/crazor-config'
+import {
+  CRAZOR_DELIVERY_CHANNEL,
+  CRAZOR_DELIVERY_CUSTOMER,
+  CRAZOR_HOME,
+  CRAZOR_PUBLIC_BASE_URL,
+  CRAZOR_SKILLS_DIR,
+  CRAZOR_VAULT_ROOT,
+  DEPLOYMENT_TIER,
+  WECHAT_APP_ID,
+  WECHAT_APP_SECRET,
+} from './services/crazor-config'
 import {
   AGENT_DASHBOARD_URL,
   AGENT_GATEWAY_URL,
@@ -484,6 +494,45 @@ function readKnowledgeVaultReadiness(): DeliveryReadinessCheck {
   }
 }
 
+function normalizePublicBaseUrl(value: string): string {
+  const text = cleanString(value).replace(/\/+$/, '')
+  if (!text) return ''
+  try {
+    const url = new URL(text)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return ''
+    return `${url.origin}${url.pathname.replace(/\/+$/, '')}`
+  } catch {
+    return ''
+  }
+}
+
+function deliveryCustomerName(): string {
+  return cleanString(CRAZOR_DELIVERY_CUSTOMER)
+}
+
+function deliveryChannel(): string {
+  return cleanString(CRAZOR_DELIVERY_CHANNEL) || (deliveryCustomerName() ? 'customer' : 'local')
+}
+
+function publicBaseUrl(): string {
+  return normalizePublicBaseUrl(CRAZOR_PUBLIC_BASE_URL)
+}
+
+function readDeliveryIdentityReadiness(): DeliveryReadinessCheck {
+  const customer = deliveryCustomerName()
+  const publicUrl = publicBaseUrl()
+
+  if (!customer) {
+    return deliveryCheck('delivery-identity', '交付身份', 'warn', '后端未声明交付客户，客户包无法校验是否连到正确服务')
+  }
+
+  if (!publicUrl) {
+    return deliveryCheck('delivery-identity', '交付身份', 'warn', `已声明交付客户 ${customer}，但未配置 CRAZOR_PUBLIC_BASE_URL`)
+  }
+
+  return deliveryCheck('delivery-identity', '交付身份', 'ok', `后端声明为 ${customer} 的 ${deliveryChannel()} 交付服务`)
+}
+
 function isCustomModelProvider(provider: string): boolean {
   const normalized = provider.toLowerCase()
   return normalized === 'custom' || normalized.startsWith('custom:')
@@ -570,6 +619,7 @@ async function buildDeliveryReadiness() {
   const supportsSessions = agentProviderSupports('gateway.sessions')
   const checks: DeliveryReadinessCheck[] = [
     deliveryCheck('api', '后端 API', 'ok', 'Crazor API 已响应'),
+    readDeliveryIdentityReadiness(),
     deliveryCheck(
       'auth',
       '登录入口',
@@ -617,6 +667,12 @@ async function buildDeliveryReadiness() {
     status,
     ready: status === 'ready',
     generated_at: new Date().toISOString(),
+    delivery: {
+      customer: deliveryCustomerName(),
+      channel: deliveryChannel(),
+      public_base_url: publicBaseUrl(),
+      plan: DEPLOYMENT_TIER,
+    },
     auth: {
       login_required: loginRequired,
       wechat_configured: wechatConfigured,
@@ -1236,7 +1292,7 @@ function pruneWechatLoginSessions() {
 }
 
 function backendOrigin(c: any): string {
-  return new URL(c.req.url).origin
+  return publicBaseUrl() || new URL(c.req.url).origin
 }
 
 // --- Agent Provider Adapter ---

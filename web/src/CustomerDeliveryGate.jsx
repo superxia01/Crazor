@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { AlertTriangleIcon, CheckCircle2Icon, RefreshCwIcon, ServerIcon, WifiOffIcon } from "lucide-react"
 
+import { evaluateDeliveryIdentity } from "@/api/delivery-identity"
 import { checkDeliveryReadiness, deliveryCheckStatusLabel, deliveryReadinessLabel } from "@/api/delivery-readiness"
 import { getCustomerDeliveryRuntimeInfo } from "@/api/customer-delivery"
 import { getRemoteApiRuntimeInfo } from "@/api/remote-api-base"
@@ -24,30 +25,34 @@ export function CustomerDeliveryGate({ children }) {
     phase: runtime.enabled ? "checking" : "ready",
     readiness: null,
     error: "",
+    blockReason: "",
   })
 
   const runCheck = useCallback(async () => {
     if (!runtime.enabled) {
-      setState({ phase: "ready", readiness: null, error: "" })
+      setState({ phase: "ready", readiness: null, error: "", blockReason: "" })
       return
     }
 
-    setState((current) => ({ ...current, phase: "checking", error: "" }))
+    setState((current) => ({ ...current, phase: "checking", error: "", blockReason: "" }))
     try {
       const readiness = await checkDeliveryReadiness()
+      const identity = evaluateDeliveryIdentity(runtime.deliveryInfo, readiness)
       setState({
-        phase: readiness?.status === "blocked" ? "blocked" : "ready",
+        phase: readiness?.status === "blocked" || identity.status === "error" ? "blocked" : "ready",
         readiness,
-        error: "",
+        error: identity.message,
+        blockReason: identity.status === "error" ? "identity" : "",
       })
     } catch (error) {
       setState({
         phase: "error",
         readiness: null,
         error: error instanceof Error ? error.message : "托管服务连接失败",
+        blockReason: "",
       })
     }
-  }, [runtime.enabled])
+  }, [runtime.deliveryInfo, runtime.enabled])
 
   useEffect(() => {
     void runCheck()
@@ -62,7 +67,15 @@ export function CustomerDeliveryGate({ children }) {
       ? "检测中"
       : state.phase === "error"
         ? "连接失败"
-        : deliveryReadinessLabel(state.readiness?.status)
+        : state.blockReason === "identity"
+          ? "身份不匹配"
+          : deliveryReadinessLabel(state.readiness?.status)
+  const title =
+    state.phase === "checking"
+      ? "正在连接托管服务"
+      : state.blockReason === "identity"
+        ? "托管服务身份不匹配"
+        : "无法连接托管服务"
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-5 py-10 text-foreground">
@@ -82,7 +95,7 @@ export function CustomerDeliveryGate({ children }) {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-semibold tracking-normal">
-                {state.phase === "checking" ? "正在连接托管服务" : "无法连接托管服务"}
+                {title}
               </h1>
               <Badge variant={state.phase === "checking" ? "secondary" : "destructive"} className="rounded px-1.5 py-0.5 text-[10px]">
                 {statusLabel}
