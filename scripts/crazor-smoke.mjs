@@ -344,7 +344,7 @@ async function main() {
     assert(["ready", "degraded", "blocked"].includes(readiness.data?.status), "交付自检未返回有效状态", readiness.data)
     const checks = readiness.data?.checks || []
     assert(Array.isArray(checks), "交付自检未返回检查项列表", readiness.data)
-    for (const id of ["api", "auth", "agent-gateway", "chat-api", "business-data", "knowledge-vault"]) {
+    for (const id of ["api", "auth", "agent-gateway", "chat-api", "model-config", "business-data", "knowledge-vault"]) {
       assert(checks.some((check) => check.id === id), `交付自检缺少 ${id} 检查项`, readiness.data)
     }
     if (!skipHermes) {

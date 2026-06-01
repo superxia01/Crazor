@@ -127,9 +127,17 @@ test("backend exposes a public delivery readiness self-check for installed clien
       serverIndex.includes("buildDeliveryReadiness") &&
       serverIndex.includes("'agent-gateway'") &&
       serverIndex.includes("'chat-api'") &&
+      serverIndex.includes("'model-config'") &&
       serverIndex.includes("'business-data'") &&
       serverIndex.includes("'knowledge-vault'"),
     "backend should expose a public readiness endpoint covering the delivery-critical chain"
+  )
+  assert.ok(
+    serverIndex.includes("readModelConfigReadiness") &&
+      serverIndex.includes("isLocalModelBaseUrl") &&
+      serverIndex.includes("apiKeySet") &&
+      serverIndex.includes("Base URL"),
+    "delivery readiness should fail before customer handoff when model configuration is incomplete"
   )
   assert.ok(
     authMiddlewareSource.includes("'/api/delivery/'"),

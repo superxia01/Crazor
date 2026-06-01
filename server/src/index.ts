@@ -484,6 +484,78 @@ function readKnowledgeVaultReadiness(): DeliveryReadinessCheck {
   }
 }
 
+function isCustomModelProvider(provider: string): boolean {
+  const normalized = provider.toLowerCase()
+  return normalized === 'custom' || normalized.startsWith('custom:')
+}
+
+function isLocalModelBaseUrl(baseUrl: string): boolean {
+  if (!baseUrl) return false
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    return ['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]', 'host.docker.internal'].includes(hostname)
+  } catch {
+    return /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal|\[::1\]|::1)(?::|\/|$)/i.test(baseUrl)
+  }
+}
+
+async function readModelConfigReadiness(): Promise<DeliveryReadinessCheck> {
+  if (!agentProviderSupports('dashboard.model_config')) {
+    return deliveryCheck('model-config', '模型配置', 'ok', '当前 Agent Provider 由外部网关托管模型配置')
+  }
+
+  try {
+    const resp = await dashboardFetch('/api/model/info')
+    if (!resp.ok) {
+      return deliveryCheck('model-config', '模型配置', 'error', `模型配置接口返回 HTTP ${resp.status}`)
+    }
+
+    const info = asRecord(await parseResponsePayload(resp))
+    const modelBlock = await loadDashboardModelBlock()
+    const provider = cleanString(info.provider) || cleanString(modelBlock.provider) || 'auto'
+    const model =
+      cleanString(info.model) ||
+      cleanString(info.default) ||
+      cleanString(modelBlock.model) ||
+      cleanString(modelBlock.default)
+    const baseUrl =
+      cleanString(info.baseUrl) ||
+      cleanString(info.base_url) ||
+      cleanString(modelBlock.base_url)
+    const apiMode =
+      cleanString(info.apiMode) ||
+      cleanString(info.api_mode) ||
+      cleanString(modelBlock.api_mode)
+    const apiKeySet = Boolean(info.apiKeySet) || Boolean(info.api_key_set) || Boolean(cleanString(modelBlock.api_key))
+    const customProvider = isCustomModelProvider(provider)
+    const localBaseUrl = isLocalModelBaseUrl(baseUrl)
+    const remoteBaseUrl = Boolean(baseUrl) && !localBaseUrl
+
+    if (!model) {
+      return deliveryCheck('model-config', '模型配置', 'error', '未配置默认模型，客户首次对话会失败')
+    }
+    if (customProvider && !baseUrl) {
+      return deliveryCheck('model-config', '模型配置', 'error', `模型 ${model} 使用自定义 Provider，但未配置 Base URL`)
+    }
+    if (remoteBaseUrl && !apiKeySet) {
+      return deliveryCheck('model-config', '模型配置', 'error', `模型 ${model} 缺少 API Key`)
+    }
+    if (customProvider && localBaseUrl && !apiKeySet) {
+      return deliveryCheck('model-config', '模型配置', 'warn', `模型 ${model} 指向本地 Base URL，未检测到 API Key`)
+    }
+
+    const detailParts = [`模型 ${model}`]
+    if (provider) detailParts.push(`Provider ${provider}`)
+    if (apiMode) detailParts.push(`模式 ${apiMode}`)
+    if (baseUrl) detailParts.push('Base URL 已配置')
+    if (remoteBaseUrl || apiKeySet) detailParts.push(apiKeySet ? 'API Key 已配置' : '未检测到 API Key')
+    return deliveryCheck('model-config', '模型配置', 'ok', detailParts.join('，'))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '模型配置检查失败'
+    return deliveryCheck('model-config', '模型配置', 'error', message)
+  }
+}
+
 async function buildDeliveryReadiness() {
   const provider = await getAgentProviderRuntimeDescriptor()
   const runtime = asRecord(provider.runtime)
@@ -520,6 +592,7 @@ async function buildDeliveryReadiness() {
       gatewayAvailable && supportsChat ? 'ok' : 'error',
       gatewayAvailable && supportsChat ? '对话能力已就绪' : '缺少可用的对话网关或对话能力',
     ),
+    await readModelConfigReadiness(),
     deliveryCheck(
       'sessions-api',
       '会话 API',
