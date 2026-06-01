@@ -532,6 +532,8 @@ CRAZOR_SMOKE_BASE_URL=http://局域网IP:5173 ./scripts/hermes smoke
 ./scripts/hermes desktop-smoke "客户名称" "https://crazor.example.com"
 ```
 
+默认会实际调用一次非流式对话并校验返回文本；如只想快速检查入口，可设置 `CRAZOR_DESKTOP_SMOKE_SKIP_LIVE_CHAT=1`。
+
 托管后端启用登录校验后，客户端会先读取 `/api/auth/status`，未登录时进入强制登录页；开发环境未启用登录时才保留“跳过登录”入口。
 同一登录边界也会覆盖 `/mcp` 与 `/mcp/sse`：客户客户端携带登录 JWT，第三方 Agent 使用独立的 Crazor Agent token，匿名请求不会进入 MCP 工具执行层。
 

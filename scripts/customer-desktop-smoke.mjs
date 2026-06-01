@@ -8,6 +8,7 @@ import {
 } from "./verify-customer-server.mjs"
 
 const DEFAULT_TIMEOUT_MS = 8000
+const DEFAULT_CHAT_TIMEOUT_MS = 60000
 const DEFAULT_PROTOCOL_VERSION = "1"
 
 export function truthy(value) {
@@ -34,6 +35,19 @@ export function evaluateDesktopLoginGate(authStatus = {}, me = {}, { loginToken 
     needsInteractiveLogin: loginRequired && !hasLoginToken,
     ok: !loginRequired || loggedIn || !hasLoginToken,
   }
+}
+
+export function extractChatCompletionText(data = {}) {
+  const message = data?.choices?.[0]?.message
+  if (typeof message?.content === "string") return message.content.trim()
+  if (Array.isArray(message?.content)) {
+    return message.content
+      .map((part) => part?.text || "")
+      .filter(Boolean)
+      .join("\n")
+      .trim()
+  }
+  return ""
 }
 
 export async function requestDesktopJson(baseUrl, path, {
@@ -90,8 +104,11 @@ export async function runCustomerDesktopSmoke({
   protocolVersion = process.env.CRAZOR_DELIVERY_PROTOCOL_VERSION || DEFAULT_PROTOCOL_VERSION,
   loginToken = process.env.CRAZOR_DESKTOP_SMOKE_LOGIN_TOKEN || process.env.CRAZOR_CUSTOMER_LOGIN_TOKEN || "",
   actorToken = process.env.CRAZOR_DESKTOP_SMOKE_ACTOR_TOKEN || process.env.CRAZOR_SMOKE_TOKEN || "",
-  liveChat = truthy(process.env.CRAZOR_DESKTOP_SMOKE_LIVE_CHAT),
   timeoutMs = Number(process.env.CRAZOR_DESKTOP_SMOKE_TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
+  chatTimeoutMs = Number(process.env.CRAZOR_DESKTOP_SMOKE_CHAT_TIMEOUT_MS || Math.max(timeoutMs, DEFAULT_CHAT_TIMEOUT_MS)),
+  liveChat = process.env.CRAZOR_DESKTOP_SMOKE_LIVE_CHAT === undefined
+    ? !truthy(process.env.CRAZOR_DESKTOP_SMOKE_SKIP_LIVE_CHAT)
+    : truthy(process.env.CRAZOR_DESKTOP_SMOKE_LIVE_CHAT),
   fetchImpl = globalThis.fetch,
   logger = console,
 } = {}) {
@@ -102,6 +119,7 @@ export async function runCustomerDesktopSmoke({
   const expectedCustomer = normalizeText(customer)
   const summary = []
   const warnings = []
+  let chatReply = ""
 
   async function step(name, fn) {
     logger.log(`- ${name}...`)
@@ -217,11 +235,11 @@ export async function runCustomerDesktopSmoke({
     })
 
     if (liveChat) {
-      await requestDesktopJson(normalizedServerUrl, "/api/chat/completions", {
+      const chat = await requestDesktopJson(normalizedServerUrl, "/api/chat/completions", {
         method: "POST",
         loginToken,
         actorToken,
-        timeoutMs,
+        timeoutMs: chatTimeoutMs,
         fetchImpl,
         expected: [200],
         body: {
@@ -230,6 +248,12 @@ export async function runCustomerDesktopSmoke({
           messages: [{ role: "user", content: "请只回复 OK" }],
         },
       })
+      chatReply = extractChatCompletionText(chat.data)
+      if (!chatReply) {
+        throw new Error("对话接口返回成功，但未返回可展示的 assistant 文本")
+      }
+    } else {
+      warnings.push("已跳过真实对话响应检查；本次只验证对话入口和模型列表")
     }
   })
 
@@ -246,6 +270,8 @@ export async function runCustomerDesktopSmoke({
     readinessStatus: readinessResult?.status || "",
     loginRequired: authStatus.gate.loginRequired,
     interactiveLoginRequired: authStatus.gate.needsInteractiveLogin,
+    liveChatChecked: Boolean(chatReply),
+    chatReplyPreview: chatReply.slice(0, 80),
     warnings,
     summary,
   }

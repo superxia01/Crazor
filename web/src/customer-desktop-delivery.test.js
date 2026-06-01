@@ -365,8 +365,12 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
       customerDesktopSmokeScript.includes("/api/crazor/context?limit=1") &&
       customerDesktopSmokeScript.includes("/api/agent/provider") &&
       customerDesktopSmokeScript.includes("/api/models") &&
+      customerDesktopSmokeScript.includes("/api/chat/completions") &&
+      customerDesktopSmokeScript.includes("extractChatCompletionText") &&
+      customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_CHAT_TIMEOUT_MS") &&
+      customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_SKIP_LIVE_CHAT") &&
       customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_LOGIN_TOKEN") &&
       customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_ACTOR_TOKEN"),
-    "customer desktop smoke should verify delivery identity, login gate, business context, and chat provider entrypoints"
+    "customer desktop smoke should verify delivery identity, login gate, business context, and real chat responses"
   )
 })
