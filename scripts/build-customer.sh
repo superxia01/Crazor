@@ -24,6 +24,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TAURI_CONF="$PROJECT_ROOT/desktop/src-tauri/tauri.conf.json"
 BUNDLE_DIR="$PROJECT_ROOT/desktop/src-tauri/target/release/bundle"
 DELIVERY_MANIFEST="$BUNDLE_DIR/crazor-delivery-manifest.json"
+DELIVERY_CHECKSUMS="$BUNDLE_DIR/crazor-delivery-checksums.txt"
 
 echo "============================================"
 echo "  Crazor 客户定制构建"
@@ -109,6 +110,9 @@ echo ""
 cd "$PROJECT_ROOT/web"
 npm run build:tauri
 
+# 清理旧 bundle，避免不同客户或不同平台的历史安装包混入本次交付清单。
+rm -rf "$BUNDLE_DIR"
+
 # 构建 Tauri 安装包
 cd "$PROJECT_ROOT/desktop"
 
@@ -174,24 +178,112 @@ case "$PLATFORM" in
 esac
 
 mkdir -p "$BUNDLE_DIR"
-export CUSTOMER SERVER_URL PLATFORM DELIVERY_MANIFEST
-node -e '
-const { writeFileSync } = require("node:fs")
-const manifest = {
-  product: "Crazor",
-  customer: process.env.CUSTOMER,
-  serverUrl: process.env.SERVER_URL,
-  platform: process.env.PLATFORM,
-  gitSha: process.env.CRAZOR_HEAD_SHA || process.env.GITHUB_HEAD_SHA || process.env.GITHUB_SHA || "",
-  workflowSha: process.env.GITHUB_SHA || "",
-  githubRunId: process.env.GITHUB_RUN_ID || "",
-  builtAt: new Date().toISOString(),
+export CUSTOMER SERVER_URL PLATFORM BUNDLE_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS
+node <<'NODE'
+const { createHash } = require("node:crypto")
+const { createReadStream, readdirSync, statSync, writeFileSync } = require("node:fs")
+const { extname, join, relative } = require("node:path")
+
+const bundleDir = process.env.BUNDLE_DIR
+const deliveryManifest = process.env.DELIVERY_MANIFEST
+const deliveryChecksums = process.env.DELIVERY_CHECKSUMS
+const fileExtensions = new Set([".dmg", ".msi", ".exe", ".deb", ".rpm", ".pkg", ".zip"])
+
+function normalizePath(filePath) {
+  return filePath.replace(/\\/g, "/")
 }
-writeFileSync(process.env.DELIVERY_MANIFEST, JSON.stringify(manifest, null, 2) + "\n")
-'
+
+function walkInstallables(dir) {
+  const entries = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const absolutePath = join(dir, entry.name)
+    const lowerName = entry.name.toLowerCase()
+
+    if (entry.isDirectory()) {
+      if (lowerName.endsWith(".app")) {
+        entries.push({ absolutePath, type: "application-bundle" })
+        continue
+      }
+      entries.push(...walkInstallables(absolutePath))
+      continue
+    }
+
+    if (
+      entry.isFile() &&
+      (fileExtensions.has(extname(lowerName)) || lowerName.endsWith(".appimage"))
+    ) {
+      entries.push({ absolutePath, type: "installer" })
+    }
+  }
+  return entries
+}
+
+function sha256File(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256")
+    const stream = createReadStream(filePath)
+    stream.on("data", (chunk) => hash.update(chunk))
+    stream.on("error", reject)
+    stream.on("end", () => resolve(hash.digest("hex")))
+  })
+}
+
+async function main() {
+  const installables = walkInstallables(bundleDir).sort((a, b) =>
+    normalizePath(relative(bundleDir, a.absolutePath)).localeCompare(
+      normalizePath(relative(bundleDir, b.absolutePath))
+    )
+  )
+
+  if (installables.length === 0) {
+    throw new Error(`未找到可交付安装包产物: ${bundleDir}`)
+  }
+
+  const bundleFiles = []
+  for (const item of installables) {
+    const relativePath = normalizePath(relative(bundleDir, item.absolutePath))
+    const stat = statSync(item.absolutePath)
+    const fileRecord = {
+      path: relativePath,
+      type: item.type,
+      sizeBytes: stat.isFile() ? stat.size : null,
+      sha256: stat.isFile() ? await sha256File(item.absolutePath) : null,
+    }
+    bundleFiles.push(fileRecord)
+  }
+
+  const checksumLines = bundleFiles
+    .filter((file) => file.sha256)
+    .map((file) => `${file.sha256}  ${file.path}`)
+    .join("\n")
+
+  writeFileSync(deliveryChecksums, checksumLines ? `${checksumLines}\n` : "")
+
+  const manifest = {
+    product: "Crazor",
+    customer: process.env.CUSTOMER,
+    serverUrl: process.env.SERVER_URL,
+    platform: process.env.PLATFORM,
+    gitSha: process.env.CRAZOR_HEAD_SHA || process.env.GITHUB_HEAD_SHA || process.env.GITHUB_SHA || "",
+    workflowSha: process.env.GITHUB_SHA || "",
+    githubRunId: process.env.GITHUB_RUN_ID || "",
+    builtAt: new Date().toISOString(),
+    checksumFile: normalizePath(relative(bundleDir, deliveryChecksums)),
+    bundleFiles,
+  }
+
+  writeFileSync(deliveryManifest, JSON.stringify(manifest, null, 2) + "\n")
+}
+
+main().catch((error) => {
+  console.error(`错误: ${error.message}`)
+  process.exit(1)
+})
+NODE
 
 echo "✅ 交付产物验证通过"
 echo "  Manifest: $DELIVERY_MANIFEST"
+echo "  Checksums: $DELIVERY_CHECKSUMS"
 
 echo ""
 echo "============================================"
