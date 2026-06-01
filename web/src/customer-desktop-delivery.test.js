@@ -86,6 +86,7 @@ test("docker backend keeps Tauri client origins in CORS defaults", () => {
   assert.ok(
     composeSource.includes("CORS_ORIGINS:") &&
       composeSource.includes("tauri://localhost") &&
+      composeSource.includes("http://tauri.localhost") &&
       composeSource.includes("https://tauri.localhost"),
     "Compose backend should allow packaged Tauri clients to call the configured service"
   )
@@ -94,6 +95,7 @@ test("docker backend keeps Tauri client origins in CORS defaults", () => {
 test("customer desktop package can be built by CI with configured backend", () => {
   assert.ok(
     customerWorkflowSource.includes("workflow_dispatch") &&
+      customerWorkflowSource.includes("pull_request") &&
       customerWorkflowSource.includes("server_url") &&
       customerWorkflowSource.includes("./scripts/build-customer.sh") &&
       customerWorkflowSource.includes("upload-artifact"),

@@ -1,6 +1,9 @@
 name: 构建客户桌面安装包
 
 on:
+  pull_request:
+    branches:
+      - master
   workflow_dispatch:
     inputs:
       customer:
@@ -21,11 +24,14 @@ on:
 
 jobs:
   build:
-    name: ${{ inputs.customer }} / ${{ inputs.platform }}
-    runs-on: ${{ inputs.platform == 'windows-current' && 'windows-latest' || 'macos-latest' }}
+    name: 客户端安装包验证
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.platform == 'windows-current' && 'windows-latest' || 'macos-latest' }}
     defaults:
       run:
         shell: bash
+    env:
+      CUSTOMER_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.customer || 'PR 验证' }}
+      SERVER_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.server_url || 'http://127.0.0.1:5173' }}
 
     steps:
       - name: 检出代码
@@ -52,11 +58,11 @@ jobs:
         run: npm ci
 
       - name: 构建客户安装包
-        run: ./scripts/build-customer.sh "${{ inputs.customer }}" "${{ inputs.server_url }}" current
+        run: ./scripts/build-customer.sh "$CUSTOMER_NAME" "$SERVER_URL" current
 
       - name: 上传安装包
         uses: actions/upload-artifact@v4
         with:
-          name: crazor-${{ inputs.customer }}-${{ inputs.platform }}
+          name: crazor-desktop-${{ github.run_id }}
           path: desktop/src-tauri/target/release/bundle/**/*
           if-no-files-found: error

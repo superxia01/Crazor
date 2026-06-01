@@ -335,7 +335,7 @@ Crazor 支持四种部署方式，同一套代码通过环境变量切换：
 | `WECHAT_APP_SECRET` | 微信开放平台 APP_SECRET | 空 |
 | `JWT_SECRET` | JWT 签名密钥 | `dev-secret-change-in-production` |
 | `DEPLOYMENT_TIER` | 套餐：`free` / `pro` | `free` |
-| `CORS_ORIGINS` | CORS 允许的来源（逗号分隔）；Tauri 客户端需保留 `tauri://localhost` / `https://tauri.localhost` | `http://localhost:5173,http://localhost:5174,tauri://localhost,https://tauri.localhost` |
+| `CORS_ORIGINS` | CORS 允许的来源（逗号分隔）；Tauri 客户端需保留 `tauri://localhost` / `http://tauri.localhost` | `http://localhost:5173,http://localhost:5174,tauri://localhost,http://tauri.localhost,https://tauri.localhost` |
 
 ### 桌面客户端构建
 

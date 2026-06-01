@@ -42,7 +42,9 @@ test("Tauri remote API support is optional and does not replace Docker web defau
     "Vite should only use relative asset paths for Tauri builds"
   )
   assert.ok(
-    serverIndex.includes("'tauri://localhost'") && serverIndex.includes("'https://tauri.localhost'"),
+    serverIndex.includes("'tauri://localhost'") &&
+      serverIndex.includes("'http://tauri.localhost'") &&
+      serverIndex.includes("'https://tauri.localhost'"),
     "server CORS defaults should allow Tauri origins"
   )
 })

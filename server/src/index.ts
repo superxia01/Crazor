@@ -436,7 +436,7 @@ function normalizeGatewaySessionList(payload: unknown): Record<string, unknown>[
 // --- Middleware ---
 const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
-  : ['http://localhost:5173', 'http://localhost:5174', 'tauri://localhost', 'https://tauri.localhost']
+  : ['http://localhost:5173', 'http://localhost:5174', 'tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost']
 
 const AGENT_PROVIDER_CAPABILITY_ROUTES: { prefix: string; capability: AgentProviderCapabilityId }[] = [
   { prefix: '/api/chat/completions', capability: 'gateway.chat_completions' },
