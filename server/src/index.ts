@@ -30,7 +30,7 @@ import { seedVault } from './services/seed-vault'
 import { seedSkills, seedOneSkill } from './services/seed-skills'
 import { migrateVault } from './services/migrate-vault'
 import { handleSSEConnect, handleSSEMessage, handleStreamableHTTP } from './services/crazor-mcp'
-import { CRAZOR_HOME, CRAZOR_SKILLS_DIR, CRAZOR_VAULT_ROOT, WECHAT_APP_ID, DEPLOYMENT_TIER } from './services/crazor-config'
+import { CRAZOR_HOME, CRAZOR_SKILLS_DIR, CRAZOR_VAULT_ROOT, WECHAT_APP_ID, WECHAT_APP_SECRET, DEPLOYMENT_TIER } from './services/crazor-config'
 import {
   AGENT_DASHBOARD_URL,
   AGENT_GATEWAY_URL,
@@ -488,7 +488,7 @@ async function buildDeliveryReadiness() {
   const gatewayAvailable = Boolean(gateway.available)
   const dashboardAvailable = Boolean(dashboard.available)
   const loginRequired = Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID)
-  const wechatConfigured = Boolean(WECHAT_APP_ID)
+  const wechatConfigured = Boolean(WECHAT_APP_ID && WECHAT_APP_SECRET)
   const loginReady = !loginRequired || wechatConfigured
   const supportsChat = agentProviderSupports('gateway.chat_completions') || agentProviderSupports('gateway.responses')
   const supportsSessions = agentProviderSupports('gateway.sessions')
@@ -1236,7 +1236,7 @@ app.get('/api/auth/me', async (c) => {
 app.get('/api/auth/status', (c) => {
   return c.json({
     bound: isUserBound(),
-    wechatConfigured: !!WECHAT_APP_ID,
+    wechatConfigured: Boolean(WECHAT_APP_ID && WECHAT_APP_SECRET),
     plan: DEPLOYMENT_TIER,
   })
 })

@@ -132,13 +132,24 @@ test("desktop WeChat login uses backend callback plus client polling", () => {
   assert.ok(
     serverIndex.includes("wechatLoginSessions") &&
       serverIndex.includes("app.get('/api/auth/wechat/session/:state'") &&
-      serverIndex.includes("const redirectUri = `${backendOrigin(c)}/api/auth/wechat/callback`"),
+      serverIndex.includes("const redirectUri = `${backendOrigin(c)}/api/auth/wechat/callback`") &&
+      serverIndex.includes("WECHAT_APP_ID && WECHAT_APP_SECRET"),
     "backend should keep a state-bound desktop login session"
   )
   assert.ok(
     loginDialogSource.includes("/api/auth/wechat/session/") &&
       loginDialogSource.includes("localStorage.setItem('crazor_token', data.token)"),
     "desktop client should poll the backend login session and store the returned JWT"
+  )
+})
+
+test("docker customer backend receives hosted login and plan configuration", () => {
+  assert.ok(
+    composeSource.includes("JWT_SECRET: ${JWT_SECRET:-}") &&
+      composeSource.includes("WECHAT_APP_ID: ${WECHAT_APP_ID:-}") &&
+      composeSource.includes("WECHAT_APP_SECRET: ${WECHAT_APP_SECRET:-}") &&
+      composeSource.includes("DEPLOYMENT_TIER: ${DEPLOYMENT_TIER:-free}"),
+    "Compose backend should receive customer login and plan env vars instead of silently running without them"
   )
 })
 
