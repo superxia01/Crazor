@@ -35,6 +35,7 @@ import {
   AGENT_GATEWAY_URL,
   agentProviderSupports,
   agentGatewayHeaders,
+  type AgentProviderCapabilityId,
   getAgentProviderDescriptor,
   unsupportedAgentProviderCapability,
 } from './services/agent-gateway'
@@ -434,12 +435,52 @@ const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
   : ['http://localhost:5173', 'http://localhost:5174', 'tauri://localhost', 'https://tauri.localhost']
 
+const AGENT_PROVIDER_CAPABILITY_ROUTES: { prefix: string; capability: AgentProviderCapabilityId }[] = [
+  { prefix: '/api/chat/completions', capability: 'gateway.chat_completions' },
+  { prefix: '/api/responses', capability: 'gateway.responses' },
+  { prefix: '/api/models', capability: 'gateway.models' },
+  { prefix: '/api/sessions', capability: 'gateway.sessions' },
+  { prefix: '/api/cron/dependency', capability: 'dashboard.tasks' },
+  { prefix: '/api/cron', capability: 'gateway.jobs' },
+  { prefix: '/api/config', capability: 'dashboard.config' },
+  { prefix: '/api/model', capability: 'dashboard.model_config' },
+  { prefix: '/api/env', capability: 'dashboard.env' },
+  { prefix: '/api/status', capability: 'dashboard.status' },
+  { prefix: '/api/gateway/restart', capability: 'dashboard.status' },
+  { prefix: '/api/gateway/stop', capability: 'dashboard.status' },
+  { prefix: '/api/dashboard/stop', capability: 'dashboard.status' },
+  { prefix: '/api/hermes/version', capability: 'dashboard.status' },
+  { prefix: '/api/hermes/update', capability: 'dashboard.update' },
+  { prefix: '/api/tools/toolsets', capability: 'dashboard.toolsets' },
+  { prefix: '/api/skills/market', capability: 'dashboard.skills_market' },
+  { prefix: '/api/skills', capability: 'dashboard.skills' },
+  { prefix: '/api/logs', capability: 'dashboard.logs' },
+  { prefix: '/api/memories', capability: 'dashboard.memory' },
+  { prefix: '/api/tasks', capability: 'dashboard.tasks' },
+  { prefix: '/api/agents', capability: 'dashboard.agents' },
+  { prefix: '/api/channels', capability: 'dashboard.channels' },
+  { prefix: '/api/hermes-config', capability: 'dashboard.memory' },
+  { prefix: '/api/files', capability: 'dashboard.files' },
+  { prefix: '/mcp', capability: 'crazor.mcp' },
+]
+
 app.use('*', cors({
   origin: CORS_ORIGINS,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id', 'X-Crazor-Token', 'X-Crazor-Actor-Type', 'X-Crazor-Actor-Id', 'X-Crazor-Source'],
   exposeHeaders: ['X-Hermes-Session-Id', 'Mcp-Session-Id'],
 }))
+
+app.use('*', async (c, next) => {
+  const capability = requiredAgentProviderCapability(new URL(c.req.url).pathname)
+  if (capability && !agentProviderSupports(capability)) {
+    return c.json({
+      ...unsupportedAgentProviderCapability(capability),
+      status: 'unsupported',
+    }, 501)
+  }
+  await next()
+})
 
 const AUDIT_WRITE_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
 const BUSINESS_READ_ROOTS = new Set([
@@ -552,6 +593,15 @@ app.use('/api/crazor/*', async (c, next) => {
 
 function truthyEnv(value: unknown): boolean {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase())
+}
+
+function requiredAgentProviderCapability(pathname: string): AgentProviderCapabilityId | null {
+  const route = AGENT_PROVIDER_CAPABILITY_ROUTES.find((item) => pathMatchesPrefix(pathname, item.prefix))
+  return route?.capability || null
+}
+
+function pathMatchesPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`)
 }
 
 function canBootstrapIdentityWrite(pathname: string): boolean {
@@ -2622,12 +2672,21 @@ app.post('/api/crazor/schema/:entity/discover', (c) => {
 
 // --- Crazor Skill Catalog & Installation ---
 
+function isSystemCrazorSkill(id: string): boolean {
+  return skillCatalog.getCatalogEntry(id)?.category === 'system'
+}
+
+function publicCrazorSkills() {
+  return skillCatalog.getCatalog({ source: 'crazor' }).filter((skill: any) => skill.category !== 'system')
+}
+
 app.get('/api/crazor/skills/catalog', (c) => {
-  return c.json(skillCatalog.getCatalog({ source: 'crazor' }))
+  return c.json(publicCrazorSkills())
 })
 
 app.get('/api/crazor/skills/meta', (c) => {
-  return c.json(skillCatalog.getAllSkillMeta())
+  const publicIds = new Set(publicCrazorSkills().map((skill: any) => skill.id))
+  return c.json(skillCatalog.getAllSkillMeta().filter((meta: any) => publicIds.has(meta.id)))
 })
 
 app.get('/api/crazor/skills/meta/:id', (c) => {
@@ -2642,12 +2701,13 @@ app.get('/api/crazor/skills/installed', (c) => {
     const p = join(CRAZOR_SKILLS_DIR, d)
     return statSync(p).isDirectory() && existsSync(join(p, 'SKILL.md'))
   })
-  return c.json(ids)
+  return c.json(ids.filter((id) => !isSystemCrazorSkill(id)))
 })
 
 app.post('/api/crazor/skills/install', async (c) => {
   const { id } = await c.req.json()
   if (!id) return c.json({ error: 'Missing skill id' }, 400)
+  if (isSystemCrazorSkill(id)) return c.json({ error: 'System skill cannot be installed as a digital employee' }, 403)
 
   // Re-seed this specific skill (seedSkills is idempotent)
   const result = seedSkills()
@@ -2660,6 +2720,7 @@ app.post('/api/crazor/skills/install', async (c) => {
 
 app.delete('/api/crazor/skills/:id', async (c) => {
   const { id } = c.req.param()
+  if (isSystemCrazorSkill(id)) return c.json({ error: 'System skill cannot be removed through digital employee APIs' }, 403)
   const skillDir = join(CRAZOR_SKILLS_DIR, id)
   if (!existsSync(skillDir)) return c.json({ error: 'Not found' }, 404)
   const { rmSync } = await import('node:fs')

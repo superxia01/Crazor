@@ -1,11 +1,12 @@
 ---
 name: vault-rules
 description: Crazor 知识库与数据操作规范（系统级，非数字员工）
-trigger: 被要求在知识库中创建、修改、管理文件时自动加载
+trigger: 被要求创建、修改、管理文档或数据时自动加载
 mcpTools: []
 apis: []
 dbTables: []
 externalApis: []
+system: true
 ---
 
 # Crazor 数据操作规范
@@ -14,42 +15,7 @@ externalApis: []
 
 ---
 
-## 1. 知识库目录结构
-
-```
-知识库 (knowledge scope)
-├── 00-关于我/                        # 个人/公司配置（静态参考）
-│   ├── 定位与品牌/                # IP定位、品牌风格指南、个人故事
-│   ├── 产品与业务/                # 产品清单、价格体系、交付标准
-│   ├── 目标客户/                  # 客户画像、分层标准
-│   ├── 账号矩阵/                  # 平台账号信息
-│   └── 目标与节奏/                # 商业目标、工作节奏
-├── 10-百科/                          # 知识卡片（AI整理的结构化知识）
-│   ├── 行业与市场/
-│   ├── 产品知识/
-│   ├── 客户洞察/
-│   ├── 销售与转化/
-│   ├── 内容与流量/
-│   └── 实战复盘/
-├── 20-业务流程/                      # 日常运营产出
-│   ├── 公域流量/                  # 选题池、内容管理、数据统计、内容资产、素材提炼
-│   ├── 私域运营/                  # 朋友圈、社群、数据周报
-│   ├── 客户管理/                  # 线索管理、成交记录
-│   ├── 产品交付/
-│   ├── 项目管理/
-│   ├── 人事管理/
-│   ├── 财务管理/
-│   ├── 库存管理/
-│   └── 数据看板/
-├── 30-素材资产/                      # 品牌、账号、模板、报价、合同
-├── 40-事件/                          # 公司、AI
-└── 99-归档/
-
-AI笔记 (notebook scope)
-└── inbox/                         # 原始素材、碎片笔记
-```
-
-## 2. 数据操作分类
+## 1. 数据操作分流
 
 ### 结构化业务数据 → 数据库（通过 MCP Tool）
 
@@ -62,43 +28,38 @@ AI笔记 (notebook scope)
 
 **关键规则：** 客户信息、财务记录、项目任务 **必须** 通过数据库 MCP Tool 操作，不要创建 markdown 文件来存储这些结构化数据。
 
-### 文档/知识内容 → 文档系统（通过 MCP Tool）
+### 原始素材 → notebook scope（只进不改）
 
-| 数据类型 | MCP Tool | 说明 |
-|---------|----------|------|
-| 知识卡片 | create_doc (scope="knowledge") | 10-百科/下各子目录 |
-| 跟进记录 | create_doc (contact_id=xxx) | 关联到客户 |
-| 内容草稿 | create_doc (scope="knowledge") | 20-业务流程/下 |
-| 会议纪要 | create_doc (scope="knowledge") | 可关联 project 或 contact |
-| 报告 | create_doc (scope="knowledge") | 周报/月报等 |
+通过 `create_doc(scope="notebook")` 写入：
+- 原始素材、碎片笔记、会议记录
+- 客户沟通记录（传 contact_id 关联客户）
 
-### 静态参考文件 → 只读（通过 read_vault_file）
+**关键规则：** notebook 是素材池，**只进不改**，写入后不可修改或删除。
 
-通过 `read_vault_file(path)` 读取，不要修改：
-- `00-关于我/10-定位与品牌/IP定位.md`
-- `00-关于我/20-产品与业务/产品与服务清单.md`
-- `00-关于我/30-目标客户/目标客户画像.md`
-- `10-百科/40-销售与转化/谈单方法论.md`
-- 其他配置类文件
+### 结论与参考 → knowledge scope
+
+通过 `create_doc(scope="knowledge")` 写入：
+- 从素材提炼的结论、方法论
+- 模板、指南、操作手册
+- 行业知识、产品知识、客户洞察
+
+**关键规则：** knowledge 只放提炼后的结论性内容，不放原始素材。
+
+## 2. 核心原则
+
+> **素材进 notebook，结论进 knowledge，结构化数据走数据库。**
+
+- 原始素材 → `create_doc(scope="notebook")`
+- 提炼结论 → `create_doc(scope="knowledge")`
+- 客户/财务/项目/任务 → 对应的 DB MCP Tool
 
 ## 3. 关联规则
 
-### 客户关联文档
-创建客户相关文档时，始终传入 `contact_id`：
-```
-create_doc({
-  scope: "knowledge",
-  title: "张三-合作方案",
-  content: "...",
-  contact_id: "客户ID"
-})
-```
-这样在客户详情页自动显示所有关联文档。
+- 创建客户相关文档时，始终传入 `contact_id`
+- 创建任务时传入 `project_id`
+- 项目可关联客户 `contact_id`
 
-### 项目关联任务
-创建任务时传入 `project_id`，项目可关联客户 `contact_id`。
-
-## 4. 通用 MCP Tool 列表
+## 4. MCP Tool 列表
 
 ### 数据库操作
 - `create_contact`, `update_contact`, `list_contacts`, `get_contact`
@@ -109,10 +70,9 @@ create_doc({
 
 ### 文档操作
 - `create_doc(scope, title, content, folder_id, contact_id)` — 创建文档
-- `update_doc(id, title, content)` — 更新文档
-- `read_doc(id)` — 读取文档（含内容）
+- `update_doc(id, title, content)` — 更新文档（仅 knowledge scope）
+- `read_doc(id)` — 读取文档
 - `list_docs(scope, folder_id)` — 列出文档
 - `search_docs(scope, q)` — 搜索文档
 - `create_folder(scope, name, parent_id)` — 创建文件夹
-- `read_vault_file(path)` — 读取静态参考文件
 - `list_notes_by_contact(scope, contact_id)` — 查看客户关联文档

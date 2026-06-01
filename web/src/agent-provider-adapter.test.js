@@ -33,6 +33,12 @@ test("Agent Provider Adapter exposes runtime descriptor and capabilities", () =>
     "provider contract should separate gateway, dashboard, and Crazor-owned capabilities"
   )
   assert.ok(
+    serverIndex.includes("AGENT_PROVIDER_CAPABILITY_ROUTES") &&
+      serverIndex.includes("requiredAgentProviderCapability") &&
+      serverIndex.includes("unsupportedAgentProviderCapability(capability)"),
+    "server should gate provider-specific routes by declared capabilities"
+  )
+  assert.ok(
     agentApiSource.includes("getAgentProvider") &&
       agentApiSource.includes("getAgentProviderCapabilities"),
     "web API layer should read provider metadata through generic agent APIs"
