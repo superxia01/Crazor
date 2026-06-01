@@ -1,6 +1,10 @@
 // Copyright (c) 2026 MeeJoy
 
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import test from "node:test"
 
 import {
@@ -9,6 +13,8 @@ import {
   renderCustomerBackendEnv,
   validateCustomerBackendEnv,
 } from "../../scripts/customer-backend-env.mjs"
+
+const repoRoot = resolve(new URL("../..", import.meta.url).pathname)
 
 test("customer backend env generator prepares strict hosted delivery settings", () => {
   const env = buildCustomerBackendEnv({
@@ -88,4 +94,38 @@ test("customer backend env renderer round-trips quoted customer values", () => {
   assert.equal(parsed.CRAZOR_CUSTOMER_ACCESS_CODE, "客户访问码123")
   assert.equal(parsed.CRAZOR_PUBLIC_BASE_URL, "http://192.168.103.4:5173")
   assert.deepEqual(validateCustomerBackendEnv(parsed).errors, [])
+})
+
+test("customer desktop build resolves package inputs from generated backend env", () => {
+  const dir = mkdtempSync(join(tmpdir(), "crazor-customer-build-env-"))
+  const envFile = join(dir, ".env.customer")
+  const env = buildCustomerBackendEnv({
+    customer: "客户 A",
+    serverUrl: "http://192.168.103.4:5173/",
+    protocolVersion: "1",
+    jwtSecret: "0123456789abcdef0123456789abcdef",
+    accessCode: "handoff-code",
+  })
+  writeFileSync(envFile, renderCustomerBackendEnv(env))
+
+  try {
+    const output = execFileSync("bash", [
+      resolve(repoRoot, "scripts/build-customer.sh"),
+      "--env-file",
+      envFile,
+      "--platform",
+      "current",
+      "--dry-run",
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    })
+
+    assert.match(output, /客户后端环境校验通过/)
+    assert.match(output, /客户构建配置已解析: 客户 A -> http:\/\/192\.168\.103\.4:5173，协议 1/)
+    assert.match(output, /交付指纹: [a-f0-9]{12}/)
+    assert.match(output, /dry-run 完成/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

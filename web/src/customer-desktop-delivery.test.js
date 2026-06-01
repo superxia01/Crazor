@@ -50,6 +50,10 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes("verify-customer-server.mjs") &&
       buildCustomerScript.includes("CRAZOR_CUSTOMER_SERVER_PREFLIGHT") &&
       buildCustomerScript.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION") &&
+      buildCustomerScript.includes("--env-file") &&
+      buildCustomerScript.includes("CRAZOR_PUBLIC_BASE_URL") &&
+      buildCustomerScript.includes("customer-backend-env.mjs") &&
+      buildCustomerScript.includes("--dry-run") &&
       buildCustomerScript.includes("NORMALIZED_SERVER_URL") &&
       buildCustomerScript.includes("new URL(text)") &&
       buildCustomerScript.includes("有效地址") &&
@@ -109,6 +113,8 @@ test("customer package build can strictly preflight the hosted backend before ha
   )
   assert.ok(
     hermesScript.includes("customer-env") &&
+      hermesScript.includes("customer-build") &&
+      hermesScript.includes('build-customer.sh" --env-file') &&
       customerBackendEnvScript.includes("buildCustomerBackendEnv") &&
       customerBackendEnvScript.includes("CRAZOR_CUSTOMER_SERVER_PREFLIGHT") &&
       customerBackendEnvScript.includes("CRAZOR_CUSTOMER_ACCESS_CODE") &&

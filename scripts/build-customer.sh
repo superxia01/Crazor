@@ -3,22 +3,20 @@
 #
 # 用法:
 #   ./scripts/build-customer.sh "客户名" "https://123.45.67.1" [macos|macos-arm64|macos-x64|macos-current|windows|windows-x64|windows-current|current]
+#   ./scripts/build-customer.sh --env-file .env.customer [--platform macos-current] [--dry-run]
 #
 # 示例:
 #   ./scripts/build-customer.sh "张三公司" "https://123.45.67.1"
 #   ./scripts/build-customer.sh "李四工作室" "http://localhost:3001" macos-arm64
 #   ./scripts/build-customer.sh "王五企业" "https://crazor.example.com" macos-current
 #   ./scripts/build-customer.sh "本机验证" "http://localhost:5173" current
+#   ./scripts/build-customer.sh --env-file .env.customer --platform macos-current
 #
 # 输出:
 #   desktop/src-tauri/target/release/bundle/dmg/Crazor_1.0.0_aarch64.dmg (macOS)
 #   desktop/src-tauri/target/release/bundle/msi/*.msi (Windows)
 
 set -e
-
-CUSTOMER="${1:?用法: build-customer.sh <客户名> <服务器URL> [macos|macos-arm64|macos-x64|macos-current|windows|windows-x64|windows-current|current]}"
-SERVER_URL="${2:?错误: 请提供服务器 URL}"
-PLATFORM="${3:-macos}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -28,12 +26,134 @@ DELIVERY_DIR="$PROJECT_ROOT/desktop/src-tauri/target/release/customer-delivery"
 DELIVERY_MANIFEST="$BUNDLE_DIR/crazor-delivery-manifest.json"
 DELIVERY_CHECKSUMS="$BUNDLE_DIR/crazor-delivery-checksums.txt"
 
+usage() {
+    cat <<'EOF'
+用法:
+  ./scripts/build-customer.sh "客户名" "https://123.45.67.1" [macos|macos-arm64|macos-x64|macos-current|windows|windows-x64|windows-current|current]
+  ./scripts/build-customer.sh --env-file .env.customer [--platform macos-current] [--dry-run]
+
+说明:
+  --env-file 会读取 CRAZOR_DELIVERY_CUSTOMER、CRAZOR_PUBLIC_BASE_URL、
+  CRAZOR_DELIVERY_PROTOCOL_VERSION 和 CRAZOR_CUSTOMER_SERVER_PREFLIGHT，
+  用同一份客户后端环境文件驱动客户端安装包构建。
+EOF
+}
+
+CUSTOMER=""
+SERVER_URL=""
+PLATFORM="macos"
+ENV_FILE=""
+ENV_DELIVERY_PROTOCOL_VERSION=""
+ENV_SERVER_PREFLIGHT_MODE=""
+DRY_RUN="${CRAZOR_CUSTOMER_BUILD_DRY_RUN:-}"
+POSITIONAL=()
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --env-file|-e)
+            ENV_FILE="${2:-}"
+            shift 2
+            ;;
+        --customer)
+            CUSTOMER="${2:-}"
+            shift 2
+            ;;
+        --server-url)
+            SERVER_URL="${2:-}"
+            shift 2
+            ;;
+        --platform)
+            PLATFORM="${2:-}"
+            shift 2
+            ;;
+        --dry-run)
+            DRY_RUN=1
+            shift
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            while [ "$#" -gt 0 ]; do
+                POSITIONAL+=("$1")
+                shift
+            done
+            ;;
+        *)
+            POSITIONAL+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if ! command -v node >/dev/null 2>&1; then
+    echo "错误: 未找到 node，请先安装 Node.js 依赖环境"
+    exit 1
+fi
+
+read_customer_env_value() {
+    local key="$1"
+    PROJECT_ROOT="$PROJECT_ROOT" node --input-type=module - "$ENV_FILE" "$key" <<'NODE'
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { pathToFileURL } from "node:url"
+
+const [envFile, key] = process.argv.slice(2)
+const projectRoot = process.env.PROJECT_ROOT
+const { parseEnvText } = await import(pathToFileURL(resolve(projectRoot, "scripts/customer-backend-env.mjs")).href)
+const parsed = parseEnvText(readFileSync(envFile, "utf8"))
+process.stdout.write(String(parsed[key] || ""))
+NODE
+}
+
+if [ -n "$ENV_FILE" ]; then
+    if [ ! -f "$ENV_FILE" ]; then
+        echo "错误: 客户后端环境文件不存在: $ENV_FILE"
+        exit 1
+    fi
+    ENV_FILE="$(cd "$(dirname "$ENV_FILE")" && pwd)/$(basename "$ENV_FILE")"
+    if [ "${#POSITIONAL[@]}" -gt 1 ]; then
+        echo "错误: --env-file 模式只接受一个可选平台参数；客户名和服务地址应来自环境文件"
+        exit 1
+    fi
+    if [ "${#POSITIONAL[@]}" -eq 1 ]; then
+        PLATFORM="${POSITIONAL[0]}"
+    fi
+    CUSTOMER="${CUSTOMER:-$(read_customer_env_value CRAZOR_DELIVERY_CUSTOMER)}"
+    SERVER_URL="${SERVER_URL:-$(read_customer_env_value CRAZOR_PUBLIC_BASE_URL)}"
+    ENV_DELIVERY_PROTOCOL_VERSION="$(read_customer_env_value CRAZOR_DELIVERY_PROTOCOL_VERSION)"
+    ENV_SERVER_PREFLIGHT_MODE="$(read_customer_env_value CRAZOR_CUSTOMER_SERVER_PREFLIGHT)"
+else
+    CUSTOMER="${CUSTOMER:-${POSITIONAL[0]:-}}"
+    SERVER_URL="${SERVER_URL:-${POSITIONAL[1]:-}}"
+    if [ "${#POSITIONAL[@]}" -gt 2 ]; then
+        PLATFORM="${POSITIONAL[2]}"
+    fi
+fi
+
+if [ -z "$CUSTOMER" ]; then
+    usage
+    echo "错误: 请提供客户名，或通过 --env-file 提供 CRAZOR_DELIVERY_CUSTOMER"
+    exit 1
+fi
+
+if [ -z "$SERVER_URL" ]; then
+    usage
+    echo "错误: 请提供服务器 URL，或通过 --env-file 提供 CRAZOR_PUBLIC_BASE_URL"
+    exit 1
+fi
+
 echo "============================================"
 echo "  Crazor 客户定制构建"
 echo "============================================"
 echo "  客户: $CUSTOMER"
 echo "  服务器: $SERVER_URL"
 echo "  平台: $PLATFORM"
+if [ -n "$ENV_FILE" ]; then
+    echo "  环境文件: $ENV_FILE"
+fi
 echo "============================================"
 
 # 检查 tauri.conf.json 存在
@@ -48,11 +168,6 @@ trap 'mv "$TAURI_CONF.bak" "$TAURI_CONF" 2>/dev/null' EXIT
 
 WEB_ENV="$PROJECT_ROOT/web/.env.tauri"
 WEB_ENV_BAK="$WEB_ENV.bak"
-
-if ! command -v node >/dev/null 2>&1; then
-    echo "错误: 未找到 node，请先安装 Node.js 依赖环境"
-    exit 1
-fi
 
 NORMALIZED_SERVER_URL="$(SERVER_URL="$SERVER_URL" node <<'NODE'
 const text = String(process.env.SERVER_URL || "").trim().replace(/\/+$/, "")
@@ -72,7 +187,10 @@ fi
 
 SERVER_URL="$NORMALIZED_SERVER_URL"
 export PATH="$HOME/.cargo/bin:$PATH"
-DELIVERY_PROTOCOL_VERSION="${CRAZOR_DELIVERY_PROTOCOL_VERSION:-1}"
+if [ -n "$ENV_FILE" ]; then
+    node "$PROJECT_ROOT/scripts/customer-backend-env.mjs" --check "$ENV_FILE" --customer "$CUSTOMER" --server-url "$SERVER_URL"
+fi
+DELIVERY_PROTOCOL_VERSION="${CRAZOR_DELIVERY_PROTOCOL_VERSION:-${ENV_DELIVERY_PROTOCOL_VERSION:-1}}"
 export CRAZOR_DELIVERY_PROTOCOL_VERSION="$DELIVERY_PROTOCOL_VERSION"
 
 DELIVERY_IDENTITY_FINGERPRINT="$(CUSTOMER="$CUSTOMER" SERVER_URL="$SERVER_URL" DELIVERY_PROTOCOL_VERSION="$DELIVERY_PROTOCOL_VERSION" node <<'NODE'
@@ -92,6 +210,15 @@ NODE
 )"
 export DELIVERY_IDENTITY_FINGERPRINT="$DELIVERY_IDENTITY_FINGERPRINT"
 export CRAZOR_DELIVERY_IDENTITY_FINGERPRINT="$DELIVERY_IDENTITY_FINGERPRINT"
+
+echo "✅ 客户构建配置已解析: ${CUSTOMER} -> ${SERVER_URL}，协议 ${DELIVERY_PROTOCOL_VERSION}"
+echo "✅ 交付指纹: $DELIVERY_IDENTITY_FINGERPRINT"
+echo ""
+
+if [ "$DRY_RUN" = "1" ] || [ "$DRY_RUN" = "true" ]; then
+    echo "✅ dry-run 完成：已解析客户后端环境、服务地址、交付协议和交付指纹，未执行前端/Tauri 构建"
+    exit 0
+fi
 
 if ! command -v npm >/dev/null 2>&1; then
     echo "错误: 未找到 npm，请先安装 Node.js 依赖环境"
@@ -117,7 +244,7 @@ require_current_platform_host() {
     esac
 }
 
-SERVER_PREFLIGHT_MODE="${CRAZOR_CUSTOMER_SERVER_PREFLIGHT:-warn}"
+SERVER_PREFLIGHT_MODE="${CRAZOR_CUSTOMER_SERVER_PREFLIGHT:-${ENV_SERVER_PREFLIGHT_MODE:-warn}}"
 SERVER_PREFLIGHT_RESULT="skipped"
 
 case "$SERVER_PREFLIGHT_MODE" in

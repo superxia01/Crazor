@@ -528,13 +528,15 @@ docker compose --env-file .env.customer up -d --build
 如果客户环境需要扫码登录，应在生成环境文件时加入 `--wechat-app-id` 和 `--wechat-app-secret`；生成文件已被 `.gitignore` 和 `.dockerignore` 忽略，不能提交到仓库。
 未接微信时，生成文件中的 `CRAZOR_CUSTOMER_ACCESS_CODE` 可作为客户访问码，客户打开 Tauri 客户端后可用该访问码换取登录 JWT。
 
-构建客户安装包时，把同一个后端服务地址写入前端包：
+构建客户安装包时，优先让客户端构建读取同一份 `.env.customer`，避免客户名、服务地址或协议版本被人工复制错：
 
 ```bash
-CRAZOR_CUSTOMER_SERVER_PREFLIGHT=strict ./scripts/build-customer.sh "客户名称" "https://crazor.example.com" macos
+./scripts/hermes customer-build .env.customer macos-current
+# 只核对将要写入安装包的客户、服务地址、协议和交付指纹，不执行 Tauri 构建：
+./scripts/hermes customer-build .env.customer macos-current --dry-run
 ```
 
-脚本会使用 `VITE_API_BASE` 构建 Tauri 前端，客户端内所有 `/api/*` 与 `/mcp/*` 请求都会转到该后端服务。
+脚本会从环境文件读取 `CRAZOR_DELIVERY_CUSTOMER`、`CRAZOR_PUBLIC_BASE_URL`、`CRAZOR_DELIVERY_PROTOCOL_VERSION` 和 `CRAZOR_CUSTOMER_SERVER_PREFLIGHT`，再使用 `VITE_API_BASE` 构建 Tauri 前端；客户端内所有 `/api/*` 与 `/mcp/*` 请求都会转到该后端服务。
 也可以在 GitHub Actions 的“构建客户桌面安装包”工作流中输入客户名称和服务地址，由远端构建机生成安装包 artifact。
 安装包构建完成后会自检前端产物是否嵌入目标服务地址、Tauri bundle 是否包含目标平台安装包，并生成 `desktop/src-tauri/target/release/customer-delivery/` 精简交付目录。该目录只包含客户安装包、`crazor-delivery-manifest.json` 与 `crazor-delivery-checksums.txt`，不包含 Tauri 构建辅助文件。Manifest 会记录客户名、服务地址、交付指纹、平台（如 `macos-current` / `windows-current`）、构建来源、安装文件清单、文件大小和 SHA256，客户端设置页也会显示交付指纹、构建版本和构建时间，便于客户现场验收与后续问题追溯。
 交付目录会通过 `scripts/verify-customer-delivery.mjs` 自动校验；下载 CI artifact 后也可以运行同一脚本复验 manifest、checksum 和安装包 SHA256。

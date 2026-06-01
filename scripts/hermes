@@ -25,6 +25,7 @@ usage() {
   ./scripts/hermes smoke                运行 Crazor Docker MVP 烟测
   ./scripts/hermes desktop-smoke        模拟客户桌面端连接托管后端烟测
   ./scripts/hermes customer-env         生成客户后端 Docker 环境文件
+  ./scripts/hermes customer-build       按客户后端环境文件构建客户桌面安装包
   ./scripts/hermes handoff-check        校验客户安装包、后端配置和桌面链路
   ./scripts/hermes smoke-strict         临时开启严格认证后运行烟测，结束后恢复
   ./scripts/hermes backup               备份 data/hermes/state
@@ -269,6 +270,14 @@ case "$cmd" in
   customer-env)
     need node
     node "$PROJECT_ROOT/scripts/customer-backend-env.mjs" "$@"
+    ;;
+  customer-build)
+    need node
+    local_env_file="${1:-.env.customer}"
+    if [[ $# -gt 0 ]]; then
+      shift
+    fi
+    bash "$PROJECT_ROOT/scripts/build-customer.sh" --env-file "$local_env_file" "$@"
     ;;
   handoff-check)
     need node
