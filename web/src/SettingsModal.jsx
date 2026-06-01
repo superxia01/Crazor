@@ -42,6 +42,7 @@ import {
 import { LANGUAGE_OPTIONS, useI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { loadBrowserEnvVars, saveBrowserEnvVars } from "@/api/browser-utils"
+import { checkRemoteApiHealth, getRemoteApiRuntimeInfo } from "@/api/remote-api-base"
 
 export default function SettingsModal({
   open,
@@ -70,6 +71,9 @@ export default function SettingsModal({
   const [savingUserInfo, setSavingUserInfo] = useState(false)
   const [testingConnection, setTestingConnection] = useState(false)
   const [connectionTestResult, setConnectionTestResult] = useState(null)
+  const [remoteApiInfo, setRemoteApiInfo] = useState(() => getRemoteApiRuntimeInfo())
+  const [checkingRemoteApi, setCheckingRemoteApi] = useState(false)
+  const [remoteApiStatus, setRemoteApiStatus] = useState(null)
   const [serverHost, setServerHost] = useState("127.0.0.1")
   const [dashboardHost] = useState(() => loadBrowserEnvVars().DASHBOARD_HOST || "127.0.0.1")
   const [dashboardPort, setDashboardPort] = useState(() => loadBrowserEnvVars().DASHBOARD_PORT || "9119")
@@ -171,6 +175,8 @@ export default function SettingsModal({
     setGatewayHost(currentGatewayHost)
     setGatewayPort(String(currentGatewayPort))
     setConnectionTestResult(null)
+    setRemoteApiInfo(getRemoteApiRuntimeInfo())
+    setRemoteApiStatus(null)
     setSavingUserInfo(false)
   }, [
     currentAgent,
@@ -220,8 +226,10 @@ export default function SettingsModal({
       }
     }
     void checkStatus()
+    setRemoteApiInfo(getRemoteApiRuntimeInfo())
     setConnectionTestResult(null)
     setDashboardTestResult(null)
+    setRemoteApiStatus(null)
   }, [open, activeSection])
 
   const handleThemeSelect = async (nextTheme) => {
@@ -313,6 +321,34 @@ export default function SettingsModal({
       })
     } finally {
       setTestingConnection(false)
+    }
+  }
+
+  const handleTestRemoteApi = async () => {
+    const info = getRemoteApiRuntimeInfo()
+    setRemoteApiInfo(info)
+    setCheckingRemoteApi(true)
+    setRemoteApiStatus(null)
+
+    try {
+      const result = await checkRemoteApiHealth()
+      setRemoteApiInfo(result)
+      setRemoteApiStatus({
+        type: "success",
+        status: result.status,
+        latencyMs: result.latencyMs,
+      })
+      toast.success("客户端后端连接成功", {
+        description: result.enabled ? result.base : "当前同源后端",
+      })
+    } catch (error) {
+      const message = String(error?.message || error)
+      setRemoteApiStatus({ type: "error", message })
+      toast.error("客户端后端连接失败", {
+        description: message,
+      })
+    } finally {
+      setCheckingRemoteApi(false)
     }
   }
 
@@ -780,6 +816,57 @@ export default function SettingsModal({
                             </Button>
                           </>
                         )}
+                      </div>
+                    </div>
+
+                    {/* ===== 客户端后端 ===== */}
+                    <div className="rounded-[10px] border border-border/60 bg-background/55 px-3 py-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">客户端后端</span>
+                            <Badge
+                              variant={remoteApiInfo.enabled ? "default" : "outline"}
+                              className="rounded px-1.5 py-0.5 text-[10px]">
+                              {remoteApiInfo.enabled ? "远程服务" : "同源服务"}
+                            </Badge>
+                            {remoteApiStatus?.type === "success" && (
+                              <Badge className="rounded px-1.5 py-0.5 text-[10px]">
+                                HTTP {remoteApiStatus.status} · {remoteApiStatus.latencyMs}ms
+                              </Badge>
+                            )}
+                            {remoteApiStatus?.type === "error" && (
+                              <Badge variant="destructive" className="rounded px-1.5 py-0.5 text-[10px]">
+                                连接失败
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
+                            <div className="grid gap-1 sm:grid-cols-[4.5rem_minmax(0,1fr)]">
+                              <span>服务地址</span>
+                              <code className="min-w-0 break-all rounded bg-muted/55 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                                {remoteApiInfo.base || "当前同源 /api"}
+                              </code>
+                            </div>
+                            <div className="grid gap-1 sm:grid-cols-[4.5rem_minmax(0,1fr)]">
+                              <span>检测端点</span>
+                              <code className="min-w-0 break-all rounded bg-muted/55 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                                {remoteApiInfo.healthUrl}
+                              </code>
+                            </div>
+                            {remoteApiStatus?.type === "error" && (
+                              <div className="text-rose-500">{remoteApiStatus.message}</div>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleTestRemoteApi()}
+                          disabled={checkingRemoteApi}
+                          className="h-8 rounded-md text-[11px]">
+                          {checkingRemoteApi ? "检测中..." : "检测后端"}
+                        </Button>
                       </div>
                     </div>
 

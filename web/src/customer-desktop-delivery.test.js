@@ -10,6 +10,8 @@ const buildCustomerScript = readFileSync(resolve(repoRoot, "scripts/build-custom
 const webPackage = readFileSync(resolve(repoRoot, "web/package.json"), "utf8")
 const desktopPackage = readFileSync(resolve(repoRoot, "desktop/package.json"), "utf8")
 const authFetchSource = readFileSync(resolve(repoRoot, "web/src/api/crazor-auth.js"), "utf8")
+const remoteApiSource = readFileSync(resolve(repoRoot, "web/src/api/remote-api-base.js"), "utf8")
+const settingsModalSource = readFileSync(resolve(repoRoot, "web/src/SettingsModal.jsx"), "utf8")
 const loginDialogSource = readFileSync(resolve(repoRoot, "web/src/components/LoginDialog.jsx"), "utf8")
 const serverIndex = readFileSync(resolve(repoRoot, "server/src/index.ts"), "utf8")
 const serverAuthSource = readFileSync(resolve(repoRoot, "server/src/services/crazor-auth.ts"), "utf8")
@@ -52,6 +54,22 @@ test("Tauri remote API requests preserve customer login and actor tokens", () =>
     serverIndex.includes("const scopedToken = String(c.req.header('X-Crazor-Token')") &&
       serverIndex.includes("return bearer.startsWith('czr_') ? bearer : ''"),
     "server should not confuse customer JWT Authorization with Crazor actor tokens"
+  )
+})
+
+test("desktop client exposes the configured backend for delivery verification", () => {
+  assert.ok(
+    remoteApiSource.includes("getRemoteApiRuntimeInfo") &&
+      remoteApiSource.includes("checkRemoteApiHealth") &&
+      remoteApiSource.includes('buildRemoteApiUrl("/api/health"'),
+    "desktop client should expose the embedded backend URL and health endpoint"
+  )
+  assert.ok(
+    settingsModalSource.includes("客户端后端") &&
+      settingsModalSource.includes("检测后端") &&
+      settingsModalSource.includes("远程服务") &&
+      settingsModalSource.includes("同源服务"),
+    "settings connection panel should let operators verify the packaged client backend target"
   )
 })
 

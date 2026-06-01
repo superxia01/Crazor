@@ -47,7 +47,39 @@ export function installRemoteApiBaseFetch(apiBase = configuredRemoteApiBase()) {
   }
 }
 
-function configuredRemoteApiBase() {
+export function getRemoteApiRuntimeInfo(apiBase = configuredRemoteApiBase(), origin = browserOrigin()) {
+  const base = normalizeRemoteApiBase(apiBase)
+  const healthUrl = base ? buildRemoteApiUrl("/api/health", base, origin) : "/api/health"
+  return {
+    enabled: Boolean(base),
+    base,
+    healthUrl: healthUrl || "/api/health",
+  }
+}
+
+export async function checkRemoteApiHealth({
+  apiBase = configuredRemoteApiBase(),
+  origin = browserOrigin(),
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  const info = getRemoteApiRuntimeInfo(apiBase, origin)
+  const startedAt = Date.now()
+  const response = await fetchImpl(info.healthUrl, {
+    headers: { Accept: "application/json" },
+  })
+  const latencyMs = Date.now() - startedAt
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+  return {
+    ...info,
+    ok: true,
+    status: response.status,
+    latencyMs,
+  }
+}
+
+export function configuredRemoteApiBase() {
   return import.meta.env?.VITE_API_BASE || ""
 }
 
