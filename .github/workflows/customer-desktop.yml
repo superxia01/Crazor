@@ -38,10 +38,10 @@ jobs:
 
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
       - name: 安装 Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6.4.0
         with:
           node-version: "22"
           cache: npm
@@ -64,7 +64,7 @@ jobs:
         run: ./scripts/build-customer.sh "$CUSTOMER_NAME" "$SERVER_URL" current
 
       - name: 上传安装包
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: crazor-desktop-${{ github.run_id }}
           path: desktop/src-tauri/target/release/bundle/**/*
