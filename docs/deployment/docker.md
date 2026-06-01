@@ -86,6 +86,7 @@ CRAZOR_DELIVERY_PROTOCOL_VERSION=1
 
 `CRAZOR_PUBLIC_BASE_URL` 会优先用于微信登录回调地址。局域网部署时填客户实际访问的局域网入口；公网部署时填 HTTPS 域名。
 `CRAZOR_DELIVERY_PROTOCOL_VERSION` 会同时写入客户安装包和后端自检；版本不一致时客户端会阻止进入系统，避免新客户端连接旧后端。
+客户桌面端运行时也会比较安装包内置服务地址和后端声明的 `delivery.public_base_url`；缺失或不一致会停在交付检测页，避免客户包连到错误服务。
 
 构建正式客户安装包前建议启用严格预检，脚本会访问 `${CRAZOR_PUBLIC_BASE_URL}/api/delivery/readiness`，确认客户名、公开地址和交付自检状态匹配后才继续打包：
 

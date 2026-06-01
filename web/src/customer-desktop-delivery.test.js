@@ -203,8 +203,10 @@ test("backend exposes a public delivery readiness self-check for installed clien
     deliveryIdentitySource.includes("evaluateDeliveryIdentity") &&
       deliveryIdentitySource.includes("托管服务未声明交付客户") &&
       deliveryIdentitySource.includes("托管服务声明为") &&
-      deliveryIdentitySource.includes("交付协议"),
-    "customer desktop should reject a hosted backend whose delivery identity or protocol version does not match the embedded customer package"
+      deliveryIdentitySource.includes("交付协议") &&
+      deliveryIdentitySource.includes("未声明公开地址") &&
+      deliveryIdentitySource.includes("托管服务公开地址为"),
+    "customer desktop should reject a hosted backend whose delivery identity, public URL, or protocol version does not match the embedded customer package"
   )
   assert.ok(
     authMiddlewareSource.includes("'/api/delivery/'"),

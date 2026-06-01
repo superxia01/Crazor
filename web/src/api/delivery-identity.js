@@ -1,5 +1,7 @@
 // Copyright (c) 2026 MeeJoy
 
+import { normalizeRemoteApiBase } from "./remote-api-base.js"
+
 export function evaluateDeliveryIdentity(deliveryInfo = {}, readiness = {}) {
   const clientCustomer = normalizeIdentityText(deliveryInfo.customerName)
   if (!deliveryInfo.enabled || !clientCustomer) {
@@ -34,6 +36,21 @@ export function evaluateDeliveryIdentity(deliveryInfo = {}, readiness = {}) {
     return {
       status: "error",
       message: `当前客户端需要交付协议 ${clientProtocol}，但托管服务协议为 ${serverProtocol}`,
+    }
+  }
+
+  const clientServerUrl = normalizeRemoteApiBase(deliveryInfo.serverUrl)
+  const serverPublicUrl = normalizeRemoteApiBase(serverDelivery.public_base_url || serverDelivery.publicBaseUrl)
+  if (clientServerUrl && !serverPublicUrl) {
+    return {
+      status: "error",
+      message: `当前客户端绑定服务地址 ${clientServerUrl}，但托管服务未声明公开地址`,
+    }
+  }
+  if (clientServerUrl && serverPublicUrl && clientServerUrl !== serverPublicUrl) {
+    return {
+      status: "error",
+      message: `当前客户端绑定服务地址 ${clientServerUrl}，但托管服务公开地址为 ${serverPublicUrl}`,
     }
   }
 
