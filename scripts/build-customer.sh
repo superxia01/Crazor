@@ -2,11 +2,12 @@
 # Crazor 按客户构建桌面安装包
 #
 # 用法:
-#   ./scripts/build-customer.sh "客户名" "https://123.45.67.1" [macos|windows]
+#   ./scripts/build-customer.sh "客户名" "https://123.45.67.1" [macos|macos-arm64|macos-x64|windows|windows-x64|current]
 #
 # 示例:
 #   ./scripts/build-customer.sh "张三公司" "https://123.45.67.1"
-#   ./scripts/build-customer.sh "李四工作室" "http://localhost:3001" macos
+#   ./scripts/build-customer.sh "李四工作室" "http://localhost:3001" macos-arm64
+#   ./scripts/build-customer.sh "本机验证" "http://localhost:5173" current
 #
 # 输出:
 #   desktop/src-tauri/target/release/bundle/dmg/Crazor_1.0.0_aarch64.dmg (macOS)
@@ -14,7 +15,7 @@
 
 set -e
 
-CUSTOMER="${1:?用法: build-customer.sh <客户名> <服务器URL> [macos|windows]}"
+CUSTOMER="${1:?用法: build-customer.sh <客户名> <服务器URL> [macos|macos-arm64|macos-x64|windows|windows-x64|current]}"
 SERVER_URL="${2:?错误: 请提供服务器 URL}"
 PLATFORM="${3:-macos}"
 
@@ -87,15 +88,22 @@ npm run build:tauri
 # 构建 Tauri 安装包
 cd "$PROJECT_ROOT/desktop"
 
-if [ "$PLATFORM" = "macos" ]; then
-    echo "🍎 构建 macOS 安装包..."
+if [ "$PLATFORM" = "macos" ] || [ "$PLATFORM" = "macos-arm64" ]; then
+    echo "🍎 构建 macOS Apple Silicon 安装包..."
     npx tauri build --target aarch64-apple-darwin
-elif [ "$PLATFORM" = "windows" ]; then
-    echo "🪟 构建 Windows 安装包..."
+elif [ "$PLATFORM" = "macos-x64" ]; then
+    echo "🍎 构建 macOS Intel 安装包..."
+    npx tauri build --target x86_64-apple-darwin
+elif [ "$PLATFORM" = "windows" ] || [ "$PLATFORM" = "windows-x64" ]; then
+    echo "🪟 构建 Windows x64 安装包..."
     npx tauri build --target x86_64-pc-windows-msvc
-else
+elif [ "$PLATFORM" = "current" ]; then
     echo "📦 构建当前平台..."
     npx tauri build
+else
+    echo "错误: 不支持的平台 $PLATFORM"
+    echo "可选: macos, macos-arm64, macos-x64, windows, windows-x64, current"
+    exit 1
 fi
 
 echo ""

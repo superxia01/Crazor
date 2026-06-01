@@ -1,0 +1,62 @@
+name: 构建客户桌面安装包
+
+on:
+  workflow_dispatch:
+    inputs:
+      customer:
+        description: 客户名称
+        required: true
+        default: CRAZYAIGC
+      server_url:
+        description: 已部署好的 Crazor 后端/统一入口地址
+        required: true
+      platform:
+        description: 构建平台
+        required: true
+        type: choice
+        default: macos-current
+        options:
+          - macos-current
+          - windows-current
+
+jobs:
+  build:
+    name: ${{ inputs.customer }} / ${{ inputs.platform }}
+    runs-on: ${{ inputs.platform == 'windows-current' && 'windows-latest' || 'macos-latest' }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            desktop/package-lock.json
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 安装前端依赖
+        working-directory: web
+        run: npm ci
+
+      - name: 安装桌面端依赖
+        working-directory: desktop
+        run: npm ci
+
+      - name: 构建客户安装包
+        run: ./scripts/build-customer.sh "${{ inputs.customer }}" "${{ inputs.server_url }}" current
+
+      - name: 上传安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: crazor-${{ inputs.customer }}-${{ inputs.platform }}
+          path: desktop/src-tauri/target/release/bundle/**/*
+          if-no-files-found: error

@@ -14,6 +14,7 @@ const loginDialogSource = readFileSync(resolve(repoRoot, "web/src/components/Log
 const serverIndex = readFileSync(resolve(repoRoot, "server/src/index.ts"), "utf8")
 const serverAuthSource = readFileSync(resolve(repoRoot, "server/src/services/crazor-auth.ts"), "utf8")
 const composeSource = readFileSync(resolve(repoRoot, "docker-compose.yml"), "utf8")
+const customerWorkflowSource = readFileSync(resolve(repoRoot, ".github/workflows/customer-desktop.yml"), "utf8")
 
 test("customer desktop build embeds the configured backend API base", () => {
   assert.ok(
@@ -87,5 +88,20 @@ test("docker backend keeps Tauri client origins in CORS defaults", () => {
       composeSource.includes("tauri://localhost") &&
       composeSource.includes("https://tauri.localhost"),
     "Compose backend should allow packaged Tauri clients to call the configured service"
+  )
+})
+
+test("customer desktop package can be built by CI with configured backend", () => {
+  assert.ok(
+    customerWorkflowSource.includes("workflow_dispatch") &&
+      customerWorkflowSource.includes("server_url") &&
+      customerWorkflowSource.includes("./scripts/build-customer.sh") &&
+      customerWorkflowSource.includes("upload-artifact"),
+    "GitHub Actions should expose a manual customer package build that embeds the configured backend URL"
+  )
+  assert.ok(
+    buildCustomerScript.includes('"current"') &&
+      buildCustomerScript.includes("npx tauri build"),
+    "customer build script should support current-platform packaging for CI runners"
   )
 })
