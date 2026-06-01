@@ -5,7 +5,7 @@ import { verifyJWT } from '../services/crazor-auth'
 import { getCookie } from 'hono/cookie'
 import { DEPLOYMENT_TIER } from '../services/crazor-config'
 
-const PUBLIC_PATHS = ['/api/auth/', '/api/health', '/mcp/sse', '/mcp']
+const PUBLIC_PATHS = ['/api/auth/', '/api/health', '/api/delivery/', '/mcp/sse', '/mcp']
 
 export const authMiddleware = async (c: Context, next: Next) => {
   // Skip auth for public paths

@@ -43,7 +43,18 @@ import { LANGUAGE_OPTIONS, useI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { loadBrowserEnvVars, saveBrowserEnvVars } from "@/api/browser-utils"
 import { getCustomerDeliveryRuntimeInfo } from "@/api/customer-delivery"
+import {
+  checkDeliveryReadiness,
+  deliveryCheckStatusLabel,
+  deliveryReadinessLabel,
+} from "@/api/delivery-readiness"
 import { checkRemoteApiHealth, getRemoteApiRuntimeInfo } from "@/api/remote-api-base"
+
+function deliveryBadgeVariant(status) {
+  if (status === "blocked" || status === "error") return "destructive"
+  if (status === "degraded" || status === "warn") return "secondary"
+  return "outline"
+}
 
 export default function SettingsModal({
   open,
@@ -74,6 +85,8 @@ export default function SettingsModal({
   const [connectionTestResult, setConnectionTestResult] = useState(null)
   const [remoteApiInfo, setRemoteApiInfo] = useState(() => getRemoteApiRuntimeInfo())
   const [deliveryInfo, setDeliveryInfo] = useState(() => getCustomerDeliveryRuntimeInfo())
+  const [deliveryReadiness, setDeliveryReadiness] = useState(null)
+  const [checkingDeliveryReadiness, setCheckingDeliveryReadiness] = useState(false)
   const [checkingRemoteApi, setCheckingRemoteApi] = useState(false)
   const [remoteApiStatus, setRemoteApiStatus] = useState(null)
   const [serverHost, setServerHost] = useState("127.0.0.1")
@@ -179,6 +192,7 @@ export default function SettingsModal({
     setConnectionTestResult(null)
     setRemoteApiInfo(getRemoteApiRuntimeInfo())
     setDeliveryInfo(getCustomerDeliveryRuntimeInfo())
+    setDeliveryReadiness(null)
     setRemoteApiStatus(null)
     setSavingUserInfo(false)
   }, [
@@ -234,6 +248,7 @@ export default function SettingsModal({
     setConnectionTestResult(null)
     setDashboardTestResult(null)
     setRemoteApiStatus(null)
+    setDeliveryReadiness(null)
   }, [open, activeSection])
 
   const handleThemeSelect = async (nextTheme) => {
@@ -353,6 +368,31 @@ export default function SettingsModal({
       })
     } finally {
       setCheckingRemoteApi(false)
+    }
+  }
+
+  const handleCheckDeliveryReadiness = async () => {
+    setCheckingDeliveryReadiness(true)
+    setDeliveryReadiness(null)
+
+    try {
+      const result = await checkDeliveryReadiness()
+      setDeliveryReadiness(result)
+      const label = deliveryReadinessLabel(result?.status)
+      if (result?.status === "blocked") {
+        toast.error("交付自检存在阻塞", { description: label })
+      } else {
+        toast.success("交付自检完成", { description: label })
+      }
+    } catch (error) {
+      const message = String(error?.message || error)
+      setDeliveryReadiness({
+        status: "blocked",
+        checks: [{ id: "delivery-readiness", label: "交付自检", status: "error", detail: message }],
+      })
+      toast.error("交付自检失败", { description: message })
+    } finally {
+      setCheckingDeliveryReadiness(false)
     }
   }
 
@@ -887,6 +927,52 @@ export default function SettingsModal({
                           disabled={checkingRemoteApi}
                           className="h-8 rounded-md text-[11px]">
                           {checkingRemoteApi ? "检测中..." : "检测后端"}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* ===== 交付自检 ===== */}
+                    <div className="rounded-[10px] border border-border/60 bg-background/55 px-3 py-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">交付自检</span>
+                            <Badge
+                              variant={deliveryBadgeVariant(deliveryReadiness?.status)}
+                              className="rounded px-1.5 py-0.5 text-[10px]">
+                              {deliveryReadinessLabel(deliveryReadiness?.status)}
+                            </Badge>
+                          </div>
+                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                            检测后端 API、登录入口、对话网关、会话能力、业务数据和知识库目录。
+                          </p>
+                          {Array.isArray(deliveryReadiness?.checks) && deliveryReadiness.checks.length > 0 && (
+                            <div className="mt-3 grid gap-2">
+                              {deliveryReadiness.checks.map((check) => (
+                                <div
+                                  key={check.id}
+                                  className="grid gap-1 rounded-md border border-border/50 bg-muted/25 px-2 py-2 sm:grid-cols-[7rem_minmax(0,1fr)_3.25rem] sm:items-center">
+                                  <span className="text-xs font-medium text-foreground">{check.label}</span>
+                                  <span className="min-w-0 text-xs leading-5 text-muted-foreground">
+                                    {check.detail}
+                                  </span>
+                                  <Badge
+                                    variant={deliveryBadgeVariant(check.status)}
+                                    className="w-fit rounded px-1.5 py-0.5 text-[10px]">
+                                    {deliveryCheckStatusLabel(check.status)}
+                                  </Badge>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleCheckDeliveryReadiness()}
+                          disabled={checkingDeliveryReadiness}
+                          className="h-8 rounded-md text-[11px]">
+                          {checkingDeliveryReadiness ? "自检中..." : "运行自检"}
                         </Button>
                       </div>
                     </div>

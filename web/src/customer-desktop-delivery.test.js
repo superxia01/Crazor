@@ -16,6 +16,7 @@ const settingsModalSource = readFileSync(resolve(repoRoot, "web/src/SettingsModa
 const loginDialogSource = readFileSync(resolve(repoRoot, "web/src/components/LoginDialog.jsx"), "utf8")
 const serverIndex = readFileSync(resolve(repoRoot, "server/src/index.ts"), "utf8")
 const serverAuthSource = readFileSync(resolve(repoRoot, "server/src/services/crazor-auth.ts"), "utf8")
+const authMiddlewareSource = readFileSync(resolve(repoRoot, "server/src/middleware/auth.ts"), "utf8")
 const composeSource = readFileSync(resolve(repoRoot, "docker-compose.yml"), "utf8")
 const customerWorkflowSource = readFileSync(resolve(repoRoot, ".github/workflows/customer-desktop.yml"), "utf8")
 
@@ -77,11 +78,29 @@ test("desktop client exposes the configured backend for delivery verification", 
   assert.ok(
     settingsModalSource.includes("客户端后端") &&
       settingsModalSource.includes("检测后端") &&
+      settingsModalSource.includes("交付自检") &&
+      settingsModalSource.includes("运行自检") &&
       settingsModalSource.includes("交付客户") &&
       settingsModalSource.includes("客户包") &&
       settingsModalSource.includes("远程服务") &&
       settingsModalSource.includes("同源服务"),
     "settings connection panel should let operators verify the packaged client backend target"
+  )
+})
+
+test("backend exposes a public delivery readiness self-check for installed clients", () => {
+  assert.ok(
+    serverIndex.includes("app.get('/api/delivery/readiness'") &&
+      serverIndex.includes("buildDeliveryReadiness") &&
+      serverIndex.includes("'agent-gateway'") &&
+      serverIndex.includes("'chat-api'") &&
+      serverIndex.includes("'business-data'") &&
+      serverIndex.includes("'knowledge-vault'"),
+    "backend should expose a public readiness endpoint covering the delivery-critical chain"
+  )
+  assert.ok(
+    authMiddlewareSource.includes("'/api/delivery/'"),
+    "delivery readiness endpoint should remain callable before customer login"
   )
 })
 

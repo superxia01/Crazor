@@ -30,7 +30,7 @@ import { seedVault } from './services/seed-vault'
 import { seedSkills, seedOneSkill } from './services/seed-skills'
 import { migrateVault } from './services/migrate-vault'
 import { handleSSEConnect, handleSSEMessage, handleStreamableHTTP } from './services/crazor-mcp'
-import { CRAZOR_HOME, CRAZOR_SKILLS_DIR, WECHAT_APP_ID, DEPLOYMENT_TIER } from './services/crazor-config'
+import { CRAZOR_HOME, CRAZOR_SKILLS_DIR, CRAZOR_VAULT_ROOT, WECHAT_APP_ID, DEPLOYMENT_TIER } from './services/crazor-config'
 import {
   AGENT_DASHBOARD_URL,
   AGENT_GATEWAY_URL,
@@ -394,6 +394,15 @@ const sessionResponseIds = new Map<string, string | null>()
 const sessionPinnedIds = new Set<string>()
 const sessionModelOverrides = new Map<string, string | null>()
 
+type DeliveryCheckStatus = 'ok' | 'warn' | 'error'
+
+type DeliveryReadinessCheck = {
+  id: string
+  label: string
+  status: DeliveryCheckStatus
+  detail: string
+}
+
 function sessionTimestamp(value: unknown): string {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return new Date(value * 1000).toISOString()
@@ -431,6 +440,121 @@ function normalizeGatewaySessionList(payload: unknown): Record<string, unknown>[
         ? payload
         : []
   return items.map((item) => normalizeGatewaySession(item)).filter((item) => item.id)
+}
+
+function deliveryCheck(id: string, label: string, status: DeliveryCheckStatus, detail: string): DeliveryReadinessCheck {
+  return { id, label, status, detail }
+}
+
+function deliveryStatus(checks: DeliveryReadinessCheck[]): 'ready' | 'degraded' | 'blocked' {
+  if (checks.some((check) => check.status === 'error')) return 'blocked'
+  if (checks.some((check) => check.status === 'warn')) return 'degraded'
+  return 'ready'
+}
+
+function readBusinessDataReadiness(): DeliveryReadinessCheck {
+  try {
+    getContactStats()
+    getProjectStats()
+    return deliveryCheck('business-data', '业务数据 API', 'ok', 'CRM、项目和任务数据库可读')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '业务数据库读取失败'
+    return deliveryCheck('business-data', '业务数据 API', 'error', message)
+  }
+}
+
+function readKnowledgeVaultReadiness(): DeliveryReadinessCheck {
+  try {
+    if (!existsSync(CRAZOR_HOME)) {
+      return deliveryCheck('knowledge-vault', '知识库目录', 'error', 'CRAZOR_HOME 目录不存在')
+    }
+    const knowledgeRoot = join(CRAZOR_VAULT_ROOT, 'knowledge')
+    const notebookRoot = join(CRAZOR_VAULT_ROOT, 'notebook')
+    if (!existsSync(knowledgeRoot) || !existsSync(notebookRoot)) {
+      return deliveryCheck('knowledge-vault', '知识库目录', 'warn', '知识库或笔记目录尚未初始化')
+    }
+    return deliveryCheck('knowledge-vault', '知识库目录', 'ok', '知识库和笔记目录可访问')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '知识库目录检查失败'
+    return deliveryCheck('knowledge-vault', '知识库目录', 'error', message)
+  }
+}
+
+async function buildDeliveryReadiness() {
+  const provider = await getAgentProviderRuntimeDescriptor()
+  const runtime = asRecord(provider.runtime)
+  const gateway = asRecord(runtime.gateway)
+  const dashboard = asRecord(runtime.dashboard)
+  const gatewayAvailable = Boolean(gateway.available)
+  const dashboardAvailable = Boolean(dashboard.available)
+  const loginRequired = Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID)
+  const wechatConfigured = Boolean(WECHAT_APP_ID)
+  const loginReady = !loginRequired || wechatConfigured
+  const supportsChat = agentProviderSupports('gateway.chat_completions') || agentProviderSupports('gateway.responses')
+  const supportsSessions = agentProviderSupports('gateway.sessions')
+  const checks: DeliveryReadinessCheck[] = [
+    deliveryCheck('api', '后端 API', 'ok', 'Crazor API 已响应'),
+    deliveryCheck(
+      'auth',
+      '登录入口',
+      loginReady ? 'ok' : 'error',
+      loginRequired
+        ? wechatConfigured
+          ? '微信扫码登录已配置'
+          : '已启用登录校验，但未配置微信登录'
+        : '当前环境未强制登录',
+    ),
+    deliveryCheck(
+      'agent-gateway',
+      'Agent Gateway',
+      gatewayAvailable ? 'ok' : 'error',
+      gatewayAvailable ? 'Agent Gateway 可访问' : cleanString(gateway.message) || 'Agent Gateway 不可访问',
+    ),
+    deliveryCheck(
+      'chat-api',
+      '对话 API',
+      gatewayAvailable && supportsChat ? 'ok' : 'error',
+      gatewayAvailable && supportsChat ? '对话能力已就绪' : '缺少可用的对话网关或对话能力',
+    ),
+    deliveryCheck(
+      'sessions-api',
+      '会话 API',
+      gatewayAvailable && supportsSessions ? 'ok' : 'warn',
+      gatewayAvailable && supportsSessions ? '会话列表能力已就绪' : '会话列表能力不可用，基础业务仍可访问',
+    ),
+    readBusinessDataReadiness(),
+    readKnowledgeVaultReadiness(),
+  ]
+
+  if (agentProviderSupports('dashboard.status')) {
+    checks.push(deliveryCheck(
+      'agent-dashboard',
+      'Agent Dashboard',
+      dashboardAvailable ? 'ok' : 'warn',
+      dashboardAvailable ? 'Agent 控制台可访问' : cleanString(dashboard.message) || 'Agent 控制台不可访问',
+    ))
+  }
+
+  const status = deliveryStatus(checks)
+  return {
+    status,
+    ready: status === 'ready',
+    generated_at: new Date().toISOString(),
+    auth: {
+      login_required: loginRequired,
+      wechat_configured: wechatConfigured,
+      bound: isUserBound(),
+      plan: DEPLOYMENT_TIER,
+    },
+    agent_provider: {
+      id: provider.id,
+      kind: provider.kind,
+      status: provider.status,
+      gateway_available: gatewayAvailable,
+      dashboard_available: dashboardAvailable,
+    },
+    checks,
+  }
 }
 
 // --- Middleware ---
@@ -952,6 +1076,8 @@ function buildDocSearchSnippet(content: string, query: string): string {
 
 // --- Health ---
 app.get('/api/health', (c) => c.json({ status: 'ok', service: 'crazor-api' }))
+
+app.get('/api/delivery/readiness', async (c) => c.json(await buildDeliveryReadiness()))
 
 const WECHAT_LOGIN_SESSION_TTL_MS = 10 * 60 * 1000
 const wechatLoginSessions = new Map<string, {

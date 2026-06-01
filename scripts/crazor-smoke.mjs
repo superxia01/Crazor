@@ -339,6 +339,19 @@ async function main() {
     assert(health.status === 200, "/api/health 未返回 200", health.data)
   })
 
+  await step("客户交付自检入口", async () => {
+    const readiness = await request("/api/delivery/readiness", { auth: false })
+    assert(["ready", "degraded", "blocked"].includes(readiness.data?.status), "交付自检未返回有效状态", readiness.data)
+    const checks = readiness.data?.checks || []
+    assert(Array.isArray(checks), "交付自检未返回检查项列表", readiness.data)
+    for (const id of ["api", "auth", "agent-gateway", "chat-api", "business-data", "knowledge-vault"]) {
+      assert(checks.some((check) => check.id === id), `交付自检缺少 ${id} 检查项`, readiness.data)
+    }
+    if (!skipHermes) {
+      assert(readiness.data.status !== "blocked", "完整 Docker + Hermes 部署不应被交付自检判定为阻塞", readiness.data)
+    }
+  })
+
   await step("Agent Provider Adapter 状态", async () => {
     const provider = await request("/api/agent/provider", { auth: false })
     assert(provider.data?.id, "Agent Provider 未返回 provider id", provider.data)
