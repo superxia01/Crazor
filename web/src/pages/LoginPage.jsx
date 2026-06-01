@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 
-export function LoginPage({ onLogin }) {
+export function LoginPage({ onLogin, allowSkip = true }) {
   const [qrUrl, setQrUrl] = useState(null)
   const [loginState, setLoginState] = useState("")
   const [loading, setLoading] = useState(true)
@@ -28,7 +28,7 @@ export function LoginPage({ onLogin }) {
       const status = await resp.json()
 
       if (!status.wechatConfigured) {
-        setError('微信登录未配置，请设置 WECHAT_APP_ID 环境变量')
+        setError('微信登录未配置，请设置 WECHAT_APP_ID 和 WECHAT_APP_SECRET 环境变量')
         setLoading(false)
         return
       }
@@ -126,7 +126,7 @@ export function LoginPage({ onLogin }) {
           )}
 
           {/* Skip login (dev / no WeChat config) */}
-          {!loading && (
+          {!loading && allowSkip && (
             <button
               onClick={onLogin}
               className="mt-4 w-full rounded-xl border border-border px-6 py-3 text-sm text-muted-foreground transition-colors hover:bg-muted/50"

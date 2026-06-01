@@ -1234,7 +1234,9 @@ app.get('/api/auth/me', async (c) => {
 })
 
 app.get('/api/auth/status', (c) => {
+  const loginRequired = Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID)
   return c.json({
+    loginRequired,
     bound: isUserBound(),
     wechatConfigured: Boolean(WECHAT_APP_ID && WECHAT_APP_SECRET),
     plan: DEPLOYMENT_TIER,

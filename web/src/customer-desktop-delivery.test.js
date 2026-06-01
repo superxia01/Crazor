@@ -16,6 +16,7 @@ const customerDeliveryGateSource = readFileSync(resolve(repoRoot, "web/src/Custo
 const remoteApiSource = readFileSync(resolve(repoRoot, "web/src/api/remote-api-base.js"), "utf8")
 const settingsModalSource = readFileSync(resolve(repoRoot, "web/src/SettingsModal.jsx"), "utf8")
 const loginDialogSource = readFileSync(resolve(repoRoot, "web/src/components/LoginDialog.jsx"), "utf8")
+const loginPageSource = readFileSync(resolve(repoRoot, "web/src/pages/LoginPage.jsx"), "utf8")
 const serverIndex = readFileSync(resolve(repoRoot, "server/src/index.ts"), "utf8")
 const serverAuthSource = readFileSync(resolve(repoRoot, "server/src/services/crazor-auth.ts"), "utf8")
 const authMiddlewareSource = readFileSync(resolve(repoRoot, "server/src/middleware/auth.ts"), "utf8")
@@ -148,6 +149,30 @@ test("desktop WeChat login uses backend callback plus client polling", () => {
     loginDialogSource.includes("/api/auth/wechat/session/") &&
       loginDialogSource.includes("localStorage.setItem('crazor_token', data.token)"),
     "desktop client should poll the backend login session and store the returned JWT"
+  )
+})
+
+test("customer desktop requires login before entering workspace when backend enforces auth", () => {
+  assert.ok(
+    serverIndex.includes("app.get('/api/auth/status'") &&
+      serverIndex.includes("loginRequired") &&
+      serverIndex.includes("Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID)"),
+    "backend auth status should tell packaged clients whether login is required"
+  )
+  assert.ok(
+    appSource.includes("LoginPage") &&
+      appSource.includes("authStatus") &&
+      appSource.includes("authStatus?.loginRequired") &&
+      appSource.includes("showLoginGate") &&
+      appSource.includes("allowSkip={false}") &&
+      appSource.indexOf("showLoginGate ?") < appSource.indexOf("<AppInner"),
+    "desktop app should show an enforced login gate before rendering the workspace"
+  )
+  assert.ok(
+    loginPageSource.includes("allowSkip = true") &&
+      loginPageSource.includes("!loading && allowSkip") &&
+      loginPageSource.includes("WECHAT_APP_ID 和 WECHAT_APP_SECRET"),
+    "login page should keep dev skip optional but hide it for customer auth-gated clients"
   )
 })
 
