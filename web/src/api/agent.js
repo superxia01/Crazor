@@ -9,3 +9,11 @@ import { api } from './client.ts'
 export async function getAgents() {
   return api.get('/api/agents')
 }
+
+export async function getAgentProvider() {
+  return api.get('/api/agent/provider')
+}
+
+export async function getAgentProviderCapabilities() {
+  return api.get('/api/agent/provider/capabilities')
+}

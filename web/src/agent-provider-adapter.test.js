@@ -1,0 +1,47 @@
+// Copyright (c) 2026 MeeJoy
+
+import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import test from "node:test"
+
+const repoRoot = resolve(new URL("../..", import.meta.url).pathname)
+const serverIndex = readFileSync(resolve(repoRoot, "server/src/index.ts"), "utf8")
+const agentGatewaySource = readFileSync(resolve(repoRoot, "server/src/services/agent-gateway.ts"), "utf8")
+const agentApiSource = readFileSync(resolve(repoRoot, "web/src/api/agent.js"), "utf8")
+const smokeSource = readFileSync(resolve(repoRoot, "scripts/crazor-smoke.mjs"), "utf8")
+
+test("Agent Provider Adapter exposes runtime descriptor and capabilities", () => {
+  assert.ok(
+    serverIndex.includes("app.get('/api/agent/provider'"),
+    "server should expose the provider runtime descriptor"
+  )
+  assert.ok(
+    serverIndex.includes("app.get('/api/agent/provider/capabilities'"),
+    "server should expose provider capability metadata"
+  )
+  assert.ok(
+    agentGatewaySource.includes("getAgentProviderDescriptor") &&
+      agentGatewaySource.includes("AGENT_PROVIDER_CAPABILITIES") &&
+      agentGatewaySource.includes("AgentProviderCapabilityId"),
+    "agent gateway service should define a provider descriptor contract"
+  )
+  assert.ok(
+    agentGatewaySource.includes("'gateway.chat_completions'") &&
+      agentGatewaySource.includes("'dashboard.skills'") &&
+      agentGatewaySource.includes("'crazor.mcp'"),
+    "provider contract should separate gateway, dashboard, and Crazor-owned capabilities"
+  )
+  assert.ok(
+    agentApiSource.includes("getAgentProvider") &&
+      agentApiSource.includes("getAgentProviderCapabilities"),
+    "web API layer should read provider metadata through generic agent APIs"
+  )
+  assert.ok(
+    smokeSource.includes("Agent Provider Adapter 状态") &&
+      smokeSource.includes("/api/agent/provider") &&
+      smokeSource.includes("gateway.chat_completions") &&
+      smokeSource.includes("crazor.mcp"),
+    "delivery smoke test should verify the provider adapter endpoint"
+  )
+})

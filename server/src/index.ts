@@ -33,7 +33,10 @@ import { CRAZOR_HOME, CRAZOR_SKILLS_DIR } from './services/crazor-config'
 import {
   AGENT_DASHBOARD_URL,
   AGENT_GATEWAY_URL,
+  agentProviderSupports,
   agentGatewayHeaders,
+  getAgentProviderDescriptor,
+  unsupportedAgentProviderCapability,
 } from './services/agent-gateway'
 import { evaluateReadPermission, evaluateWritePermission } from './services/crazor-permissions'
 
@@ -174,6 +177,88 @@ async function gatewayFetch(path: string, options: RequestInit = {}): Promise<Re
       ...(options.headers as Record<string, string> || {}),
     },
   })
+}
+
+async function readAgentProviderGatewayStatus() {
+  try {
+    const resp = await gatewayFetch('/v1/models')
+    const payload = await parseResponsePayload(resp).catch(() => null)
+    return {
+      available: resp.ok,
+      status: resp.status,
+      probe: '/v1/models',
+      message: resp.ok ? 'ok' : 'gateway probe failed',
+      payload,
+    }
+  } catch (error) {
+    return {
+      available: false,
+      status: 0,
+      probe: '/v1/models',
+      message: error instanceof Error ? error.message : 'gateway connection failed',
+      payload: null,
+    }
+  }
+}
+
+async function readAgentProviderDashboardStatus() {
+  if (!agentProviderSupports('dashboard.status')) {
+    return {
+      available: false,
+      status: 0,
+      probe: '',
+      skipped: true,
+      message: unsupportedAgentProviderCapability('dashboard.status').message,
+      payload: null,
+    }
+  }
+
+  try {
+    const resp = await dashboardFetch('/api/status')
+    const payload = await parseResponsePayload(resp).catch(() => null)
+    const record = asRecord(payload)
+    const gatewayRunning = hasOwn(record, 'gateway_running') ? Boolean(record.gateway_running) : resp.ok
+    return {
+      available: resp.ok,
+      status: resp.status,
+      probe: '/api/status',
+      gateway_running: gatewayRunning,
+      message: resp.ok ? 'ok' : 'dashboard probe failed',
+      payload,
+    }
+  } catch (error) {
+    return {
+      available: false,
+      status: 0,
+      probe: '/api/status',
+      gateway_running: false,
+      message: error instanceof Error ? error.message : 'dashboard connection failed',
+      payload: null,
+    }
+  }
+}
+
+async function getAgentProviderRuntimeDescriptor() {
+  const provider = getAgentProviderDescriptor()
+  const [gateway, dashboard] = await Promise.all([
+    readAgentProviderGatewayStatus(),
+    readAgentProviderDashboardStatus(),
+  ])
+  const dashboardRequired = provider.capability_ids.some((id: string) => id.startsWith('dashboard.'))
+  const status = gateway.available && (!dashboardRequired || dashboard.available)
+    ? 'ok'
+    : gateway.available
+      ? 'degraded'
+      : 'offline'
+
+  return {
+    ...provider,
+    status,
+    runtime: {
+      gateway,
+      dashboard,
+    },
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -804,6 +889,21 @@ function buildDocSearchSnippet(content: string, query: string): string {
 
 // --- Health ---
 app.get('/api/health', (c) => c.json({ status: 'ok', service: 'crazor-api' }))
+
+// --- Agent Provider Adapter ---
+app.get('/api/agent/provider', async (c) => {
+  return c.json(await getAgentProviderRuntimeDescriptor())
+})
+
+app.get('/api/agent/provider/capabilities', (c) => {
+  const provider = getAgentProviderDescriptor()
+  return c.json({
+    provider: provider.id,
+    kind: provider.kind,
+    capabilities: provider.capabilities,
+    capability_ids: provider.capability_ids,
+  })
+})
 
 // --- MCP SSE endpoint (legacy, for SSE-only clients) ---
 app.get('/mcp/sse', (c) => handleSSEConnect())

@@ -339,6 +339,20 @@ async function main() {
     assert(health.status === 200, "/api/health 未返回 200", health.data)
   })
 
+  await step("Agent Provider Adapter 状态", async () => {
+    const provider = await request("/api/agent/provider", { auth: false })
+    assert(provider.data?.id, "Agent Provider 未返回 provider id", provider.data)
+    assert(Array.isArray(provider.data?.capability_ids), "Agent Provider 未返回能力列表", provider.data)
+    assert(provider.data.capability_ids.includes("gateway.chat_completions"), "Agent Provider 未声明对话能力", provider.data)
+    assert(provider.data.capability_ids.includes("crazor.mcp"), "Agent Provider 未声明 Crazor MCP 能力", provider.data)
+    assert(typeof provider.data?.runtime?.gateway?.available === "boolean", "Agent Provider 未返回网关运行状态", provider.data)
+    if (!skipHermes) {
+      assert(provider.data.hermes_compatible === true, "默认部署应声明 Hermes 兼容 Provider", provider.data)
+      assert(provider.data.capability_ids.includes("dashboard.status"), "Hermes Provider 未声明控制台状态能力", provider.data)
+      assert(typeof provider.data?.runtime?.dashboard?.available === "boolean", "Hermes Provider 未返回控制台运行状态", provider.data)
+    }
+  })
+
   if (!skipHermes) {
     await step("Hermes Provider 状态代理", async () => {
       const status = await request("/api/status", { auth: false })

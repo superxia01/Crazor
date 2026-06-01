@@ -41,7 +41,7 @@ export { getSessions, createSession, getSessionResponseId, setSessionResponseId,
 export { getWorkspaces, setWorkspace, getCurrentWorkspace, createTerminalSession, writeTerminalInput, resizeTerminalSession, closeTerminalSession, onTerminalOutput, onTerminalExit, createWorkspace, updateWorkspace, deleteWorkspace } from './workspace.js'
 
 // Agent API
-export { getAgents } from './agent.js'
+export { getAgents, getAgentProvider, getAgentProviderCapabilities } from './agent.js'
 
 // Cron APIs
 export { getCronJobs, createCronJob, checkCronDependency, installCronDependency, restartHermesDashboard, pauseCronJob, resumeCronJob, triggerCronJob, deleteCronJob } from './cron.js'
