@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url"
 const DEFAULT_DELIVERY_DIR = fileURLToPath(new URL("../desktop/src-tauri/target/release/customer-delivery", import.meta.url))
 const MANIFEST_FILE = "crazor-delivery-manifest.json"
 const CHECKSUM_FILE = "crazor-delivery-checksums.txt"
+const HANDOFF_REPORT_FILE = "crazor-handoff-report.md"
 const INSTALLER_EXTENSIONS = new Set([".dmg", ".msi", ".exe", ".deb", ".rpm", ".pkg", ".zip"])
 
 export async function verifyCustomerDeliveryPackage(deliveryDir = DEFAULT_DELIVERY_DIR) {
@@ -41,6 +42,20 @@ export async function verifyCustomerDeliveryPackage(deliveryDir = DEFAULT_DELIVE
   const bundleFiles = Array.isArray(manifest.bundleFiles) ? manifest.bundleFiles : []
   const expectedChecksums = new Map()
   const allowedFiles = new Set([MANIFEST_FILE, checksumFile || CHECKSUM_FILE])
+  const handoffReportPath = join(root, HANDOFF_REPORT_FILE)
+  let handoffReport = null
+  if (existsSync(handoffReportPath)) {
+    const reportText = readFileSync(handoffReportPath, "utf8")
+    if (!reportText.startsWith("# Crazor 客户交付验收报告")) {
+      errors.push(`${HANDOFF_REPORT_FILE} 不是有效的客户交付验收报告`)
+    } else {
+      handoffReport = {
+        path: HANDOFF_REPORT_FILE,
+        sizeBytes: statSync(handoffReportPath).size,
+      }
+    }
+    allowedFiles.add(HANDOFF_REPORT_FILE)
+  }
   const installers = []
 
   for (const file of bundleFiles) {
@@ -111,6 +126,7 @@ export async function verifyCustomerDeliveryPackage(deliveryDir = DEFAULT_DELIVE
     deliveryDir: root,
     manifest,
     installers,
+    handoffReport,
     warnings,
   }
 }
@@ -235,6 +251,9 @@ async function main() {
   console.log(`- 平台: ${result.manifest.platform}`)
   for (const installer of result.installers) {
     console.log(`- 安装包: ${installer.path} (${installer.sizeBytes} bytes, sha256=${installer.sha256})`)
+  }
+  if (result.handoffReport) {
+    console.log(`- 验收报告: ${result.handoffReport.path} (${result.handoffReport.sizeBytes} bytes)`)
   }
 }
 

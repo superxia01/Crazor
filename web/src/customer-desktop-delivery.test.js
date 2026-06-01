@@ -106,7 +106,9 @@ test("customer package build can strictly preflight the hosted backend before ha
       customerWorkflowSource.includes("verify-customer-delivery.mjs") &&
       customerWorkflowSource.includes("验证客户交付验收入口") &&
       customerWorkflowSource.includes("bash ./scripts/hermes handoff-check") &&
-      customerWorkflowSource.includes("--skip-live --json") &&
+      customerWorkflowSource.includes("--skip-live") &&
+      customerWorkflowSource.includes("--output desktop/src-tauri/target/release/customer-delivery/crazor-handoff-report.md") &&
+      customerWorkflowSource.includes("--json") &&
       customerWorkflowSource.includes("strict") &&
       customerWorkflowSource.includes("skip"),
     "manual customer package builds should let operators choose preflight behavior and delivery protocol version"
@@ -386,6 +388,8 @@ test("customer desktop package can be built by CI with configured backend", () =
       customerWorkflowSource.includes("desktop/src-tauri/target/release/customer-delivery/**/*") &&
       customerWorkflowSource.includes("验证客户交付包") &&
       customerWorkflowSource.includes("验证客户交付验收入口") &&
+      customerWorkflowSource.includes("crazor-handoff-report.md") &&
+      customerWorkflowSource.includes("--output desktop/src-tauri/target/release/customer-delivery/crazor-handoff-report.md") &&
       customerWorkflowSource.includes("./scripts/build-customer.sh") &&
       customerWorkflowSource.includes("upload-artifact"),
     "GitHub Actions should expose a manual customer package build that embeds the configured backend URL"
@@ -421,6 +425,8 @@ test("customer desktop package can be built by CI with configured backend", () =
       verifyCustomerDeliveryScript.includes("manifest.bundleFiles") &&
       verifyCustomerDeliveryScript.includes("crazor-delivery-checksums.txt") &&
       verifyCustomerDeliveryScript.includes("deliveryIdentityFingerprint") &&
+      verifyCustomerDeliveryScript.includes("crazor-handoff-report.md") &&
+      verifyCustomerDeliveryScript.includes("Crazor 客户交付验收报告") &&
       verifyCustomerDeliveryScript.includes("SHA256 不一致") &&
       verifyCustomerDeliveryScript.includes("交付目录包含非交付文件") &&
       verifyCustomerDeliveryScript.includes('lowerName === "share"') &&

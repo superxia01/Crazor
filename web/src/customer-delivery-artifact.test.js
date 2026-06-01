@@ -25,6 +25,33 @@ test("customer delivery verifier accepts a focused handoff package", async () =>
   }
 })
 
+test("customer delivery verifier accepts a generated handoff report", async () => {
+  const dir = createDeliveryFixture()
+  try {
+    writeFileSync(join(dir, "crazor-handoff-report.md"), "# Crazor 客户交付验收报告\n\n- 验收结果: 通过\n")
+    const result = await verifyCustomerDeliveryPackage(dir)
+
+    assert.equal(result.ok, true)
+    assert.equal(result.handoffReport.path, "crazor-handoff-report.md")
+    assert.ok(result.handoffReport.sizeBytes > 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("customer delivery verifier rejects invalid handoff reports", async () => {
+  const dir = createDeliveryFixture()
+  try {
+    writeFileSync(join(dir, "crazor-handoff-report.md"), "# 随意报告\n")
+    const result = await verifyCustomerDeliveryPackage(dir)
+
+    assert.equal(result.ok, false)
+    assert.match(result.errors.join("\n"), /不是有效的客户交付验收报告/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("customer delivery verifier rejects checksum mismatches", async () => {
   const dir = createDeliveryFixture()
   try {
