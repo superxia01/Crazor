@@ -82,7 +82,24 @@ else
     trap 'mv "$TAURI_CONF.bak" "$TAURI_CONF" 2>/dev/null; rm -f "$WEB_ENV" "$WEB_ENV_BAK" 2>/dev/null' EXIT
 fi
 
-printf "VITE_API_BASE=%s\n" "$SERVER_URL" > "$WEB_ENV"
+write_web_env() {
+    local key="$1"
+    local value="$2"
+    node -e '
+const key = process.argv[1]
+const value = String(process.argv[2] || "")
+  .replace(/\\/g, "\\\\")
+  .replace(/\n/g, "\\n")
+  .replace(/\r/g, "\\r")
+  .replace(/"/g, "\\\"")
+process.stdout.write(`${key}="${value}"\n`)
+' "$key" "$value" >> "$WEB_ENV"
+}
+
+: > "$WEB_ENV"
+write_web_env "VITE_API_BASE" "$SERVER_URL"
+write_web_env "VITE_CRAZOR_CUSTOMER_NAME" "$CUSTOMER"
+write_web_env "VITE_CRAZOR_DELIVERY_CHANNEL" "customer"
 
 echo ""
 echo "✅ 客户端远程服务地址已写入: $SERVER_URL"
@@ -118,6 +135,11 @@ echo "🔎 验证客户交付产物..."
 
 if ! grep -R -F "$SERVER_URL" "$PROJECT_ROOT/web/dist" >/dev/null 2>&1; then
     echo "错误: 前端构建产物中未找到服务器地址 $SERVER_URL"
+    exit 1
+fi
+
+if ! grep -R -F "$CUSTOMER" "$PROJECT_ROOT/web/dist" >/dev/null 2>&1; then
+    echo "错误: 前端构建产物中未找到客户名称 $CUSTOMER"
     exit 1
 fi
 

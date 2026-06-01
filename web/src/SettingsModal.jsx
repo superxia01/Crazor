@@ -42,6 +42,7 @@ import {
 import { LANGUAGE_OPTIONS, useI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { loadBrowserEnvVars, saveBrowserEnvVars } from "@/api/browser-utils"
+import { getCustomerDeliveryRuntimeInfo } from "@/api/customer-delivery"
 import { checkRemoteApiHealth, getRemoteApiRuntimeInfo } from "@/api/remote-api-base"
 
 export default function SettingsModal({
@@ -72,6 +73,7 @@ export default function SettingsModal({
   const [testingConnection, setTestingConnection] = useState(false)
   const [connectionTestResult, setConnectionTestResult] = useState(null)
   const [remoteApiInfo, setRemoteApiInfo] = useState(() => getRemoteApiRuntimeInfo())
+  const [deliveryInfo, setDeliveryInfo] = useState(() => getCustomerDeliveryRuntimeInfo())
   const [checkingRemoteApi, setCheckingRemoteApi] = useState(false)
   const [remoteApiStatus, setRemoteApiStatus] = useState(null)
   const [serverHost, setServerHost] = useState("127.0.0.1")
@@ -176,6 +178,7 @@ export default function SettingsModal({
     setGatewayPort(String(currentGatewayPort))
     setConnectionTestResult(null)
     setRemoteApiInfo(getRemoteApiRuntimeInfo())
+    setDeliveryInfo(getCustomerDeliveryRuntimeInfo())
     setRemoteApiStatus(null)
     setSavingUserInfo(false)
   }, [
@@ -227,6 +230,7 @@ export default function SettingsModal({
     }
     void checkStatus()
     setRemoteApiInfo(getRemoteApiRuntimeInfo())
+    setDeliveryInfo(getCustomerDeliveryRuntimeInfo())
     setConnectionTestResult(null)
     setDashboardTestResult(null)
     setRemoteApiStatus(null)
@@ -830,6 +834,11 @@ export default function SettingsModal({
                               className="rounded px-1.5 py-0.5 text-[10px]">
                               {remoteApiInfo.enabled ? "远程服务" : "同源服务"}
                             </Badge>
+                            <Badge
+                              variant={deliveryInfo.enabled ? "secondary" : "outline"}
+                              className="rounded px-1.5 py-0.5 text-[10px]">
+                              {deliveryInfo.enabled ? "客户包" : "本地模式"}
+                            </Badge>
                             {remoteApiStatus?.type === "success" && (
                               <Badge className="rounded px-1.5 py-0.5 text-[10px]">
                                 HTTP {remoteApiStatus.status} · {remoteApiStatus.latencyMs}ms
@@ -846,6 +855,18 @@ export default function SettingsModal({
                               <span>服务地址</span>
                               <code className="min-w-0 break-all rounded bg-muted/55 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
                                 {remoteApiInfo.base || "当前同源 /api"}
+                              </code>
+                            </div>
+                            <div className="grid gap-1 sm:grid-cols-[4.5rem_minmax(0,1fr)]">
+                              <span>交付客户</span>
+                              <code className="min-w-0 break-all rounded bg-muted/55 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                                {deliveryInfo.customerName || "未指定客户"}
+                              </code>
+                            </div>
+                            <div className="grid gap-1 sm:grid-cols-[4.5rem_minmax(0,1fr)]">
+                              <span>交付通道</span>
+                              <code className="min-w-0 break-all rounded bg-muted/55 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                                {deliveryInfo.channel}
                               </code>
                             </div>
                             <div className="grid gap-1 sm:grid-cols-[4.5rem_minmax(0,1fr)]">

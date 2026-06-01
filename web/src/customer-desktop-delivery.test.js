@@ -10,6 +10,7 @@ const buildCustomerScript = readFileSync(resolve(repoRoot, "scripts/build-custom
 const webPackage = readFileSync(resolve(repoRoot, "web/package.json"), "utf8")
 const desktopPackage = readFileSync(resolve(repoRoot, "desktop/package.json"), "utf8")
 const authFetchSource = readFileSync(resolve(repoRoot, "web/src/api/crazor-auth.js"), "utf8")
+const customerDeliverySource = readFileSync(resolve(repoRoot, "web/src/api/customer-delivery.js"), "utf8")
 const remoteApiSource = readFileSync(resolve(repoRoot, "web/src/api/remote-api-base.js"), "utf8")
 const settingsModalSource = readFileSync(resolve(repoRoot, "web/src/SettingsModal.jsx"), "utf8")
 const loginDialogSource = readFileSync(resolve(repoRoot, "web/src/components/LoginDialog.jsx"), "utf8")
@@ -25,11 +26,14 @@ test("customer desktop build embeds the configured backend API base", () => {
     "Tauri packaging should build the frontend in tauri mode"
   )
   assert.ok(
-    buildCustomerScript.includes('printf "VITE_API_BASE=%s\\n" "$SERVER_URL" > "$WEB_ENV"') &&
+    buildCustomerScript.includes('write_web_env "VITE_API_BASE" "$SERVER_URL"') &&
+      buildCustomerScript.includes('write_web_env "VITE_CRAZOR_CUSTOMER_NAME" "$CUSTOMER"') &&
+      buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DELIVERY_CHANNEL" "customer"') &&
       buildCustomerScript.includes("npm run build:tauri") &&
       buildCustomerScript.includes('grep -R -F "$SERVER_URL" "$PROJECT_ROOT/web/dist"') &&
+      buildCustomerScript.includes('grep -R -F "$CUSTOMER" "$PROJECT_ROOT/web/dist"') &&
       !buildCustomerScript.includes("__CUSTOMER_SERVER_URL__"),
-    "customer build should write VITE_API_BASE before packaging and verify the backend URL is embedded"
+    "customer build should write package env before packaging and verify backend/customer identity is embedded"
   )
   assert.ok(
     buildCustomerScript.includes("command -v cargo") &&
@@ -65,8 +69,16 @@ test("desktop client exposes the configured backend for delivery verification", 
     "desktop client should expose the embedded backend URL and health endpoint"
   )
   assert.ok(
+    customerDeliverySource.includes("getCustomerDeliveryRuntimeInfo") &&
+      customerDeliverySource.includes("VITE_CRAZOR_CUSTOMER_NAME") &&
+      customerDeliverySource.includes("VITE_CRAZOR_DELIVERY_CHANNEL"),
+    "desktop client should expose packaged customer identity from build-time env"
+  )
+  assert.ok(
     settingsModalSource.includes("客户端后端") &&
       settingsModalSource.includes("检测后端") &&
+      settingsModalSource.includes("交付客户") &&
+      settingsModalSource.includes("客户包") &&
       settingsModalSource.includes("远程服务") &&
       settingsModalSource.includes("同源服务"),
     "settings connection panel should let operators verify the packaged client backend target"
