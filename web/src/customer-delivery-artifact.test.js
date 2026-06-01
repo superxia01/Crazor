@@ -25,6 +25,25 @@ test("customer delivery verifier accepts a focused handoff package", async () =>
   }
 })
 
+test("customer delivery verifier accepts a Windows installer package", async () => {
+  const dir = createDeliveryFixture({
+    installerPath: "msi/Crazor_1.0.0_x64_en-US.msi",
+    platform: "windows-current",
+  })
+  try {
+    const result = await verifyCustomerDeliveryPackage(dir)
+
+    assert.equal(result.ok, true)
+    assert.equal(result.manifest.platform, "windows-current")
+    assert.deepEqual(
+      result.installers.map((item) => item.path),
+      ["msi/Crazor_1.0.0_x64_en-US.msi"],
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("customer delivery verifier accepts a generated handoff report", async () => {
   const dir = createDeliveryFixture()
   try {
@@ -79,13 +98,15 @@ test("customer delivery verifier rejects build helper files", async () => {
   }
 })
 
-function createDeliveryFixture() {
+function createDeliveryFixture(options = {}) {
   const dir = mkdtempSync(join(tmpdir(), "crazor-delivery-"))
-  const installerPath = "dmg/Crazor_1.0.0_aarch64.dmg"
+  const installerPath = options.installerPath || "dmg/Crazor_1.0.0_aarch64.dmg"
+  const platform = options.platform || "macos-current"
   const installerContent = "fake installer"
   const sha256 = createHash("sha256").update(installerContent).digest("hex")
+  const installerDir = installerPath.split("/").slice(0, -1).join("/")
 
-  mkdirSync(join(dir, "dmg"), { recursive: true })
+  mkdirSync(join(dir, installerDir), { recursive: true })
   writeFileSync(join(dir, installerPath), installerContent)
   writeFileSync(join(dir, "crazor-delivery-checksums.txt"), `${sha256}  ${installerPath}\n`)
   writeFileSync(
@@ -95,7 +116,7 @@ function createDeliveryFixture() {
         product: "Crazor",
         customer: "测试客户",
         serverUrl: "https://crazor.example.com",
-        platform: "macos-current",
+        platform,
         serverPreflight: {
           mode: "strict",
           result: "passed",

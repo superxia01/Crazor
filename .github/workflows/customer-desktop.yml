@@ -49,15 +49,19 @@ on:
 
 jobs:
   build:
-    name: 客户端安装包验证
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.platform == 'windows-current' && 'windows-latest' || 'macos-latest' }}
+    name: 客户端安装包验证 (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('[{{"platform":"{0}","runner":"{1}"}}]', inputs.platform, inputs.platform == 'windows-current' && 'windows-latest' || 'macos-latest') || '[{"platform":"macos-current","runner":"macos-latest"},{"platform":"windows-current","runner":"windows-latest"}]') }}
+    runs-on: ${{ matrix.runner }}
     defaults:
       run:
         shell: bash
     env:
       CUSTOMER_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.customer || 'PR 验证' }}
       SERVER_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.server_url || 'http://127.0.0.1:5173' }}
-      PACKAGE_PLATFORM: ${{ github.event_name == 'workflow_dispatch' && inputs.platform || 'macos-current' }}
+      PACKAGE_PLATFORM: ${{ matrix.platform }}
       CRAZOR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CRAZOR_CUSTOMER_SERVER_PREFLIGHT: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight_mode || 'warn' }}
       CRAZOR_DELIVERY_PROTOCOL_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_protocol_version || '1' }}

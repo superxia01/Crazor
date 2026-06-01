@@ -385,6 +385,14 @@ test("customer desktop package can be built by CI with configured backend", () =
       customerWorkflowSource.includes("server_url") &&
       customerWorkflowSource.includes("macos-current") &&
       customerWorkflowSource.includes("windows-current") &&
+      customerWorkflowSource.includes("strategy:") &&
+      customerWorkflowSource.includes("fail-fast: false") &&
+      customerWorkflowSource.includes("matrix:") &&
+      customerWorkflowSource.includes("fromJSON") &&
+      customerWorkflowSource.includes("macos-latest") &&
+      customerWorkflowSource.includes("windows-latest") &&
+      customerWorkflowSource.includes("matrix.runner") &&
+      customerWorkflowSource.includes("matrix.platform") &&
       customerWorkflowSource.includes("PACKAGE_PLATFORM") &&
       customerWorkflowSource.includes("delivery_protocol_version") &&
       customerWorkflowSource.includes("online-entrypoints") &&
