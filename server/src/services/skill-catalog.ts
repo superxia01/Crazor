@@ -59,7 +59,7 @@ function parseFrontmatter(content: string): Record<string, any> | null {
 // ── Cache ──────────────────────────────────────────────────────
 
 let _catalogCache: { data: SkillEntry[]; ts: number } | null = null
-let _metaCache: Map<string, SkillMeta | null> = new Map()
+let _metaCache: Map<string, { data: SkillMeta | null; ts: number }> = new Map()
 const CACHE_TTL = 30_000 // 30 seconds
 
 function scanSkillDirs(): string[] {
@@ -146,10 +146,11 @@ export function getCatalogEntry(id: string): SkillEntry | undefined {
 
 /** Return enriched architecture metadata for a skill */
 export function getSkillMeta(id: string): SkillMeta | null {
-  if (_metaCache.has(id)) return _metaCache.get(id) ?? null
+  const cached = _metaCache.get(id)
+  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data
   const parsed = parseSkillFile(id)
   const meta = parsed?.meta ?? null
-  _metaCache.set(id, meta)
+  _metaCache.set(id, { data: meta, ts: Date.now() })
   return meta
 }
 

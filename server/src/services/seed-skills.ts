@@ -88,7 +88,7 @@ function convertToHermesFormat(id: string, sourceContent: string): string {
     `description: "${(fm.description || '').replace(/"/g, '\\"')}"`,
     `source: "crazor"`,
     `category: "${category}"`,
-    `employeeName: "${employeeName}"`,
+    `employeeName: "${employeeName.replace(/"/g, '\\"')}"`,
   ]
   if (trigger) {
     yamlParts.push(`trigger: "${(trigger as string).replace(/"/g, '\\"')}"`)
@@ -169,26 +169,34 @@ export function seedSkills(): { converted: number; skipped: number } {
 
   for (const file of sourceFiles) {
     const id = file.replace(/\.md$/, '')
-    const sourcePath = resolve(SKILLS_SRC_DIR, file)
-    const targetDir = resolve(TARGET_DIR, id)
-    const targetPath = resolve(targetDir, 'SKILL.md')
-
-    const sourceContent = readFileSync(sourcePath, 'utf-8')
-    const convertedContent = convertToHermesFormat(id, sourceContent)
-
-    // Idempotent: skip if content is identical
-    if (existsSync(targetPath)) {
-      const existing = readFileSync(targetPath, 'utf-8')
-      if (existing === convertedContent) {
-        skipped++
-        continue
-      }
-    }
-
-    mkdirSync(targetDir, { recursive: true })
-    writeFileSync(targetPath, convertedContent, 'utf-8')
-    converted++
+    const result = seedOneSkill(id)
+    if (result === 'converted') converted++
+    else if (result === 'skipped') skipped++
   }
 
   return { converted, skipped }
+}
+
+/** Seed a single skill by id. Returns 'converted', 'skipped', or 'not_found'. */
+export function seedOneSkill(id: string): 'converted' | 'skipped' | 'not_found' {
+  const sourcePath = resolve(SKILLS_SRC_DIR, `${id}.md`)
+  if (!existsSync(sourcePath)) return 'not_found'
+
+  mkdirSync(TARGET_DIR, { recursive: true })
+
+  const targetDir = resolve(TARGET_DIR, id)
+  const targetPath = resolve(targetDir, 'SKILL.md')
+
+  const sourceContent = readFileSync(sourcePath, 'utf-8')
+  const convertedContent = convertToHermesFormat(id, sourceContent)
+
+  // Idempotent: skip if content is identical
+  if (existsSync(targetPath)) {
+    const existing = readFileSync(targetPath, 'utf-8')
+    if (existing === convertedContent) return 'skipped'
+  }
+
+  mkdirSync(targetDir, { recursive: true })
+  writeFileSync(targetPath, convertedContent, 'utf-8')
+  return 'converted'
 }

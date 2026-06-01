@@ -1,0 +1,12 @@
+{
+  "name": "crazor-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "cd ../web && npm run build:tauri && cd ../desktop && tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

@@ -1,17 +1,18 @@
 // Copyright (c) 2026 MeeJoy
 
-const STORAGE_KEY = "crazor.actorToken"
+const ACTOR_TOKEN_STORAGE_KEY = "crazor.actorToken"
+const LOGIN_TOKEN_STORAGE_KEY = "crazor_token"
 
 export function getCrazorAuthToken() {
   if (typeof window === "undefined") return ""
-  return window.localStorage.getItem(STORAGE_KEY) || ""
+  return window.localStorage.getItem(ACTOR_TOKEN_STORAGE_KEY) || ""
 }
 
 export function setCrazorAuthToken(token) {
   if (typeof window === "undefined") return
   const value = String(token || "").trim()
-  if (value) window.localStorage.setItem(STORAGE_KEY, value)
-  else window.localStorage.removeItem(STORAGE_KEY)
+  if (value) window.localStorage.setItem(ACTOR_TOKEN_STORAGE_KEY, value)
+  else window.localStorage.removeItem(ACTOR_TOKEN_STORAGE_KEY)
   window.dispatchEvent(new CustomEvent("crazor-auth-token-change", { detail: { hasToken: Boolean(value) } }))
 }
 
@@ -32,25 +33,37 @@ export function installCrazorAuthFetch() {
   const nativeFetch = window.fetch.bind(window)
 
   window.fetch = (input, init = {}) => {
-    const token = getCrazorAuthToken()
-    if (!token || !shouldAttachToken(input)) return nativeFetch(input, init)
+    if (!shouldAttachAuthHeaders(input)) return nativeFetch(input, init)
 
+    const loginToken = getLoginToken()
+    const actorToken = getCrazorAuthToken()
     const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined))
-    if (!headers.has("Authorization") && !headers.has("X-Crazor-Token")) {
-      headers.set("Authorization", `Bearer ${token}`)
+    if (loginToken && !headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${loginToken}`)
+    }
+    if (actorToken && !headers.has("X-Crazor-Token")) {
+      headers.set("X-Crazor-Token", actorToken)
     }
 
     return nativeFetch(input, { ...init, headers })
   }
 }
 
-function shouldAttachToken(input) {
+function getLoginToken() {
+  if (typeof window === "undefined") return ""
+  return window.localStorage.getItem(LOGIN_TOKEN_STORAGE_KEY) || ""
+}
+
+function shouldAttachAuthHeaders(input) {
   try {
     const rawUrl = typeof input === "string" || input instanceof URL ? String(input) : input?.url
     if (!rawUrl) return false
     const url = new URL(rawUrl, window.location.origin)
     if (url.origin !== window.location.origin) return false
-    return url.pathname.startsWith("/api/crazor/") || url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")
+    return url.pathname === "/api" ||
+      url.pathname.startsWith("/api/") ||
+      url.pathname === "/mcp" ||
+      url.pathname.startsWith("/mcp/")
   } catch {
     return false
   }

@@ -3,7 +3,7 @@ import { ZoomInIcon, ZoomOutIcon, RotateCcwIcon, UsersIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useOfficeStore } from "../store"
 
-export default function OfficeToolbar({ sceneRef }) {
+export default function OfficeToolbar({ sceneRef, onMeeting }) {
   const zoom = useOfficeStore((s) => s.zoom)
   const setZoom = useOfficeStore((s) => s.setZoom)
   const resetZoom = useOfficeStore((s) => s.resetZoom)
@@ -37,6 +37,7 @@ export default function OfficeToolbar({ sceneRef }) {
       setMeetingState("going")
       charManager.moveAllToMeeting(pathfinder)
       meetingTimer.current = setTimeout(() => setMeetingState("meeting"), 4000)
+      onMeeting?.()
     } else if (meetingState === "meeting") {
       // 散会：全员回工位
       setMeetingState("returning")

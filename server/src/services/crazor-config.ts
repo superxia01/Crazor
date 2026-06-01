@@ -22,6 +22,12 @@ export const CRAZOR_SKILLS_DIR = resolve(HERMES_HOME, 'skills/crazor')
 mkdirSync(CRAZOR_HOME, { recursive: true })
 mkdirSync(CRAZOR_VAULT_ROOT, { recursive: true })
 
+// ── Authentication config ─────────────────────────────────────
+export const WECHAT_APP_ID = process.env.WECHAT_APP_ID || ''
+export const WECHAT_APP_SECRET = process.env.WECHAT_APP_SECRET || ''
+export const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production'
+export const DEPLOYMENT_TIER = process.env.DEPLOYMENT_TIER || 'free'
+
 // ── Migration notice ─────────────────────────────────────────
 const legacyDb = resolve(HERMES_HOME, 'crazor.db')
 if (!existsSync(CRAZOR_DB_PATH) && existsSync(legacyDb)) {

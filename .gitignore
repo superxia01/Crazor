@@ -6,3 +6,7 @@ data/
 *.log
 .DS_Store
 .claude/
+
+# Tauri
+desktop/src-tauri/target/
+desktop/node_modules/

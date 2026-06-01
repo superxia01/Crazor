@@ -110,6 +110,8 @@ export default function DataView({ config }) {
     if (resp.ok) {
       toast.success("状态已更新")
       await reloadAll()
+    } else {
+      toast.error(`更新失败 (${resp.status})`)
     }
   }, [config, reloadAll])
 
@@ -120,6 +122,8 @@ export default function DataView({ config }) {
     if (resp.ok) {
       toast.success("已删除")
       await reloadAll()
+    } else {
+      toast.error(`删除失败 (${resp.status})`)
     }
   }, [config, reloadAll])
 

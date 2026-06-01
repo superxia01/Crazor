@@ -260,6 +260,20 @@ for (const sql of migrations) {
   try { db.exec(sql) } catch { /* column already exists */ }
 }
 
+// ── Auth: users table ─────────────────────────────────────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    wechat_openid TEXT UNIQUE NOT NULL,
+    wechat_unionid TEXT,
+    nickname TEXT,
+    avatar_url TEXT,
+    created_at TEXT NOT NULL,
+    last_login_at TEXT
+  );
+`)
+
 // ── Helpers ─────────────────────────────────────────────────
 
 function id(): string {

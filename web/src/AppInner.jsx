@@ -53,6 +53,8 @@ import {
   SunMediumIcon,
   Trash2Icon,
   UsersIcon,
+  UserIcon,
+  LogOutIcon,
   WrenchIcon,
   Gamepad2Icon,
 } from "lucide-react"
@@ -92,8 +94,10 @@ import {
   updateHermesAgent,
   createTerminalSession,
   createNotebookNote,
+  prepareAiEmployeeRun,
   updateNotebookNote,
 } from "@/api"
+import { LoginDialog } from "@/components/LoginDialog"
 import { Toaster } from "@/components/ui/sonner"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -227,9 +231,42 @@ const MAX_SIDEBAR_WIDTH = 360
 const COLLAPSED_SIDEBAR_WIDTH = 40
 const TERMINAL_DOCK_HEIGHT = 180
 const TERMINAL_DOCK_EXPANDED_HEIGHT = 260
+const OFFICE_DAILY_REPORT_EMPLOYEE_ID = "data-dashboard"
+const OFFICE_DAILY_REPORT_TITLE = "AI 办公室日报"
+const OFFICE_DAILY_REPORT_PROMPT =
+  "请总结今天所有会话、客户跟进、项目任务、内容发布和审计记录，生成一份工作日报，包含：1) 今天处理的主要事项 2) 关键决策和进展 3) 待跟进问题。生成后请用 create_doc 将日报存入 knowledge scope。"
 
 async function startNativeWindowDrag() {
   // No-op in web mode
+}
+
+function buildOfficeDailyReportPrompt(run, fallbackPrompt = OFFICE_DAILY_REPORT_PROMPT) {
+  const contextItems = Array.isArray(run?.context?.items) ? run.context.items : []
+  const contextLines = contextItems.slice(0, 24).map((item, index) => {
+    const parts = [
+      `${index + 1}. [${item.type || "context"}] ${item.title || item.id || "未命名"}`,
+      item.status ? `状态: ${item.status}` : "",
+      item.summary ? `摘要: ${String(item.summary).slice(0, 140)}` : "",
+      item.updated_at ? `更新: ${item.updated_at}` : "",
+    ].filter(Boolean)
+    return parts.join("；")
+  })
+  const counts = run?.context?.counts ? JSON.stringify(run.context.counts) : "{}"
+  const employeeName = run?.employee?.name || OFFICE_DAILY_REPORT_EMPLOYEE_ID
+  const policy = run?.instructions?.policy || "素材进 notebook，结论进 knowledge，结构化数据走数据库。"
+
+  return [
+    fallbackPrompt,
+    "",
+    "请以 Crazor AI Employee Runtime 准备包为准执行，不要只做泛泛总结。",
+    `运行单元: ${run?.id || "runtime-not-prepared"}`,
+    `数字员工: ${employeeName}`,
+    `写入策略: ${policy}`,
+    `上下文统计: ${counts}`,
+    "",
+    "可用上下文:",
+    contextLines.length ? contextLines.join("\n") : "- 暂无匹配上下文，请基于当前会话和可用工具补充检索。",
+  ].join("\n")
 }
 
 const DEFAULT_WORKSPACES = [
@@ -440,13 +477,14 @@ function OfficeToggle({ onNavigate, onLeave, isActive }) {
   )
 }
 
-export function AppInner() {
+export function AppInner({ userInfo, onLogin, onLogout }) {
   const isMobile = useIsMobile()
   const { theme, resolvedTheme, setTheme } = useTheme()
   const { setLang, t } = useI18n()
 
   const [view, setView] = useState("home")
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
   const [sidebarResizing, setSidebarResizing] = useState(false)
@@ -1474,17 +1512,17 @@ export function AppInner() {
     return parts.join("\n\n").trim()
   }
 
-  const send = async () => {
-    const senderTabId = activeChatTabIdRef.current
-    const senderTabState = getChatTabState({
+  const send = async (override = {}) => {
+    const senderTabId = override.tabId || activeChatTabIdRef.current
+    const senderTabState = override.tabState || getChatTabState({
       tabId: senderTabId,
       draftTabsState: draftTabsStateRef.current,
       sessionTabsState: sessionTabsStateRef.current,
     })
     const requestId = createChatRequestId(senderTabId)
-    const senderInput = senderTabState.input || ""
-    const senderAttachments = senderTabState.attachments || []
-    const senderMessages = senderTabState.messages || []
+    const senderInput = override.input ?? senderTabState.input ?? ""
+    const senderAttachments = override.attachments ?? senderTabState.attachments ?? []
+    const senderMessages = override.messages ?? senderTabState.messages ?? []
     const text = senderInput.trim()
     if ((!text && senderAttachments.length === 0) || senderTabState.loading) return
 
@@ -1511,7 +1549,8 @@ export function AppInner() {
       activeRequestId: requestId,
     }))
 
-    if (activeChatTabIdRef.current === senderTabId) {
+    const shouldShowSenderTab = override.forceActive || activeChatTabIdRef.current === senderTabId
+    if (shouldShowSenderTab) {
       setInput("")
       setAttachments([])
       setMessages(nextMessages)
@@ -1549,7 +1588,7 @@ export function AppInner() {
           ...entry,
           sessionId: createdSession.id,
         }))
-        if (activeChatTabIdRef.current === senderTabId) {
+        if (shouldShowSenderTab) {
           setActiveSessionId(sessionId)
         }
       }
@@ -1599,7 +1638,7 @@ export function AppInner() {
         showToolTimeline: false,
         activeRequestId: null,
       }))
-      if (activeChatTabIdRef.current === senderTabId) {
+      if (shouldShowSenderTab) {
         setMessages((current) => [...current, errorMessage])
         setPendingContent("")
         setPendingToolEvents([])
@@ -1608,6 +1647,50 @@ export function AppInner() {
       }
       cancelingRequestIdsRef.current.delete(requestId)
       toast.error(t("app.sendError"))
+    }
+  }
+
+  const openDraftAndSendMessage = async ({ title, content }) => {
+    const nextDraftTabId = createDraftTabId()
+    const nextDraftState = {
+      ...createEmptyDraftTabState(title),
+      title,
+      input: content,
+    }
+
+    setDraftTabsState((current) => ({
+      ...current,
+      [nextDraftTabId]: nextDraftState,
+    }))
+    setOpenChatTabs((current) => [...current, nextDraftTabId])
+    showChatTabState(nextDraftTabId, nextDraftState)
+
+    await send({
+      tabId: nextDraftTabId,
+      tabState: nextDraftState,
+      input: content,
+      forceActive: true,
+    })
+  }
+
+  const handleOfficeMeeting = async () => {
+    try {
+      const run = await prepareAiEmployeeRun(OFFICE_DAILY_REPORT_EMPLOYEE_ID, {
+        input: OFFICE_DAILY_REPORT_PROMPT,
+        q: "日报 客户 项目 任务 跟进 内容 审计",
+        context_limit: 40,
+      })
+      await openDraftAndSendMessage({
+        title: OFFICE_DAILY_REPORT_TITLE,
+        content: buildOfficeDailyReportPrompt(run),
+      })
+    } catch (error) {
+      console.error("prepare office daily report failed:", error)
+      toast.warning("AI Employee Runtime 暂不可用，已直接发送日报指令")
+      await openDraftAndSendMessage({
+        title: OFFICE_DAILY_REPORT_TITLE,
+        content: OFFICE_DAILY_REPORT_PROMPT,
+      })
     }
   }
 
@@ -2697,8 +2780,52 @@ export function AppInner() {
                   <Settings2Icon className="size-3.5 shrink-0" />
                 </Button>
               </div>
+
+              {/* User / Login area */}
+              {userInfo ? (
+                <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 px-2.5 py-2">
+                  {userInfo.avatarUrl ? (
+                    <img src={userInfo.avatarUrl} alt="" className="size-7 rounded-full object-cover" />
+                  ) : (
+                    <div className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <UserIcon className="size-3.5" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-[11px] font-medium text-sidebar-foreground">{userInfo.nickname || '用户'}</p>
+                    <p className="text-[9px] text-sidebar-foreground/50">已认证</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="size-6 rounded-md px-0 text-sidebar-foreground/50 hover:text-sidebar-foreground"
+                    title="退出登录"
+                    aria-label="退出登录"
+                    onClick={onLogout}>
+                    <LogOutIcon className="size-3" />
+                  </Button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setLoginDialogOpen(true)}
+                  className="flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 px-2.5 py-2 text-left transition-colors hover:bg-sidebar-accent/60">
+                  <div className="flex size-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                    <UserIcon className="size-3.5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-medium text-sidebar-foreground/70">点击登录</p>
+                    <p className="text-[9px] text-sidebar-foreground/40">微信扫码登录</p>
+                  </div>
+                </button>
+              )}
             </div>
           </SidebarFooter>
+
+          <LoginDialog
+            open={loginDialogOpen}
+            onOpenChange={setLoginDialogOpen}
+            onLogin={onLogin}
+          />
 
           {!isMobile ? (
             <button
@@ -3058,6 +3185,9 @@ export function AppInner() {
                               }).catch(() => {})
                               newConversation()
                               setInput(`请以「${emp.name}」的身份协助我：`)
+                            }}
+                            onMeeting={() => {
+                              void handleOfficeMeeting()
                             }}
                           />
                         )}
