@@ -2,11 +2,12 @@
 # Crazor 按客户构建桌面安装包
 #
 # 用法:
-#   ./scripts/build-customer.sh "客户名" "https://123.45.67.1" [macos|macos-arm64|macos-x64|windows|windows-x64|current]
+#   ./scripts/build-customer.sh "客户名" "https://123.45.67.1" [macos|macos-arm64|macos-x64|macos-current|windows|windows-x64|windows-current|current]
 #
 # 示例:
 #   ./scripts/build-customer.sh "张三公司" "https://123.45.67.1"
 #   ./scripts/build-customer.sh "李四工作室" "http://localhost:3001" macos-arm64
+#   ./scripts/build-customer.sh "王五企业" "https://crazor.example.com" macos-current
 #   ./scripts/build-customer.sh "本机验证" "http://localhost:5173" current
 #
 # 输出:
@@ -15,7 +16,7 @@
 
 set -e
 
-CUSTOMER="${1:?用法: build-customer.sh <客户名> <服务器URL> [macos|macos-arm64|macos-x64|windows|windows-x64|current]}"
+CUSTOMER="${1:?用法: build-customer.sh <客户名> <服务器URL> [macos|macos-arm64|macos-x64|macos-current|windows|windows-x64|windows-current|current]}"
 SERVER_URL="${2:?错误: 请提供服务器 URL}"
 PLATFORM="${3:-macos}"
 
@@ -82,6 +83,20 @@ if ! command -v npx >/dev/null 2>&1; then
     echo "错误: 未找到 npx，请先安装 Node.js 依赖环境"
     exit 1
 fi
+
+HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
+require_current_platform_host() {
+    local expected="$1"
+    local label="$2"
+    case "$expected:$HOST_OS" in
+        macos:Darwin*) return 0 ;;
+        windows:MINGW*|windows:MSYS*|windows:CYGWIN*) return 0 ;;
+        *)
+            echo "错误: $label 只能在对应系统 runner 上构建，当前宿主系统为 $HOST_OS"
+            exit 1
+            ;;
+    esac
+}
 
 SERVER_PREFLIGHT_MODE="${CRAZOR_CUSTOMER_SERVER_PREFLIGHT:-warn}"
 SERVER_PREFLIGHT_RESULT="skipped"
@@ -172,15 +187,23 @@ if [ "$PLATFORM" = "macos" ] || [ "$PLATFORM" = "macos-arm64" ]; then
 elif [ "$PLATFORM" = "macos-x64" ]; then
     echo "🍎 构建 macOS Intel 安装包..."
     npx tauri build --target x86_64-apple-darwin
+elif [ "$PLATFORM" = "macos-current" ]; then
+    require_current_platform_host macos "$PLATFORM"
+    echo "🍎 构建 macOS 当前 runner 架构安装包..."
+    npx tauri build
 elif [ "$PLATFORM" = "windows" ] || [ "$PLATFORM" = "windows-x64" ]; then
     echo "🪟 构建 Windows x64 安装包..."
     npx tauri build --target x86_64-pc-windows-msvc
+elif [ "$PLATFORM" = "windows-current" ]; then
+    require_current_platform_host windows "$PLATFORM"
+    echo "🪟 构建 Windows 当前 runner 架构安装包..."
+    npx tauri build
 elif [ "$PLATFORM" = "current" ]; then
     echo "📦 构建当前平台..."
     npx tauri build
 else
     echo "错误: 不支持的平台 $PLATFORM"
-    echo "可选: macos, macos-arm64, macos-x64, windows, windows-x64, current"
+    echo "可选: macos, macos-arm64, macos-x64, macos-current, windows, windows-x64, windows-current, current"
     exit 1
 fi
 
@@ -203,7 +226,7 @@ if [ ! -d "$BUNDLE_DIR" ]; then
 fi
 
 case "$PLATFORM" in
-    macos|macos-arm64|macos-x64)
+    macos|macos-arm64|macos-x64|macos-current)
         if ! find "$BUNDLE_DIR" -name "*.app" -type d | grep -q .; then
             echo "错误: 未找到 macOS .app 产物"
             exit 1
@@ -213,7 +236,7 @@ case "$PLATFORM" in
             exit 1
         fi
         ;;
-    windows|windows-x64)
+    windows|windows-x64|windows-current)
         if ! find "$BUNDLE_DIR" \( -name "*.msi" -o -name "*.exe" \) -type f | grep -q .; then
             echo "错误: 未找到 Windows 安装包"
             exit 1

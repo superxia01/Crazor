@@ -49,6 +49,9 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes("NORMALIZED_SERVER_URL") &&
       buildCustomerScript.includes("new URL(text)") &&
       buildCustomerScript.includes("有效地址") &&
+      buildCustomerScript.includes("macos-current") &&
+      buildCustomerScript.includes("windows-current") &&
+      buildCustomerScript.includes("require_current_platform_host") &&
       buildCustomerScript.includes("deliveryProtocolVersion") &&
       buildCustomerScript.includes("SERVER_PREFLIGHT_RESULT") &&
       buildCustomerScript.includes("serverPreflight") &&
@@ -81,6 +84,8 @@ test("customer package build can strictly preflight the hosted backend before ha
       customerWorkflowSource.includes("delivery_protocol_version") &&
       customerWorkflowSource.includes("inputs.delivery_protocol_version") &&
       customerWorkflowSource.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION") &&
+      customerWorkflowSource.includes("PACKAGE_PLATFORM") &&
+      customerWorkflowSource.includes('"$PACKAGE_PLATFORM"') &&
       customerWorkflowSource.includes("strict") &&
       customerWorkflowSource.includes("skip"),
     "manual customer package builds should let operators choose preflight behavior and delivery protocol version"
@@ -321,6 +326,9 @@ test("customer desktop package can be built by CI with configured backend", () =
     customerWorkflowSource.includes("workflow_dispatch") &&
       customerWorkflowSource.includes("pull_request") &&
       customerWorkflowSource.includes("server_url") &&
+      customerWorkflowSource.includes("macos-current") &&
+      customerWorkflowSource.includes("windows-current") &&
+      customerWorkflowSource.includes("PACKAGE_PLATFORM") &&
       customerWorkflowSource.includes("delivery_protocol_version") &&
       customerWorkflowSource.includes("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24") &&
       customerWorkflowSource.includes("actions/checkout@v6.0.2") &&
@@ -332,6 +340,9 @@ test("customer desktop package can be built by CI with configured backend", () =
   )
   assert.ok(
     buildCustomerScript.includes('"current"') &&
+      buildCustomerScript.includes('"macos-current"') &&
+      buildCustomerScript.includes('"windows-current"') &&
+      buildCustomerScript.includes("HOST_OS") &&
       buildCustomerScript.includes("npx tauri build") &&
       buildCustomerScript.includes("crazor-delivery-manifest.json") &&
       buildCustomerScript.includes("crazor-delivery-checksums.txt") &&

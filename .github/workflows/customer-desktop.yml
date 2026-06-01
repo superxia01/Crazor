@@ -48,6 +48,7 @@ jobs:
     env:
       CUSTOMER_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.customer || 'PR 验证' }}
       SERVER_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.server_url || 'http://127.0.0.1:5173' }}
+      PACKAGE_PLATFORM: ${{ github.event_name == 'workflow_dispatch' && inputs.platform || 'macos-current' }}
       CRAZOR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CRAZOR_CUSTOMER_SERVER_PREFLIGHT: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight_mode || 'warn' }}
       CRAZOR_DELIVERY_PROTOCOL_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_protocol_version || '1' }}
@@ -77,7 +78,7 @@ jobs:
         run: npm ci
 
       - name: 构建客户安装包
-        run: ./scripts/build-customer.sh "$CUSTOMER_NAME" "$SERVER_URL" current
+        run: ./scripts/build-customer.sh "$CUSTOMER_NAME" "$SERVER_URL" "$PACKAGE_PLATFORM"
 
       - name: 上传安装包
         uses: actions/upload-artifact@v7.0.1
