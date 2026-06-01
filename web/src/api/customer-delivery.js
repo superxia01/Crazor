@@ -6,12 +6,16 @@ export function getCustomerDeliveryRuntimeInfo(env = import.meta.env || {}) {
   const serverUrl = normalizeRemoteApiBase(env?.VITE_API_BASE)
   const customerName = normalizeDeliveryText(env?.VITE_CRAZOR_CUSTOMER_NAME)
   const channel = normalizeDeliveryText(env?.VITE_CRAZOR_DELIVERY_CHANNEL)
+  const buildSha = normalizeDeliveryText(env?.VITE_CRAZOR_BUILD_SHA)
+  const buildTime = normalizeDeliveryText(env?.VITE_CRAZOR_BUILD_TIME)
 
   return {
     enabled: Boolean(serverUrl || customerName || channel === "customer"),
     customerName,
     channel: channel || (serverUrl ? "customer" : "local"),
     serverUrl,
+    buildSha,
+    buildTime,
   }
 }
 

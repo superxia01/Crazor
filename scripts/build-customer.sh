@@ -76,6 +76,12 @@ if ! command -v cargo >/dev/null 2>&1; then
     exit 1
 fi
 
+BUILD_SHA="${CRAZOR_HEAD_SHA:-${GITHUB_HEAD_SHA:-${GITHUB_SHA:-}}}"
+if [ -z "$BUILD_SHA" ] && command -v git >/dev/null 2>&1; then
+    BUILD_SHA="$(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || true)"
+fi
+BUILD_TIME="$(node -e 'process.stdout.write(new Date().toISOString())')"
+
 if [ -f "$WEB_ENV" ]; then
     cp "$WEB_ENV" "$WEB_ENV_BAK"
     trap 'mv "$TAURI_CONF.bak" "$TAURI_CONF" 2>/dev/null; mv "$WEB_ENV_BAK" "$WEB_ENV" 2>/dev/null' EXIT
@@ -101,6 +107,8 @@ process.stdout.write(`${key}="${value}"\n`)
 write_web_env "VITE_API_BASE" "$SERVER_URL"
 write_web_env "VITE_CRAZOR_CUSTOMER_NAME" "$CUSTOMER"
 write_web_env "VITE_CRAZOR_DELIVERY_CHANNEL" "customer"
+write_web_env "VITE_CRAZOR_BUILD_SHA" "$BUILD_SHA"
+write_web_env "VITE_CRAZOR_BUILD_TIME" "$BUILD_TIME"
 
 echo ""
 echo "✅ 客户端远程服务地址已写入: $SERVER_URL"
@@ -178,7 +186,7 @@ case "$PLATFORM" in
 esac
 
 mkdir -p "$BUNDLE_DIR"
-export CUSTOMER SERVER_URL PLATFORM BUNDLE_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS
+export CUSTOMER SERVER_URL PLATFORM BUILD_SHA BUILD_TIME BUNDLE_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS
 node <<'NODE'
 const { createHash } = require("node:crypto")
 const { createReadStream, readdirSync, statSync, writeFileSync } = require("node:fs")
@@ -264,10 +272,10 @@ async function main() {
     customer: process.env.CUSTOMER,
     serverUrl: process.env.SERVER_URL,
     platform: process.env.PLATFORM,
-    gitSha: process.env.CRAZOR_HEAD_SHA || process.env.GITHUB_HEAD_SHA || process.env.GITHUB_SHA || "",
+    gitSha: process.env.BUILD_SHA || process.env.CRAZOR_HEAD_SHA || process.env.GITHUB_HEAD_SHA || process.env.GITHUB_SHA || "",
     workflowSha: process.env.GITHUB_SHA || "",
     githubRunId: process.env.GITHUB_RUN_ID || "",
-    builtAt: new Date().toISOString(),
+    builtAt: process.env.BUILD_TIME || new Date().toISOString(),
     checksumFile: normalizePath(relative(bundleDir, deliveryChecksums)),
     bundleFiles,
   }

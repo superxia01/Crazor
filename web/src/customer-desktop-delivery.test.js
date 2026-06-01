@@ -32,6 +32,8 @@ test("customer desktop build embeds the configured backend API base", () => {
     buildCustomerScript.includes('write_web_env "VITE_API_BASE" "$SERVER_URL"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_CUSTOMER_NAME" "$CUSTOMER"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DELIVERY_CHANNEL" "customer"') &&
+      buildCustomerScript.includes('write_web_env "VITE_CRAZOR_BUILD_SHA" "$BUILD_SHA"') &&
+      buildCustomerScript.includes('write_web_env "VITE_CRAZOR_BUILD_TIME" "$BUILD_TIME"') &&
       buildCustomerScript.includes("npm run build:tauri") &&
       buildCustomerScript.includes('grep -R -F "$SERVER_URL" "$PROJECT_ROOT/web/dist"') &&
       buildCustomerScript.includes('grep -R -F "$CUSTOMER" "$PROJECT_ROOT/web/dist"') &&
@@ -74,7 +76,9 @@ test("desktop client exposes the configured backend for delivery verification", 
   assert.ok(
     customerDeliverySource.includes("getCustomerDeliveryRuntimeInfo") &&
       customerDeliverySource.includes("VITE_CRAZOR_CUSTOMER_NAME") &&
-      customerDeliverySource.includes("VITE_CRAZOR_DELIVERY_CHANNEL"),
+      customerDeliverySource.includes("VITE_CRAZOR_DELIVERY_CHANNEL") &&
+      customerDeliverySource.includes("VITE_CRAZOR_BUILD_SHA") &&
+      customerDeliverySource.includes("VITE_CRAZOR_BUILD_TIME"),
     "desktop client should expose packaged customer identity from build-time env"
   )
   assert.ok(
@@ -86,6 +90,8 @@ test("desktop client exposes the configured backend for delivery verification", 
       settingsModalSource.includes("客户包") &&
       settingsModalSource.includes("远程服务") &&
       settingsModalSource.includes("同源服务") &&
+      settingsModalSource.includes("构建版本") &&
+      settingsModalSource.includes("构建时间") &&
       settingsModalSource.includes("isCustomerDeliveryMode") &&
       settingsModalSource.includes("客户交付模式") &&
       settingsModalSource.includes("本机端口控制") &&
@@ -107,6 +113,8 @@ test("customer desktop blocks startup when the hosted backend is unavailable", (
       customerDeliveryGateSource.includes("checkDeliveryReadiness") &&
       customerDeliveryGateSource.includes("readiness?.status === \"blocked\"") &&
       customerDeliveryGateSource.includes("无法连接托管服务") &&
+      customerDeliveryGateSource.includes("构建版本") &&
+      customerDeliveryGateSource.includes("构建时间") &&
       customerDeliveryGateSource.includes("重新检测"),
     "customer delivery gate should block unreachable or blocked hosted services and offer retry"
   )
@@ -203,6 +211,8 @@ test("customer desktop package can be built by CI with configured backend", () =
       customerWorkflowSource.includes("CRAZOR_HEAD_SHA") &&
       buildCustomerScript.includes("GITHUB_HEAD_SHA || process.env.GITHUB_SHA") &&
       buildCustomerScript.includes("workflowSha") &&
+      buildCustomerScript.includes("BUILD_SHA") &&
+      buildCustomerScript.includes("BUILD_TIME") &&
       buildCustomerScript.includes('rm -rf "$BUNDLE_DIR"') &&
       buildCustomerScript.includes('find "$BUNDLE_DIR"') &&
       buildCustomerScript.includes("*.dmg") &&

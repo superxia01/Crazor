@@ -11,12 +11,16 @@ test("customer delivery runtime info exposes packaged customer identity", () => 
       VITE_API_BASE: " https://crazor.example.com/ ",
       VITE_CRAZOR_CUSTOMER_NAME: " CRAZYAIGC 内部 ",
       VITE_CRAZOR_DELIVERY_CHANNEL: " customer ",
+      VITE_CRAZOR_BUILD_SHA: " abc123 ",
+      VITE_CRAZOR_BUILD_TIME: " 2026-06-01T17:02:17.391Z ",
     }),
     {
       enabled: true,
       customerName: "CRAZYAIGC 内部",
       channel: "customer",
       serverUrl: "https://crazor.example.com",
+      buildSha: "abc123",
+      buildTime: "2026-06-01T17:02:17.391Z",
     },
   )
 })
@@ -27,5 +31,7 @@ test("customer delivery runtime info stays local when no package env is embedded
     customerName: "",
     channel: "local",
     serverUrl: "",
+    buildSha: "",
+    buildTime: "",
   })
 })
