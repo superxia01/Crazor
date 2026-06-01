@@ -7,6 +7,8 @@ import test from "node:test"
 
 const repoRoot = resolve(new URL("../..", import.meta.url).pathname)
 const buildCustomerScript = readFileSync(resolve(repoRoot, "scripts/build-customer.sh"), "utf8")
+const hermesScript = readFileSync(resolve(repoRoot, "scripts/hermes"), "utf8")
+const customerDesktopSmokeScript = readFileSync(resolve(repoRoot, "scripts/customer-desktop-smoke.mjs"), "utf8")
 const verifyCustomerServerScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-server.mjs"), "utf8")
 const webPackage = readFileSync(resolve(repoRoot, "web/package.json"), "utf8")
 const desktopPackage = readFileSync(resolve(repoRoot, "desktop/package.json"), "utf8")
@@ -346,5 +348,25 @@ test("customer desktop package can be built by CI with configured backend", () =
       buildCustomerScript.includes("*.dmg") &&
       buildCustomerScript.includes("*.msi"),
     "customer build script should support current-platform packaging and verify installable bundle outputs"
+  )
+})
+
+test("customer desktop hosted backend chain can be smoke-tested before handoff", () => {
+  assert.ok(
+    hermesScript.includes("desktop-smoke") &&
+      hermesScript.includes("customer-desktop-smoke.mjs"),
+    "operator script should expose a customer desktop remote smoke command"
+  )
+  assert.ok(
+    customerDesktopSmokeScript.includes("runCustomerDesktopSmoke") &&
+      customerDesktopSmokeScript.includes("/api/delivery/readiness") &&
+      customerDesktopSmokeScript.includes("/api/auth/status") &&
+      customerDesktopSmokeScript.includes("/api/auth/me") &&
+      customerDesktopSmokeScript.includes("/api/crazor/context?limit=1") &&
+      customerDesktopSmokeScript.includes("/api/agent/provider") &&
+      customerDesktopSmokeScript.includes("/api/models") &&
+      customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_LOGIN_TOKEN") &&
+      customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_ACTOR_TOKEN"),
+    "customer desktop smoke should verify delivery identity, login gate, business context, and chat provider entrypoints"
   )
 })
