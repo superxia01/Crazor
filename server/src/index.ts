@@ -1437,7 +1437,8 @@ app.post('/api/crazor/schema/:entity/discover', (c) => {
 // --- Crazor Skill Catalog & Installation ---
 
 app.get('/api/crazor/skills/catalog', (c) => {
-  return c.json(skillCatalog.getCatalog({ source: 'crazor' }))
+  const skills = skillCatalog.getCatalog({ source: 'crazor' })
+  return c.json(skills.filter((s: any) => s.category !== 'system'))
 })
 
 app.get('/api/crazor/skills/meta', (c) => {
