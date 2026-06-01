@@ -9,8 +9,10 @@ const repoRoot = resolve(new URL("../..", import.meta.url).pathname)
 const buildCustomerScript = readFileSync(resolve(repoRoot, "scripts/build-customer.sh"), "utf8")
 const webPackage = readFileSync(resolve(repoRoot, "web/package.json"), "utf8")
 const desktopPackage = readFileSync(resolve(repoRoot, "desktop/package.json"), "utf8")
+const appSource = readFileSync(resolve(repoRoot, "web/src/App.jsx"), "utf8")
 const authFetchSource = readFileSync(resolve(repoRoot, "web/src/api/crazor-auth.js"), "utf8")
 const customerDeliverySource = readFileSync(resolve(repoRoot, "web/src/api/customer-delivery.js"), "utf8")
+const customerDeliveryGateSource = readFileSync(resolve(repoRoot, "web/src/CustomerDeliveryGate.jsx"), "utf8")
 const remoteApiSource = readFileSync(resolve(repoRoot, "web/src/api/remote-api-base.js"), "utf8")
 const settingsModalSource = readFileSync(resolve(repoRoot, "web/src/SettingsModal.jsx"), "utf8")
 const loginDialogSource = readFileSync(resolve(repoRoot, "web/src/components/LoginDialog.jsx"), "utf8")
@@ -90,6 +92,23 @@ test("desktop client exposes the configured backend for delivery verification", 
       settingsModalSource.includes("{!isCustomerDeliveryMode && (") &&
       settingsModalSource.includes("nextCustomerDeliveryMode"),
     "settings connection panel should let operators verify the packaged client backend target"
+  )
+})
+
+test("customer desktop blocks startup when the hosted backend is unavailable", () => {
+  assert.ok(
+    appSource.includes("CustomerDeliveryGate") &&
+      appSource.indexOf("<CustomerDeliveryGate>") < appSource.indexOf("<AppInner"),
+    "desktop app should check customer delivery readiness before entering the main workspace"
+  )
+  assert.ok(
+    customerDeliveryGateSource.includes("getRemoteApiRuntimeInfo") &&
+      customerDeliveryGateSource.includes("getCustomerDeliveryRuntimeInfo") &&
+      customerDeliveryGateSource.includes("checkDeliveryReadiness") &&
+      customerDeliveryGateSource.includes("readiness?.status === \"blocked\"") &&
+      customerDeliveryGateSource.includes("无法连接托管服务") &&
+      customerDeliveryGateSource.includes("重新检测"),
+    "customer delivery gate should block unreachable or blocked hosted services and offer retry"
   )
 })
 

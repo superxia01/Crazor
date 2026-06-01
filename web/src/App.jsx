@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/sonner"
 import { Badge } from "@/components/ui/badge"
 import { AppInner } from "./AppInner"
+import { CustomerDeliveryGate } from "./CustomerDeliveryGate"
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -106,11 +107,13 @@ export default function App() {
             stack: "查看组件堆栈",
           }}>
           <Toaster richColors closeButton />
-          <AppInner
-            userInfo={userInfo}
-            onLogin={handleLogin}
-            onLogout={handleLogout}
-          />
+          <CustomerDeliveryGate>
+            <AppInner
+              userInfo={userInfo}
+              onLogin={handleLogin}
+              onLogout={handleLogout}
+            />
+          </CustomerDeliveryGate>
         </ErrorBoundary>
       </TooltipProvider>
     </I18nProvider>
