@@ -70,6 +70,34 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 
+SERVER_PREFLIGHT_MODE="${CRAZOR_CUSTOMER_SERVER_PREFLIGHT:-warn}"
+SERVER_PREFLIGHT_RESULT="skipped"
+
+case "$SERVER_PREFLIGHT_MODE" in
+    skip|off|false|0)
+        echo "跳过客户服务预检: CRAZOR_CUSTOMER_SERVER_PREFLIGHT=$SERVER_PREFLIGHT_MODE"
+        ;;
+    strict|warn)
+        echo ""
+        echo "🔎 检查客户托管服务: $SERVER_URL"
+        if node "$PROJECT_ROOT/scripts/verify-customer-server.mjs" "$CUSTOMER" "$SERVER_URL"; then
+            SERVER_PREFLIGHT_RESULT="passed"
+        else
+            SERVER_PREFLIGHT_RESULT="warning"
+            if [ "$SERVER_PREFLIGHT_MODE" = "strict" ] || [ "${CRAZOR_REQUIRE_CUSTOMER_SERVER_READY:-}" = "1" ]; then
+                echo "错误: 客户服务预检未通过，已按 strict 模式停止构建"
+                exit 1
+            fi
+            echo "警告: 客户服务预检未通过，本次按 warn 模式继续构建"
+        fi
+        echo ""
+        ;;
+    *)
+        echo "错误: CRAZOR_CUSTOMER_SERVER_PREFLIGHT 只支持 warn、strict 或 skip"
+        exit 1
+        ;;
+esac
+
 if ! command -v cargo >/dev/null 2>&1; then
     echo "错误: 未找到 cargo，请先安装 Rust 工具链后再构建 Tauri 安装包"
     echo "参考: https://www.rust-lang.org/tools/install"
@@ -186,7 +214,7 @@ case "$PLATFORM" in
 esac
 
 mkdir -p "$BUNDLE_DIR"
-export CUSTOMER SERVER_URL PLATFORM BUILD_SHA BUILD_TIME BUNDLE_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS
+export CUSTOMER SERVER_URL PLATFORM BUILD_SHA BUILD_TIME BUNDLE_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS SERVER_PREFLIGHT_MODE SERVER_PREFLIGHT_RESULT
 node <<'NODE'
 const { createHash } = require("node:crypto")
 const { createReadStream, readdirSync, statSync, writeFileSync } = require("node:fs")
@@ -272,6 +300,10 @@ async function main() {
     customer: process.env.CUSTOMER,
     serverUrl: process.env.SERVER_URL,
     platform: process.env.PLATFORM,
+    serverPreflight: {
+      mode: process.env.SERVER_PREFLIGHT_MODE || "",
+      result: process.env.SERVER_PREFLIGHT_RESULT || "",
+    },
     gitSha: process.env.BUILD_SHA || process.env.CRAZOR_HEAD_SHA || process.env.GITHUB_HEAD_SHA || process.env.GITHUB_SHA || "",
     workflowSha: process.env.GITHUB_SHA || "",
     githubRunId: process.env.GITHUB_RUN_ID || "",

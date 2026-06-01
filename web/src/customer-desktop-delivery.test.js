@@ -7,6 +7,7 @@ import test from "node:test"
 
 const repoRoot = resolve(new URL("../..", import.meta.url).pathname)
 const buildCustomerScript = readFileSync(resolve(repoRoot, "scripts/build-customer.sh"), "utf8")
+const verifyCustomerServerScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-server.mjs"), "utf8")
 const webPackage = readFileSync(resolve(repoRoot, "web/package.json"), "utf8")
 const desktopPackage = readFileSync(resolve(repoRoot, "desktop/package.json"), "utf8")
 const appSource = readFileSync(resolve(repoRoot, "web/src/App.jsx"), "utf8")
@@ -39,14 +40,35 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes("npm run build:tauri") &&
       buildCustomerScript.includes('grep -R -F "$SERVER_URL" "$PROJECT_ROOT/web/dist"') &&
       buildCustomerScript.includes('grep -R -F "$CUSTOMER" "$PROJECT_ROOT/web/dist"') &&
+      buildCustomerScript.includes("verify-customer-server.mjs") &&
+      buildCustomerScript.includes("CRAZOR_CUSTOMER_SERVER_PREFLIGHT") &&
+      buildCustomerScript.includes("SERVER_PREFLIGHT_RESULT") &&
+      buildCustomerScript.includes("serverPreflight") &&
       !buildCustomerScript.includes("__CUSTOMER_SERVER_URL__"),
-    "customer build should write package env before packaging and verify backend/customer identity is embedded"
+    "customer build should write package env before packaging, preflight the hosted backend, and verify backend/customer identity is embedded"
   )
   assert.ok(
     buildCustomerScript.includes("command -v cargo") &&
       buildCustomerScript.includes("未找到 cargo") &&
       buildCustomerScript.indexOf("command -v cargo") < buildCustomerScript.indexOf("npm run build:tauri"),
     "customer build should fail fast when the Tauri Rust toolchain is missing"
+  )
+})
+
+test("customer package build can strictly preflight the hosted backend before handoff", () => {
+  assert.ok(
+    verifyCustomerServerScript.includes("verifyCustomerServer") &&
+      verifyCustomerServerScript.includes("/api/delivery/readiness") &&
+      verifyCustomerServerScript.includes("CRAZOR_DELIVERY_CUSTOMER") &&
+      verifyCustomerServerScript.includes("CRAZOR_PUBLIC_BASE_URL") &&
+      verifyCustomerServerScript.includes("托管后端交付自检状态为 blocked"),
+    "customer server preflight should verify readiness, delivery identity, and public URL before packaging"
+  )
+  assert.ok(
+    customerWorkflowSource.includes("CRAZOR_CUSTOMER_SERVER_PREFLIGHT") &&
+      customerWorkflowSource.includes("workflow_dispatch") &&
+      customerWorkflowSource.includes("'strict' || 'warn'"),
+    "manual customer package builds should fail fast when the configured backend is not ready"
   )
 })
 

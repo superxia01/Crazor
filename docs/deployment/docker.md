@@ -85,6 +85,12 @@ CRAZOR_PUBLIC_BASE_URL=http://局域网IP:5173
 
 `CRAZOR_PUBLIC_BASE_URL` 会优先用于微信登录回调地址。局域网部署时填客户实际访问的局域网入口；公网部署时填 HTTPS 域名。
 
+构建正式客户安装包前建议启用严格预检，脚本会访问 `${CRAZOR_PUBLIC_BASE_URL}/api/delivery/readiness`，确认客户名、公开地址和交付自检状态匹配后才继续打包：
+
+```bash
+CRAZOR_CUSTOMER_SERVER_PREFLIGHT=strict ./scripts/build-customer.sh "客户名称" "http://局域网IP:5173" current
+```
+
 如果临时切换到非 Hermes provider，可跳过 Hermes 状态代理检查：
 
 ```bash
