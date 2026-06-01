@@ -14,6 +14,8 @@
 
 ## 项目协作入口
 
+- [AI Native Enterprise OS PRD V2.5](docs/PRD-V2.5.md)
+- [V2.5 架构目标基准](docs/architecture/v2.5-target-architecture.md)
 - [Docker 部署说明](docs/deployment/docker.md)
 - [Hermes Agent 集成说明](docs/deployment/hermes-agent.md)
 - [Agent Gateway 解耦规范](docs/architecture/agent-gateway.md)

@@ -1,7 +1,15 @@
 # 产品持续审计入口
 
-> 更新日期：2026-05-31
+> 更新日期：2026-06-01
 > 审计范围：Crazor Web、Crazor Server、MCP Server、Docker 交付、Hermes 默认 Provider、业务数据与文档知识库链路。
+
+## 新版本目标基准
+
+新版本架构以 [AI Native Enterprise OS PRD V2.5](../PRD-V2.5.md) 为产品目标，以 [V2.5 架构目标基准](../architecture/v2.5-target-architecture.md) 为工程分层约束。
+
+后续审计不再只判断“Docker + Hermes MVP 是否可用”，而要持续验证系统是否朝企业 AI 操作系统演进：统一工作台、AI Employee Runtime、AI Middleware、Unified Context Layer、Enterprise Memory OS、Connector Layer、权限审计和可替换 Agent Provider 都必须形成真实链路。
+
+每次新任务开始前必须先同步远端最新代码并评估新增需求；如有新增需求，先判断是否立即整合、拆入后续计划或记录为冲突风险，再进入实现。
 
 ## 审计目标
 
@@ -22,6 +30,10 @@
 ## 当前结论
 
 当前代码已经具备 Docker 化交付、统一 Web 入口、业务数据 API、文档知识库、Hermes 对话/技能/记忆/任务管理等基础能力。
+
+V2.5 第一层 Unified Context API 已接入：`GET /api/crazor/context` 可以按关键词、类型和客户 ID 聚合客户、项目、任务、跟进、内容、渠道、流水、文档和审计事件，为后续 AI Employee Runtime、企业记忆索引和统一工作台提供共同上下文入口。
+
+已按任务前同步规则评估远端最新 `a058faf`：该提交属于 Tauri 内嵌前端和远程 API 对接需求。本轮已安全整合 `VITE_API_BASE`、Tauri 构建模式下相对资源路径和 Tauri CORS；完整桌面客户端、微信登录和客户定制安装包仍需作为独立交付可靠化任务处理。
 
 已同步远程最新代码：`origin/master` 新增的 Hermes 版本号修复已纳入当前 PR 分支，`/api/hermes/version` 现在从 Dashboard `/api/status` 读取版本和运行状态。
 

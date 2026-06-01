@@ -454,8 +454,10 @@ async function main() {
     const viewerToken = await createViewerToken()
     const contacts = await requestWithToken("/api/crazor/contacts", viewerToken)
     const analytics = await requestWithToken("/api/crazor/analytics/overview", viewerToken)
+    const context = await requestWithToken("/api/crazor/context?limit=1", viewerToken)
     assert(Array.isArray(contacts.data), "只读 token 未能读取客户列表", contacts.data)
     assert(analytics.data?.contacts && analytics.data?.projects, "只读 token 未能读取分析概览", analytics.data)
+    assert(Array.isArray(context.data?.items), "只读 token 未能读取 Unified Context", context.data)
   })
 
   const marker = unique("smoke")
@@ -698,6 +700,20 @@ async function main() {
 
     const logs = await request(query("/api/crazor/audit-logs", { entity: "contact", entity_id: contact.id, limit: "20" }))
     assert(logs.data.some((item) => item.action === "create" && item.entity === "contact"), "审计日志未记录客户创建", logs.data)
+  })
+
+  await step("Unified Context 上下文聚合入口", async () => {
+    const context = await request(query("/api/crazor/context", {
+      q: marker,
+      contact_id: contact.id,
+      types: "contact,project,task,follow_up,transaction,doc_note,audit_log",
+      limit: "50",
+    }))
+    assert(Array.isArray(context.data?.items), "Unified Context 未返回 items 数组", context.data)
+    assert(context.data.items.some((item) => item.type === "contact" && item.id === contact.id), "上下文未包含目标客户", context.data)
+    assert(context.data.items.some((item) => item.type === "project" && item.id === project.id), "上下文未包含关联项目", context.data)
+    assert(context.data.items.some((item) => item.type === "doc_note" && item.id === contactDoc.id), "上下文未包含客户需求文档", context.data)
+    assert(context.data.items.some((item) => item.type === "audit_log" && item.relations?.entity_id === contact.id), "上下文未包含客户审计事件", context.data)
   })
 
   log("\n烟测通过：")

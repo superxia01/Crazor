@@ -24,6 +24,7 @@ import { seedFieldDefinitions, discoverCustomFields, listFieldDefinitions, getFi
 import * as docs from './services/crazor-docs'
 import * as docTree from './services/crazor-doc-tree'
 import * as skillCatalog from './services/skill-catalog'
+import { getUnifiedContext } from './services/unified-context'
 import { seedVault } from './services/seed-vault'
 import { seedSkills } from './services/seed-skills'
 import { migrateVault } from './services/migrate-vault'
@@ -346,7 +347,7 @@ function normalizeGatewaySessionList(payload: unknown): Record<string, unknown>[
 // --- Middleware ---
 const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
-  : ['http://localhost:5173', 'http://localhost:5174']
+  : ['http://localhost:5173', 'http://localhost:5174', 'tauri://localhost', 'https://tauri.localhost']
 
 app.use('*', cors({
   origin: CORS_ORIGINS,
@@ -369,6 +370,7 @@ const BUSINESS_READ_ROOTS = new Set([
   'docs',
   'doc-files',
   'analytics',
+  'context',
 ])
 
 app.use('/api/crazor/*', async (c, next) => {
@@ -625,6 +627,7 @@ function deriveAuditEntity(segments: string[]) {
     'follow-up-reminders': 'follow_up',
     channels: 'channel',
     analytics: 'analytics',
+    context: 'context',
   }
   return entityMap[segments[0]] || segments[0] || 'unknown'
 }
@@ -2468,6 +2471,16 @@ app.get('/api/crazor/analytics/revenue', (c) => {
 
 app.get('/api/crazor/analytics/channels', (c) => {
   return c.json(getChannelStats())
+})
+
+// --- Unified Context Layer ---
+app.get('/api/crazor/context', (c) => {
+  return c.json(getUnifiedContext({
+    q: c.req.query('q') || '',
+    types: c.req.query('types') || '',
+    contact_id: c.req.query('contact_id') || '',
+    limit: c.req.query('limit') || '',
+  }))
 })
 
 // --- Schema API ---
