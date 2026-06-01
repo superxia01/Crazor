@@ -44,6 +44,9 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes("verify-customer-server.mjs") &&
       buildCustomerScript.includes("CRAZOR_CUSTOMER_SERVER_PREFLIGHT") &&
       buildCustomerScript.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION") &&
+      buildCustomerScript.includes("NORMALIZED_SERVER_URL") &&
+      buildCustomerScript.includes("new URL(text)") &&
+      buildCustomerScript.includes("有效地址") &&
       buildCustomerScript.includes("deliveryProtocolVersion") &&
       buildCustomerScript.includes("SERVER_PREFLIGHT_RESULT") &&
       buildCustomerScript.includes("serverPreflight") &&
@@ -104,6 +107,8 @@ test("desktop client exposes the configured backend for delivery verification", 
   assert.ok(
     remoteApiSource.includes("getRemoteApiRuntimeInfo") &&
       remoteApiSource.includes("checkRemoteApiHealth") &&
+      remoteApiSource.includes('url.protocol !== "http:"') &&
+      remoteApiSource.includes('url.protocol !== "https:"') &&
       remoteApiSource.includes('buildRemoteApiUrl("/api/health"'),
     "desktop client should expose the embedded backend URL and health endpoint"
   )

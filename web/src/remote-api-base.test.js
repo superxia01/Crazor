@@ -19,6 +19,9 @@ const serverIndex = readFileSync(resolve(repoRoot, "server/src/index.ts"), "utf8
 
 test("remote API base rewrites only same-origin Crazor API paths", () => {
   assert.equal(normalizeRemoteApiBase(" https://api.example.com/// "), "https://api.example.com")
+  assert.equal(normalizeRemoteApiBase(" http://localhost:5173/crazor/ "), "http://localhost:5173/crazor")
+  assert.equal(normalizeRemoteApiBase("ftp://api.example.com"), "")
+  assert.equal(normalizeRemoteApiBase("javascript:alert(1)"), "")
   assert.equal(
     buildRemoteApiUrl("/api/status?x=1", "https://api.example.com/", "tauri://localhost"),
     "https://api.example.com/api/status?x=1",
@@ -33,6 +36,10 @@ test("remote API base rewrites only same-origin Crazor API paths", () => {
   )
   assert.equal(
     buildRemoteApiUrl("https://other.example.com/api/status", "https://api.example.com", "tauri://localhost"),
+    "",
+  )
+  assert.equal(
+    buildRemoteApiUrl("/api/status", "ftp://api.example.com", "tauri://localhost"),
     "",
   )
 })

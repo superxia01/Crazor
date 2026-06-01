@@ -113,5 +113,7 @@ test("customer server preflight fetches delivery readiness endpoint", async () =
 
 test("customer server preflight validates server URL format", () => {
   assert.equal(normalizeServerUrl("ftp://client.example.com"), "")
+  assert.equal(normalizeServerUrl("javascript:alert(1)"), "")
+  assert.equal(normalizeServerUrl("http://localhost:5173/app/"), "http://localhost:5173/app")
   assert.equal(normalizeServerUrl("https://client.example.com/app/"), "https://client.example.com/app")
 })

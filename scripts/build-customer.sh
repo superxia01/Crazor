@@ -47,12 +47,28 @@ trap 'mv "$TAURI_CONF.bak" "$TAURI_CONF" 2>/dev/null' EXIT
 WEB_ENV="$PROJECT_ROOT/web/.env.tauri"
 WEB_ENV_BAK="$WEB_ENV.bak"
 
-if [[ "$SERVER_URL" != http://* && "$SERVER_URL" != https://* ]]; then
-    echo "错误: 服务器 URL 必须以 http:// 或 https:// 开头"
+if ! command -v node >/dev/null 2>&1; then
+    echo "错误: 未找到 node，请先安装 Node.js 依赖环境"
     exit 1
 fi
 
-SERVER_URL="${SERVER_URL%/}"
+NORMALIZED_SERVER_URL="$(SERVER_URL="$SERVER_URL" node <<'NODE'
+const text = String(process.env.SERVER_URL || "").trim().replace(/\/+$/, "")
+try {
+  const url = new URL(text)
+  if (url.protocol === "http:" || url.protocol === "https:") {
+    process.stdout.write(`${url.origin}${url.pathname.replace(/\/+$/, "")}`)
+  }
+} catch {
+}
+NODE
+)"
+if [ -z "$NORMALIZED_SERVER_URL" ]; then
+    echo "错误: 服务器 URL 必须是 http:// 或 https:// 开头的有效地址"
+    exit 1
+fi
+
+SERVER_URL="$NORMALIZED_SERVER_URL"
 export PATH="$HOME/.cargo/bin:$PATH"
 DELIVERY_PROTOCOL_VERSION="${CRAZOR_DELIVERY_PROTOCOL_VERSION:-1}"
 export CRAZOR_DELIVERY_PROTOCOL_VERSION="$DELIVERY_PROTOCOL_VERSION"
@@ -64,11 +80,6 @@ fi
 
 if ! command -v npx >/dev/null 2>&1; then
     echo "错误: 未找到 npx，请先安装 Node.js 依赖环境"
-    exit 1
-fi
-
-if ! command -v node >/dev/null 2>&1; then
-    echo "错误: 未找到 node，请先安装 Node.js 依赖环境"
     exit 1
 fi
 

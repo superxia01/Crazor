@@ -3,7 +3,15 @@
 const REMOTE_API_PREFIXES = ["/api", "/mcp"]
 
 export function normalizeRemoteApiBase(value) {
-  return String(value || "").trim().replace(/\/+$/, "")
+  const text = String(value || "").trim().replace(/\/+$/, "")
+  if (!text) return ""
+  try {
+    const url = new URL(text)
+    if (url.protocol !== "http:" && url.protocol !== "https:") return ""
+    return `${url.origin}${url.pathname.replace(/\/+$/, "")}`
+  } catch {
+    return ""
+  }
 }
 
 export function buildRemoteApiUrl(input, apiBase, origin = browserOrigin()) {
