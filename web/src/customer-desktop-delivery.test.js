@@ -97,6 +97,7 @@ test("customer desktop package can be built by CI with configured backend", () =
     customerWorkflowSource.includes("workflow_dispatch") &&
       customerWorkflowSource.includes("pull_request") &&
       customerWorkflowSource.includes("server_url") &&
+      customerWorkflowSource.includes("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24") &&
       customerWorkflowSource.includes("./scripts/build-customer.sh") &&
       customerWorkflowSource.includes("upload-artifact"),
     "GitHub Actions should expose a manual customer package build that embeds the configured backend URL"
