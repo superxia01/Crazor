@@ -50,11 +50,12 @@ test("customer handoff check verifies package, env, access-code login, and chat"
       if (pathname === "/api/delivery/readiness") {
         return jsonResponse({
           status: "ready",
-          delivery: {
-            customer: "CRAZYAIGC 客户",
-            public_base_url: "https://client.example.com",
-            protocol_version: "1",
-          },
+        delivery: {
+          customer: "CRAZYAIGC 客户",
+          public_base_url: "https://client.example.com",
+          protocol_version: "1",
+          identity_fingerprint: deliveryFingerprint("CRAZYAIGC 客户", "https://client.example.com", "customer", "1"),
+        },
           checks: [],
         })
       }
@@ -100,6 +101,8 @@ test("customer handoff check verifies package, env, access-code login, and chat"
     assert.equal(result.ok, true)
     assert.equal(result.env.checked, true)
     assert.equal(result.env.accessCodeConfigured, true)
+    assert.equal(result.delivery.identityFingerprint, deliveryFingerprint("CRAZYAIGC 客户", "https://client.example.com", "customer", "1"))
+    assert.equal(result.server.identityFingerprint, result.delivery.identityFingerprint)
     assert.equal(result.desktopSmoke.accessCodeLoginChecked, true)
     assert.equal(result.desktopSmoke.liveChatChecked, true)
     assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
@@ -157,11 +160,12 @@ test("customer handoff check fails when login is required but no access code is 
       if (pathname === "/api/delivery/readiness") {
         return jsonResponse({
           status: "ready",
-          delivery: {
-            customer: "CRAZYAIGC 客户",
-            public_base_url: "https://client.example.com",
-            protocol_version: "1",
-          },
+        delivery: {
+          customer: "CRAZYAIGC 客户",
+          public_base_url: "https://client.example.com",
+          protocol_version: "1",
+          identity_fingerprint: deliveryFingerprint("CRAZYAIGC 客户", "https://client.example.com", "customer", "1"),
+        },
           checks: [],
         })
       }
@@ -184,6 +188,52 @@ test("customer handoff check fails when login is required but no access code is 
     assert.equal(result.ok, false)
     assert.equal(result.desktopSmoke.interactiveLoginRequired, true)
     assert.match(result.errors.join("\n"), /无法证明客户安装后可直接进入工作区/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("customer handoff check rejects hosted backend fingerprint mismatches", async () => {
+  const dir = createDeliveryFixture({
+    customer: "CRAZYAIGC 客户",
+    serverUrl: "https://client.example.com",
+  })
+
+  try {
+    const fetchImpl = async (url) => {
+      const pathname = new URL(url).pathname
+      if (pathname === "/api/delivery/readiness") {
+        return jsonResponse({
+          status: "ready",
+          delivery: {
+            customer: "CRAZYAIGC 客户",
+            public_base_url: "https://client.example.com",
+            protocol_version: "1",
+            identity_fingerprint: "ffffffffffff",
+          },
+          checks: [],
+        })
+      }
+      if (pathname === "/api/health") return jsonResponse({ status: "ok" })
+      if (pathname === "/api/auth/status") return jsonResponse({ loginRequired: false })
+      if (pathname === "/api/auth/me") return jsonResponse({ loggedIn: false })
+      if (pathname === "/api/crazor/context") return jsonResponse({ items: [] })
+      if (pathname === "/api/agent/provider") {
+        return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
+      }
+      if (pathname === "/api/models") return jsonResponse({ data: [{ id: "hermes-agent" }] })
+      throw new Error(`unexpected ${url}`)
+    }
+
+    const result = await runCustomerHandoffCheck({
+      deliveryDir: dir,
+      fetchImpl,
+      liveChat: false,
+      logger: { log() {}, warn() {} },
+    })
+
+    assert.equal(result.ok, false)
+    assert.match(result.errors.join("\n"), /交付指纹不一致/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -215,6 +265,7 @@ function createDeliveryFixture({
           result: "passed",
         },
         deliveryProtocolVersion: protocolVersion,
+        deliveryIdentityFingerprint: deliveryFingerprint(customer, serverUrl, "customer", protocolVersion),
         gitSha: "abc123",
         workflowSha: "def456",
         githubRunId: "123",
@@ -234,4 +285,17 @@ function createDeliveryFixture({
     ) + "\n",
   )
   return dir
+}
+
+function deliveryFingerprint(customer, serverUrl, channel, protocolVersion) {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      product: "Crazor",
+      customer,
+      serverUrl,
+      channel,
+      protocolVersion,
+    }))
+    .digest("hex")
+    .slice(0, 12)
 }

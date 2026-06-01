@@ -34,6 +34,7 @@ export function evaluateCustomerServerReadiness(
   const actualCustomer = normalizeText(serverDelivery.customer || serverDelivery.customerName)
   const publicBaseUrl = normalizeServerUrl(serverDelivery.public_base_url || serverDelivery.publicBaseUrl)
   const actualProtocol = normalizeText(serverDelivery.protocol_version || serverDelivery.protocolVersion)
+  const identityFingerprint = normalizeText(serverDelivery.identity_fingerprint || serverDelivery.identityFingerprint)
   const status = normalizeText(readiness?.status)
   const checks = Array.isArray(readiness?.checks) ? readiness.checks : []
   const errors = []
@@ -80,6 +81,7 @@ export function evaluateCustomerServerReadiness(
     ok: errors.length === 0,
     customer: expectedCustomer,
     protocolVersion: expectedProtocol,
+    identityFingerprint,
     serverUrl: normalizedServerUrl,
     status,
     errors,
@@ -111,6 +113,7 @@ export async function verifyCustomerServer({
         ok: false,
         customer: normalizeText(customer),
         protocolVersion: normalizeText(protocolVersion),
+        identityFingerprint: "",
         serverUrl: normalizedServerUrl,
         status: "",
         errors: [`交付自检接口返回 HTTP ${response.status}`],
@@ -124,6 +127,7 @@ export async function verifyCustomerServer({
       ok: false,
       customer: normalizeText(customer),
       protocolVersion: normalizeText(protocolVersion),
+      identityFingerprint: "",
       serverUrl: normalizedServerUrl,
       status: "",
       errors: [`无法连接托管后端交付自检: ${error?.message || error}`],

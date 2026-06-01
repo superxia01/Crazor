@@ -953,6 +953,14 @@ export default function SettingsModal({
                                 </code>
                               </div>
                             )}
+                            {deliveryInfo.deliveryFingerprint && (
+                              <div className="grid gap-1 sm:grid-cols-[4.5rem_minmax(0,1fr)]">
+                                <span>交付指纹</span>
+                                <code className="min-w-0 break-all rounded bg-muted/55 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                                  {deliveryInfo.deliveryFingerprint}
+                                </code>
+                              </div>
+                            )}
                             {deliveryInfo.buildSha && (
                               <div className="grid gap-1 sm:grid-cols-[4.5rem_minmax(0,1fr)]">
                                 <span>构建版本</span>

@@ -49,6 +49,7 @@ export async function runCustomerHandoffCheck({
     serverUrl: normalizeServerUrl(manifest.serverUrl),
     platform: normalizeText(manifest.platform),
     deliveryProtocolVersion: normalizeText(manifest.deliveryProtocolVersion),
+    identityFingerprint: normalizeText(manifest.deliveryIdentityFingerprint),
     gitSha: normalizeText(manifest.gitSha),
     builtAt: normalizeText(manifest.builtAt),
     installers: deliveryCheck.installers || [],
@@ -90,6 +91,9 @@ export async function runCustomerHandoffCheck({
     })
     if (!server.ok) errors.push(...server.errors)
     warnings.push(...server.warnings)
+    if (delivery.identityFingerprint && server.identityFingerprint && delivery.identityFingerprint !== server.identityFingerprint) {
+      errors.push(`交付指纹不一致: 安装包=${delivery.identityFingerprint} 后端=${server.identityFingerprint}`)
+    }
 
     if (server.ok) {
       try {
@@ -156,6 +160,7 @@ export function renderCustomerHandoffReport(result) {
     `- 客户: ${result.delivery.customer || "未声明"}`,
     `- 后端地址: ${result.delivery.serverUrl || "未声明"}`,
     `- 交付协议: ${result.delivery.deliveryProtocolVersion || "未声明"}`,
+    `- 交付指纹: ${result.delivery.identityFingerprint || "未声明"}`,
     `- 平台: ${result.delivery.platform || "未声明"}`,
     `- 客户访问码: ${result.env.accessCodeConfigured ? "已提供" : "未提供"}`,
     "",
@@ -184,6 +189,7 @@ export function renderCustomerHandoffReport(result) {
     "",
     `- 在线验收: ${result.live ? "已执行" : "已跳过"}`,
     `- 后端自检: ${result.server?.status || "未执行"}`,
+    `- 后端指纹: ${result.server?.identityFingerprint || "未执行"}`,
     `- 登录门禁: ${result.desktopSmoke ? (result.desktopSmoke.loginRequired ? "需要登录" : "未要求登录") : "未执行"}`,
     `- 访问码登录: ${result.desktopSmoke?.accessCodeLoginChecked ? "已验证" : "未验证"}`,
     `- 真实对话: ${result.desktopSmoke?.liveChatChecked ? "已验证" : "未验证"}`,
@@ -327,6 +333,7 @@ async function main() {
     console.log(`${result.ok ? "客户交付验收通过" : "客户交付验收失败"}：${result.delivery.customer || "未知客户"}`)
     console.log(`- 安装包目录: ${result.delivery.dir}`)
     console.log(`- 后端地址: ${result.delivery.serverUrl || "未声明"}`)
+    console.log(`- 交付指纹: ${result.delivery.identityFingerprint || "未声明"}`)
     console.log(`- 客户访问码: ${result.env.accessCodeConfigured ? "已提供" : "未提供"}`)
     console.log(`- 在线验收: ${result.live ? "已执行" : "已跳过"}`)
     if (options.output) console.log(`- 验收报告: ${resolve(process.cwd(), options.output)}`)

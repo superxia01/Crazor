@@ -41,6 +41,7 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_CUSTOMER_NAME" "$CUSTOMER"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DELIVERY_CHANNEL" "customer"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DELIVERY_PROTOCOL_VERSION" "$DELIVERY_PROTOCOL_VERSION"') &&
+      buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DELIVERY_FINGERPRINT" "$DELIVERY_IDENTITY_FINGERPRINT"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_BUILD_SHA" "$BUILD_SHA"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_BUILD_TIME" "$BUILD_TIME"') &&
       buildCustomerScript.includes("npm run build:tauri") &&
@@ -56,6 +57,8 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes("windows-current") &&
       buildCustomerScript.includes("require_current_platform_host") &&
       buildCustomerScript.includes("deliveryProtocolVersion") &&
+      buildCustomerScript.includes("deliveryIdentityFingerprint") &&
+      buildCustomerScript.includes("DELIVERY_IDENTITY_FINGERPRINT") &&
       buildCustomerScript.includes("SERVER_PREFLIGHT_RESULT") &&
       buildCustomerScript.includes("serverPreflight") &&
       buildCustomerScript.includes("DELIVERY_DIR") &&
@@ -147,6 +150,7 @@ test("desktop client exposes the configured backend for delivery verification", 
       customerDeliverySource.includes("VITE_CRAZOR_CUSTOMER_NAME") &&
       customerDeliverySource.includes("VITE_CRAZOR_DELIVERY_CHANNEL") &&
       customerDeliverySource.includes("VITE_CRAZOR_DELIVERY_PROTOCOL_VERSION") &&
+      customerDeliverySource.includes("VITE_CRAZOR_DELIVERY_FINGERPRINT") &&
       customerDeliverySource.includes("VITE_CRAZOR_BUILD_SHA") &&
       customerDeliverySource.includes("VITE_CRAZOR_BUILD_TIME"),
     "desktop client should expose packaged customer identity from build-time env"
@@ -158,7 +162,9 @@ test("desktop client exposes the configured backend for delivery verification", 
       settingsModalSource.includes("运行自检") &&
       settingsModalSource.includes("交付客户") &&
       settingsModalSource.includes("交付协议") &&
+      settingsModalSource.includes("交付指纹") &&
       settingsModalSource.includes("deliveryInfo.protocolVersion") &&
+      settingsModalSource.includes("deliveryInfo.deliveryFingerprint") &&
       settingsModalSource.includes("客户包") &&
       settingsModalSource.includes("远程服务") &&
       settingsModalSource.includes("同源服务") &&
@@ -190,6 +196,8 @@ test("customer desktop blocks startup when the hosted backend is unavailable", (
       customerDeliveryGateSource.includes("无法连接托管服务") &&
       customerDeliveryGateSource.includes("交付协议") &&
       customerDeliveryGateSource.includes("runtime.deliveryInfo.protocolVersion") &&
+      customerDeliveryGateSource.includes("交付指纹") &&
+      customerDeliveryGateSource.includes("runtime.deliveryInfo.deliveryFingerprint") &&
       customerDeliveryGateSource.includes("构建版本") &&
       customerDeliveryGateSource.includes("构建时间") &&
       customerDeliveryGateSource.includes("重新检测"),
@@ -223,6 +231,8 @@ test("backend exposes a public delivery readiness self-check for installed clien
       serverIndex.includes("deliveryCustomerName") &&
       serverIndex.includes("public_base_url") &&
       serverIndex.includes("protocol_version") &&
+      serverIndex.includes("identity_fingerprint") &&
+      serverIndex.includes("deliveryIdentityFingerprint") &&
       serverIndex.includes("backendOrigin(c)") &&
       serverIndex.includes("publicBaseUrl() || new URL(c.req.url).origin"),
     "backend readiness and WeChat callback should expose the hosted delivery identity and public base URL"
@@ -233,7 +243,8 @@ test("backend exposes a public delivery readiness self-check for installed clien
       deliveryIdentitySource.includes("托管服务声明为") &&
       deliveryIdentitySource.includes("交付协议") &&
       deliveryIdentitySource.includes("未声明公开地址") &&
-      deliveryIdentitySource.includes("托管服务公开地址为"),
+      deliveryIdentitySource.includes("托管服务公开地址为") &&
+      deliveryIdentitySource.includes("交付指纹"),
     "customer desktop should reject a hosted backend whose delivery identity, public URL, or protocol version does not match the embedded customer package"
   )
   assert.ok(
@@ -400,6 +411,7 @@ test("customer desktop package can be built by CI with configured backend", () =
     verifyCustomerDeliveryScript.includes("verifyCustomerDeliveryPackage") &&
       verifyCustomerDeliveryScript.includes("manifest.bundleFiles") &&
       verifyCustomerDeliveryScript.includes("crazor-delivery-checksums.txt") &&
+      verifyCustomerDeliveryScript.includes("deliveryIdentityFingerprint") &&
       verifyCustomerDeliveryScript.includes("SHA256 不一致") &&
       verifyCustomerDeliveryScript.includes("交付目录包含非交付文件") &&
       verifyCustomerDeliveryScript.includes('lowerName === "share"') &&
@@ -439,6 +451,7 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
       customerHandoffCheckScript.includes("validateCustomerBackendEnv") &&
       customerHandoffCheckScript.includes("verifyCustomerServer") &&
       customerHandoffCheckScript.includes("runCustomerDesktopSmoke") &&
+      customerHandoffCheckScript.includes("交付指纹不一致") &&
       customerHandoffCheckScript.includes("CRAZOR_CUSTOMER_ACCESS_CODE") &&
       customerHandoffCheckScript.includes("renderCustomerHandoffReport") &&
       customerHandoffCheckScript.includes("后端要求登录，但未提供可自动验证的客户访问码或登录 token"),

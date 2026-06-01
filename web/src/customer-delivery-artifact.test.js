@@ -74,6 +74,7 @@ function createDeliveryFixture() {
           result: "passed",
         },
         deliveryProtocolVersion: "1",
+        deliveryIdentityFingerprint: deliveryFingerprint("测试客户", "https://crazor.example.com", "customer", "1"),
         gitSha: "abc123",
         workflowSha: "def456",
         githubRunId: "123",
@@ -93,4 +94,17 @@ function createDeliveryFixture() {
     ) + "\n",
   )
   return dir
+}
+
+function deliveryFingerprint(customer, serverUrl, channel, protocolVersion) {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      product: "Crazor",
+      customer,
+      serverUrl,
+      channel,
+      protocolVersion,
+    }))
+    .digest("hex")
+    .slice(0, 12)
 }

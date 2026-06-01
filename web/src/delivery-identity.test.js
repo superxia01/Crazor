@@ -11,6 +11,7 @@ test("delivery identity passes when packaged customer matches hosted backend", (
       enabled: true,
       customerName: " CRAZYAIGC 内部 ",
       protocolVersion: "1",
+      deliveryFingerprint: "abc123def456",
       serverUrl: "https://client.example.com/",
     },
     {
@@ -18,6 +19,7 @@ test("delivery identity passes when packaged customer matches hosted backend", (
         customer: "CRAZYAIGC 内部",
         protocol_version: "1",
         public_base_url: "https://client.example.com",
+        identity_fingerprint: "abc123def456",
       },
     }
   )
@@ -85,6 +87,30 @@ test("delivery identity blocks packaged client when hosted public URL mismatches
   assert.match(result.message, /公开地址/)
   assert.match(result.message, /https:\/\/client\.example\.com/)
   assert.match(result.message, /https:\/\/other\.example\.com/)
+})
+
+test("delivery identity blocks packaged client when delivery fingerprint mismatches", () => {
+  const result = evaluateDeliveryIdentity(
+    {
+      enabled: true,
+      customerName: "CRAZYAIGC 内部",
+      protocolVersion: "1",
+      deliveryFingerprint: "abc123def456",
+      serverUrl: "https://client.example.com/",
+    },
+    {
+      delivery: {
+        customer: "CRAZYAIGC 内部",
+        protocol_version: "1",
+        public_base_url: "https://client.example.com/",
+        identity_fingerprint: "fff123def456",
+      },
+    }
+  )
+  assert.equal(result.status, "error")
+  assert.match(result.message, /交付指纹/)
+  assert.match(result.message, /abc123def456/)
+  assert.match(result.message, /fff123def456/)
 })
 
 test("delivery identity stays open for local development clients", () => {

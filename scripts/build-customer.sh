@@ -75,6 +75,23 @@ export PATH="$HOME/.cargo/bin:$PATH"
 DELIVERY_PROTOCOL_VERSION="${CRAZOR_DELIVERY_PROTOCOL_VERSION:-1}"
 export CRAZOR_DELIVERY_PROTOCOL_VERSION="$DELIVERY_PROTOCOL_VERSION"
 
+DELIVERY_IDENTITY_FINGERPRINT="$(CUSTOMER="$CUSTOMER" SERVER_URL="$SERVER_URL" DELIVERY_PROTOCOL_VERSION="$DELIVERY_PROTOCOL_VERSION" node <<'NODE'
+const { createHash } = require("node:crypto")
+const customer = String(process.env.CUSTOMER || "").trim().replace(/\s+/g, " ")
+const serverUrl = String(process.env.SERVER_URL || "").trim().replace(/\/+$/, "")
+const protocolVersion = String(process.env.DELIVERY_PROTOCOL_VERSION || "").trim().replace(/\s+/g, " ")
+const payload = JSON.stringify({
+  product: "Crazor",
+  customer,
+  serverUrl,
+  channel: "customer",
+  protocolVersion,
+})
+process.stdout.write(createHash("sha256").update(payload).digest("hex").slice(0, 12))
+NODE
+)"
+export DELIVERY_IDENTITY_FINGERPRINT="$DELIVERY_IDENTITY_FINGERPRINT"
+
 if ! command -v npm >/dev/null 2>&1; then
     echo "错误: 未找到 npm，请先安装 Node.js 依赖环境"
     exit 1
@@ -165,11 +182,13 @@ write_web_env "VITE_API_BASE" "$SERVER_URL"
 write_web_env "VITE_CRAZOR_CUSTOMER_NAME" "$CUSTOMER"
 write_web_env "VITE_CRAZOR_DELIVERY_CHANNEL" "customer"
 write_web_env "VITE_CRAZOR_DELIVERY_PROTOCOL_VERSION" "$DELIVERY_PROTOCOL_VERSION"
+write_web_env "VITE_CRAZOR_DELIVERY_FINGERPRINT" "$DELIVERY_IDENTITY_FINGERPRINT"
 write_web_env "VITE_CRAZOR_BUILD_SHA" "$BUILD_SHA"
 write_web_env "VITE_CRAZOR_BUILD_TIME" "$BUILD_TIME"
 
 echo ""
 echo "✅ 客户端远程服务地址已写入: $SERVER_URL"
+echo "✅ 交付指纹: $DELIVERY_IDENTITY_FINGERPRINT"
 echo ""
 
 # 构建前端静态资源
@@ -253,7 +272,7 @@ case "$PLATFORM" in
 esac
 
 mkdir -p "$BUNDLE_DIR"
-export CUSTOMER SERVER_URL PLATFORM DELIVERY_PROTOCOL_VERSION BUILD_SHA BUILD_TIME BUNDLE_DIR DELIVERY_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS SERVER_PREFLIGHT_MODE SERVER_PREFLIGHT_RESULT
+export CUSTOMER SERVER_URL PLATFORM DELIVERY_PROTOCOL_VERSION DELIVERY_IDENTITY_FINGERPRINT BUILD_SHA BUILD_TIME BUNDLE_DIR DELIVERY_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS SERVER_PREFLIGHT_MODE SERVER_PREFLIGHT_RESULT
 node <<'NODE'
 const { createHash } = require("node:crypto")
 const { copyFileSync, createReadStream, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs")
@@ -342,6 +361,7 @@ async function main() {
       result: process.env.SERVER_PREFLIGHT_RESULT || "",
     },
     deliveryProtocolVersion: process.env.DELIVERY_PROTOCOL_VERSION || "",
+    deliveryIdentityFingerprint: process.env.DELIVERY_IDENTITY_FINGERPRINT || "",
     gitSha: process.env.BUILD_SHA || process.env.CRAZOR_HEAD_SHA || process.env.GITHUB_HEAD_SHA || process.env.GITHUB_SHA || "",
     workflowSha: process.env.GITHUB_SHA || "",
     githubRunId: process.env.GITHUB_RUN_ID || "",

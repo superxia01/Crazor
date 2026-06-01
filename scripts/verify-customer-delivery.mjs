@@ -117,10 +117,13 @@ export async function verifyCustomerDeliveryPackage(deliveryDir = DEFAULT_DELIVE
 
 function validateManifestShape(manifest, errors) {
   if (manifest?.product !== "Crazor") errors.push("manifest.product 必须为 Crazor")
-  for (const key of ["customer", "serverUrl", "platform", "deliveryProtocolVersion", "gitSha", "builtAt"]) {
+  for (const key of ["customer", "serverUrl", "platform", "deliveryProtocolVersion", "deliveryIdentityFingerprint", "gitSha", "builtAt"]) {
     if (!String(manifest?.[key] || "").trim()) errors.push(`manifest 缺少 ${key}`)
   }
   if (!isHttpUrl(manifest?.serverUrl)) errors.push("manifest.serverUrl 必须是 http:// 或 https:// 地址")
+  if (!/^[a-f0-9]{12}$/i.test(String(manifest?.deliveryIdentityFingerprint || ""))) {
+    errors.push("manifest.deliveryIdentityFingerprint 必须是 12 位十六进制交付指纹")
+  }
   if (Number.isNaN(Date.parse(String(manifest?.builtAt || "")))) errors.push("manifest.builtAt 不是有效时间")
   if (!Array.isArray(manifest?.bundleFiles) || manifest.bundleFiles.length === 0) {
     errors.push("manifest.bundleFiles 不能为空")

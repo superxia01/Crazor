@@ -54,6 +54,15 @@ export function evaluateDeliveryIdentity(deliveryInfo = {}, readiness = {}) {
     }
   }
 
+  const clientFingerprint = normalizeIdentityText(deliveryInfo.deliveryFingerprint)
+  const serverFingerprint = normalizeIdentityText(serverDelivery.identity_fingerprint || serverDelivery.identityFingerprint)
+  if (clientFingerprint && serverFingerprint && clientFingerprint !== serverFingerprint) {
+    return {
+      status: "error",
+      message: `当前客户端交付指纹为 ${clientFingerprint}，但托管服务指纹为 ${serverFingerprint}`,
+    }
+  }
+
   return { status: "ok", message: "" }
 }
 

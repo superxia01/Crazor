@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { stream } from 'hono/streaming'
 import { HTTPException } from 'hono/http-exception'
 import { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, resolve } from 'node:path'
 import {
@@ -519,6 +520,17 @@ function publicBaseUrl(): string {
   return normalizePublicBaseUrl(CRAZOR_PUBLIC_BASE_URL)
 }
 
+function deliveryIdentityFingerprint(): string {
+  const payload = JSON.stringify({
+    product: 'Crazor',
+    customer: cleanString(deliveryCustomerName()).replace(/\s+/g, ' '),
+    serverUrl: publicBaseUrl(),
+    channel: cleanString(deliveryChannel()).replace(/\s+/g, ' '),
+    protocolVersion: cleanString(CRAZOR_DELIVERY_PROTOCOL_VERSION).replace(/\s+/g, ' '),
+  })
+  return createHash('sha256').update(payload).digest('hex').slice(0, 12)
+}
+
 function readDeliveryIdentityReadiness(): DeliveryReadinessCheck {
   const customer = deliveryCustomerName()
   const publicUrl = publicBaseUrl()
@@ -676,6 +688,7 @@ async function buildDeliveryReadiness() {
       channel: deliveryChannel(),
       public_base_url: publicBaseUrl(),
       protocol_version: CRAZOR_DELIVERY_PROTOCOL_VERSION,
+      identity_fingerprint: deliveryIdentityFingerprint(),
       plan: DEPLOYMENT_TIER,
     },
     auth: {

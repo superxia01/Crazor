@@ -16,12 +16,14 @@ test("customer server preflight passes matching ready hosted backend", () => {
       customer: "CRAZYAIGC 内部",
       public_base_url: "https://client.example.com/crazor",
       protocol_version: "1",
+      identity_fingerprint: "abc123def456",
     },
     checks: [
       { id: "api", label: "后端 API", status: "ok", detail: "ok" },
     ],
   })
   assert.equal(result.ok, true)
+  assert.equal(result.identityFingerprint, "abc123def456")
   assert.deepEqual(result.errors, [])
 })
 
@@ -98,6 +100,7 @@ test("customer server preflight fetches delivery readiness endpoint", async () =
               customer: "CRAZYAIGC 内部",
               public_base_url: "https://client.example.com",
               protocol_version: "1",
+              identity_fingerprint: "abc123def456",
             },
             checks: [],
           }
@@ -107,6 +110,7 @@ test("customer server preflight fetches delivery readiness endpoint", async () =
   })
 
   assert.equal(result.ok, true)
+  assert.equal(result.identityFingerprint, "abc123def456")
   assert.equal(calls[0].url, "https://client.example.com/api/delivery/readiness")
   assert.equal(calls[0].init.headers.Accept, "application/json")
 })
