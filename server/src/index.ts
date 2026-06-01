@@ -24,6 +24,7 @@ import { seedFieldDefinitions, discoverCustomFields, listFieldDefinitions, getFi
 import * as docs from './services/crazor-docs'
 import * as docTree from './services/crazor-doc-tree'
 import * as skillCatalog from './services/skill-catalog'
+import * as aiEmployeeRuntime from './services/ai-employee-runtime'
 import { getUnifiedContext } from './services/unified-context'
 import { seedVault } from './services/seed-vault'
 import { seedSkills } from './services/seed-skills'
@@ -484,6 +485,7 @@ app.use('*', async (c, next) => {
 
 const AUDIT_WRITE_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
 const BUSINESS_READ_ROOTS = new Set([
+  'ai-employees',
   'contacts',
   'follow-ups',
   'follow-up-reminders',
@@ -715,6 +717,9 @@ function deriveRestAudit(method: string, path: string, responseBody: any, search
 }
 
 function deriveRestEntityId(segments: string[], responseBody: any, searchParams: URLSearchParams) {
+  if (segments[0] === 'ai-employees' && segments[2] === 'runs') {
+    return stringOrEmpty(segments[1])
+  }
   return (
     stringOrEmpty(responseBody?.id) ||
     stringOrEmpty(searchParams.get('id')) ||
@@ -726,6 +731,7 @@ function deriveRestEntityId(segments: string[], responseBody: any, searchParams:
 function deriveAuditAction(method: string, lastSegment: string) {
   if (lastSegment === 'move') return 'move'
   if (lastSegment === 'reorder') return 'reorder'
+  if (lastSegment === 'runs') return 'run'
   if (lastSegment === 'discover') return 'discover'
   if (lastSegment === 'install') return 'install'
   if (lastSegment === 'publish') return 'publish'
@@ -747,6 +753,7 @@ function deriveAuditEntity(segments: string[]) {
     return 'doc'
   }
   if (segments[0] === 'schema') return 'field_definition'
+  if (segments[0] === 'ai-employees') return 'ai_employee'
   if (segments[0] === 'identity' && segments[1] === 'members') return 'team_member'
   if (segments[0] === 'identity' && segments[1] === 'tokens') return 'actor_token'
   if (segments[0] === 'skills') return 'skill'
@@ -2673,7 +2680,7 @@ app.post('/api/crazor/schema/:entity/discover', (c) => {
 // --- Crazor Skill Catalog & Installation ---
 
 function isSystemCrazorSkill(id: string): boolean {
-  return skillCatalog.getCatalogEntry(id)?.category === 'system'
+  return aiEmployeeRuntime.isSystemSkill(id)
 }
 
 function publicCrazorSkills() {
@@ -2726,6 +2733,25 @@ app.delete('/api/crazor/skills/:id', async (c) => {
   const { rmSync } = await import('node:fs')
   rmSync(skillDir, { recursive: true, force: true })
   return c.json({ success: true })
+})
+
+// --- AI Employee Runtime ---
+
+app.get('/api/crazor/ai-employees', (c) => {
+  return c.json(aiEmployeeRuntime.listAiEmployees())
+})
+
+app.get('/api/crazor/ai-employees/:id', (c) => {
+  const employee = aiEmployeeRuntime.getAiEmployee(c.req.param('id'))
+  if (!employee) return c.json({ error: 'AI employee not found' }, 404)
+  return c.json(employee)
+})
+
+app.post('/api/crazor/ai-employees/:id/runs', async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  const run = aiEmployeeRuntime.prepareAiEmployeeRun(c.req.param('id'), body)
+  if (!run) return c.json({ error: 'AI employee not found' }, 404)
+  return c.json(run, 201)
 })
 
 // --- Start ---

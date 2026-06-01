@@ -15,18 +15,18 @@ export type PermissionDecision = {
 }
 
 const TOKEN_SOURCES = new Set(["api-token", "agent-token"])
-const WRITE_ACTIONS = new Set(["create", "update", "delete", "move", "reorder", "publish", "update_metrics", "install", "discover"])
+const WRITE_ACTIONS = new Set(["create", "update", "delete", "move", "reorder", "publish", "update_metrics", "install", "discover", "run"])
 
 const ROLE_WRITE_SCOPE_POLICIES: Record<string, string[]> = {
   admin: ["*"],
-  member: ["crm:*", "docs:*", "project:*", "content:*"],
+  member: ["crm:*", "docs:*", "project:*", "content:*", "ai_employee:run"],
   viewer: [],
 }
 
 const ROLE_READ_SCOPE_POLICIES: Record<string, string[]> = {
   admin: ["*"],
-  member: ["crm:*", "docs:*", "project:*", "content:*", "analytics:read", "context:read"],
-  viewer: ["crm:read", "docs:read", "project:read", "content:read", "analytics:read", "context:read"],
+  member: ["crm:*", "docs:*", "project:*", "content:*", "analytics:read", "context:read", "ai_employee:read"],
+  viewer: ["crm:read", "docs:read", "project:read", "content:read", "analytics:read", "context:read", "ai_employee:read"],
 }
 
 const ENTITY_GROUPS: Record<string, string[]> = {
@@ -37,6 +37,8 @@ const ENTITY_GROUPS: Record<string, string[]> = {
   content: ["content_piece"],
   analytics: ["analytics"],
   context: ["context"],
+  ai_employee: ["ai_employee"],
+  ai_employees: ["ai_employee"],
   identity: ["team_member", "actor_token", "field_definition", "skill"],
   audit: ["audit_log"],
   channel: ["channel", "channel_referral"],

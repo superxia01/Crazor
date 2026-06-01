@@ -730,6 +730,37 @@ async function main() {
     assert(context.data.items.some((item) => item.type === "audit_log" && item.relations?.entity_id === contact.id), "上下文未包含客户审计事件", context.data)
   })
 
+  await step("AI Employee Runtime 最小运行单元", async () => {
+    const employees = await request("/api/crazor/ai-employees")
+    assert(Array.isArray(employees.data), "AI Employee Runtime 未返回数字员工列表", employees.data)
+    assert(!employees.data.some((item) => item.id === "vault-rules"), "系统级 vault-rules 不应出现在数字员工列表", employees.data)
+    const employee = employees.data.find((item) => item.id === "customer-manager") || employees.data[0]
+    assert(employee?.id, "AI Employee Runtime 没有可运行数字员工", employees.data)
+
+    const run = await request(`/api/crazor/ai-employees/${encodeURIComponent(employee.id)}/runs`, {
+      method: "POST",
+      expect: [201],
+      body: {
+        input: `请基于烟测客户 ${marker} 整理下一步跟进建议`,
+        contact_id: contact.id,
+        context_limit: 20,
+      },
+    })
+    assert(run.data?.status === "prepared", "AI Employee Runtime 未返回 prepared 状态", run.data)
+    assert(run.data?.employee?.id === employee.id, "AI Employee Runtime 返回的 employee 不一致", run.data)
+    assert(run.data?.instructions?.system_skill?.id === "vault-rules", "AI Employee Runtime 未加载系统级规则", run.data)
+    assert(run.data?.instructions?.employee_skill?.id === employee.id, "AI Employee Runtime 未加载数字员工 skill", run.data)
+    assert(run.data?.handoff?.ready_for_agent === true, "AI Employee Runtime 未生成 Agent handoff", run.data)
+    assert(
+      run.data?.context?.items?.some((item) => item.type === "contact" && item.id === contact.id),
+      "AI Employee Runtime 上下文未包含目标客户",
+      run.data,
+    )
+
+    const logs = await request(query("/api/crazor/audit-logs", { entity: "ai_employee", entity_id: employee.id, limit: "20" }))
+    assert(logs.data.some((item) => item.action === "run"), "AI Employee Runtime 未记录 run 审计日志", logs.data)
+  })
+
   log("\n烟测通过：")
   for (const item of summary) {
     log(`  - ${item}`)
