@@ -35,6 +35,7 @@ jobs:
     env:
       CUSTOMER_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.customer || 'PR 验证' }}
       SERVER_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.server_url || 'http://127.0.0.1:5173' }}
+      CRAZOR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - name: 检出代码
