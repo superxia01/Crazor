@@ -94,6 +94,9 @@ test("customer package build can strictly preflight the hosted backend before ha
       customerWorkflowSource.includes('"$PACKAGE_PLATFORM"') &&
       customerWorkflowSource.includes("customer-delivery") &&
       customerWorkflowSource.includes("verify-customer-delivery.mjs") &&
+      customerWorkflowSource.includes("验证客户交付验收入口") &&
+      customerWorkflowSource.includes("bash ./scripts/hermes handoff-check") &&
+      customerWorkflowSource.includes("--skip-live --json") &&
       customerWorkflowSource.includes("strict") &&
       customerWorkflowSource.includes("skip"),
     "manual customer package builds should let operators choose preflight behavior and delivery protocol version"
@@ -362,6 +365,7 @@ test("customer desktop package can be built by CI with configured backend", () =
       customerWorkflowSource.includes("crazor-desktop-${{ env.PACKAGE_PLATFORM }}-${{ github.run_id }}") &&
       customerWorkflowSource.includes("desktop/src-tauri/target/release/customer-delivery/**/*") &&
       customerWorkflowSource.includes("验证客户交付包") &&
+      customerWorkflowSource.includes("验证客户交付验收入口") &&
       customerWorkflowSource.includes("./scripts/build-customer.sh") &&
       customerWorkflowSource.includes("upload-artifact"),
     "GitHub Actions should expose a manual customer package build that embeds the configured backend URL"

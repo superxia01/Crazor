@@ -83,6 +83,9 @@ jobs:
       - name: 验证客户交付包
         run: node ./scripts/verify-customer-delivery.mjs desktop/src-tauri/target/release/customer-delivery
 
+      - name: 验证客户交付验收入口
+        run: bash ./scripts/hermes handoff-check desktop/src-tauri/target/release/customer-delivery --skip-live --json
+
       - name: 上传安装包
         uses: actions/upload-artifact@v7.0.1
         with:
