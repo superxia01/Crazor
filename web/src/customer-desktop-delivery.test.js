@@ -83,7 +83,12 @@ test("desktop client exposes the configured backend for delivery verification", 
       settingsModalSource.includes("交付客户") &&
       settingsModalSource.includes("客户包") &&
       settingsModalSource.includes("远程服务") &&
-      settingsModalSource.includes("同源服务"),
+      settingsModalSource.includes("同源服务") &&
+      settingsModalSource.includes("isCustomerDeliveryMode") &&
+      settingsModalSource.includes("客户交付模式") &&
+      settingsModalSource.includes("本机端口控制") &&
+      settingsModalSource.includes("{!isCustomerDeliveryMode && (") &&
+      settingsModalSource.includes("nextCustomerDeliveryMode"),
     "settings connection panel should let operators verify the packaged client backend target"
   )
 })

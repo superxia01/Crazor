@@ -102,6 +102,7 @@ export default function SettingsModal({
   const [stoppingGateway, setStoppingGateway] = useState(false)
   const [startingDashboard, setStartingDashboard] = useState(false)
   const [stoppingDashboard, setStoppingDashboard] = useState(false)
+  const isCustomerDeliveryMode = Boolean(remoteApiInfo.enabled || deliveryInfo.enabled)
   const currentLanguageOption =
     LANGUAGE_OPTIONS.find((option) => option.id === language) || LANGUAGE_OPTIONS[0]
   const themeOptions = [
@@ -131,6 +132,18 @@ export default function SettingsModal({
   const hasConnectionChange =
     gatewayHost.trim() !== currentGatewayHost.trim() ||
     gatewayPort.trim() !== String(currentGatewayPort)
+  const connectionBadgeLabel = isCustomerDeliveryMode
+    ? deliveryInfo.enabled
+      ? "客户包"
+      : "远程后端"
+    : hasConnectionChange
+      ? t("settings.pendingSave")
+      : t("settings.saved")
+  const connectionBadgeVariant = isCustomerDeliveryMode
+    ? "secondary"
+    : hasConnectionChange
+      ? "secondary"
+      : "outline"
   const connectionSectionActive = highlightSection === "connection"
   const userInfoSectionActive = highlightSection === "userInfo"
   const navItems = useMemo(
@@ -164,8 +177,8 @@ export default function SettingsModal({
         label: t("settings.connection"),
         summary: t("settings.connectionSummary"),
         icon: CircleAlertIcon,
-        badge: hasConnectionChange ? t("settings.pendingSave") : t("settings.saved"),
-        badgeVariant: hasConnectionChange ? "secondary" : "outline",
+        badge: connectionBadgeLabel,
+        badgeVariant: connectionBadgeVariant,
       },
       {
         id: "agent",
@@ -176,7 +189,7 @@ export default function SettingsModal({
         badgeVariant: "outline",
       },
     ],
-    [hasConnectionChange, hasUserInfoChange, t]
+    [connectionBadgeLabel, connectionBadgeVariant, hasUserInfoChange, t]
   )
 
   useEffect(() => {
@@ -228,6 +241,19 @@ export default function SettingsModal({
   useEffect(() => {
     if (!open || activeSection !== "connection") return
 
+    const nextRemoteApiInfo = getRemoteApiRuntimeInfo()
+    const nextDeliveryInfo = getCustomerDeliveryRuntimeInfo()
+    const nextCustomerDeliveryMode = Boolean(nextRemoteApiInfo.enabled || nextDeliveryInfo.enabled)
+
+    setRemoteApiInfo(nextRemoteApiInfo)
+    setDeliveryInfo(nextDeliveryInfo)
+    setConnectionTestResult(null)
+    setDashboardTestResult(null)
+    setRemoteApiStatus(null)
+    setDeliveryReadiness(null)
+
+    if (nextCustomerDeliveryMode) return
+
     const checkStatus = async () => {
       try {
         const [gwRunning, dashRunning] = await Promise.all([
@@ -243,12 +269,6 @@ export default function SettingsModal({
       }
     }
     void checkStatus()
-    setRemoteApiInfo(getRemoteApiRuntimeInfo())
-    setDeliveryInfo(getCustomerDeliveryRuntimeInfo())
-    setConnectionTestResult(null)
-    setDashboardTestResult(null)
-    setRemoteApiStatus(null)
-    setDeliveryReadiness(null)
   }, [open, activeSection])
 
   const handleThemeSelect = async (nextTheme) => {
@@ -766,9 +786,9 @@ export default function SettingsModal({
                       </p>
                     </div>
                     <Badge
-                      variant={hasConnectionChange ? "secondary" : "outline"}
+                      variant={connectionBadgeVariant}
                       className="rounded px-1.5 py-0.5 text-[10px]">
-                      {hasConnectionChange ? t("settings.pendingSave") : t("settings.saved")}
+                      {connectionBadgeLabel}
                     </Badge>
                   </div>
 
@@ -778,90 +798,106 @@ export default function SettingsModal({
                       connectionSectionActive && "border-primary/25 bg-primary/[0.04] ring-1 ring-primary/18"
                     )}>
 
-                    {/* ===== 服务状态 ===== */}
-                    <div className="space-y-2">
-                      <div className="text-xs font-medium text-muted-foreground">服务状态</div>
-
-                      {/* Gateway 状态行 */}
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "size-2 rounded-full",
-                            gatewayStatus === "running" ? "bg-emerald-500" : gatewayStatus === "checking" ? "bg-amber-400" : "bg-rose-500"
-                          )}
-                        />
-                        <span className="text-sm font-medium text-foreground w-20">Gateway</span>
-                        {gatewayStatus === "stopped" ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void handleStartGateway()}
-                            disabled={startingGateway}
-                            className="rounded-md text-[10px] h-6 px-2">
-                            {startingGateway ? "启动中..." : "启动"}
-                          </Button>
-                        ) : (
-                          <>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void handleStopGateway()}
-                              disabled={stoppingGateway}
-                              className="rounded-md text-[10px] h-6 px-2">
-                              {stoppingGateway ? "停止中..." : "停止"}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void handleStartGateway()}
-                              disabled={startingGateway}
-                              className="rounded-md text-[10px] h-6 px-2">
-                              {startingGateway ? "重启中..." : "重启"}
-                            </Button>
-                          </>
-                        )}
+                    {isCustomerDeliveryMode ? (
+                      <div className="rounded-[10px] border border-primary/20 bg-primary/[0.045] px-3 py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">客户交付模式</span>
+                          <Badge variant="secondary" className="rounded px-1.5 py-0.5 text-[10px]">
+                            后端托管
+                          </Badge>
+                        </div>
+                        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                          当前安装包连接预配置后端，Agent Gateway、Dashboard 和业务数据由后端服务维护。桌面端不需要启动本机 Hermes，也不提供本机端口控制。
+                        </p>
                       </div>
+                    ) : (
+                      <>
+                        {/* ===== 服务状态 ===== */}
+                        <div className="space-y-2">
+                          <div className="text-xs font-medium text-muted-foreground">服务状态</div>
 
-                      {/* Dashboard 状态行 */}
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "size-2 rounded-full",
-                            dashboardStatus === "running" ? "bg-emerald-500" : dashboardStatus === "checking" ? "bg-amber-400" : "bg-rose-500"
-                          )}
-                        />
-                        <span className="text-sm font-medium text-foreground w-20">Dashboard</span>
-                        {dashboardStatus === "stopped" ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void handleStartDashboard()}
-                            disabled={startingDashboard}
-                            className="rounded-md text-[10px] h-6 px-2">
-                            {startingDashboard ? "启动中..." : "启动"}
-                          </Button>
-                        ) : (
-                          <>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void handleStopDashboard()}
-                              disabled={stoppingDashboard}
-                              className="rounded-md text-[10px] h-6 px-2">
-                              {stoppingDashboard ? "停止中..." : "停止"}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void handleStartDashboard()}
-                              disabled={startingDashboard}
-                              className="rounded-md text-[10px] h-6 px-2">
-                              {startingDashboard ? "重启中..." : "重启"}
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </div>
+                          {/* Gateway 状态行 */}
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={cn(
+                                "size-2 rounded-full",
+                                gatewayStatus === "running" ? "bg-emerald-500" : gatewayStatus === "checking" ? "bg-amber-400" : "bg-rose-500"
+                              )}
+                            />
+                            <span className="text-sm font-medium text-foreground w-20">Gateway</span>
+                            {gatewayStatus === "stopped" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void handleStartGateway()}
+                                disabled={startingGateway}
+                                className="rounded-md text-[10px] h-6 px-2">
+                                {startingGateway ? "启动中..." : "启动"}
+                              </Button>
+                            ) : (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => void handleStopGateway()}
+                                  disabled={stoppingGateway}
+                                  className="rounded-md text-[10px] h-6 px-2">
+                                  {stoppingGateway ? "停止中..." : "停止"}
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => void handleStartGateway()}
+                                  disabled={startingGateway}
+                                  className="rounded-md text-[10px] h-6 px-2">
+                                  {startingGateway ? "重启中..." : "重启"}
+                                </Button>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Dashboard 状态行 */}
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={cn(
+                                "size-2 rounded-full",
+                                dashboardStatus === "running" ? "bg-emerald-500" : dashboardStatus === "checking" ? "bg-amber-400" : "bg-rose-500"
+                              )}
+                            />
+                            <span className="text-sm font-medium text-foreground w-20">Dashboard</span>
+                            {dashboardStatus === "stopped" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void handleStartDashboard()}
+                                disabled={startingDashboard}
+                                className="rounded-md text-[10px] h-6 px-2">
+                                {startingDashboard ? "启动中..." : "启动"}
+                              </Button>
+                            ) : (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => void handleStopDashboard()}
+                                  disabled={stoppingDashboard}
+                                  className="rounded-md text-[10px] h-6 px-2">
+                                  {stoppingDashboard ? "停止中..." : "停止"}
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => void handleStartDashboard()}
+                                  disabled={startingDashboard}
+                                  className="rounded-md text-[10px] h-6 px-2">
+                                  {startingDashboard ? "重启中..." : "重启"}
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
 
                     {/* ===== 客户端后端 ===== */}
                     <div className="rounded-[10px] border border-border/60 bg-background/55 px-3 py-3">
@@ -977,97 +1013,101 @@ export default function SettingsModal({
                       </div>
                     </div>
 
-                    {/* 分隔线 */}
-                    <div className="border-t border-border/50" />
+                    {!isCustomerDeliveryMode && (
+                      <>
+                        {/* 分隔线 */}
+                        <div className="border-t border-border/50" />
 
-                    {/* ===== 服务器 IP ===== */}
-                    <div className="space-y-2">
-                      <div className="text-xs font-medium text-muted-foreground">服务器 IP</div>
-                      <Input
-                        value={serverHost}
-                        onChange={(event) => setServerHost(event.target.value)}
-                        placeholder="127.0.0.1"
-                        className="h-9 rounded-md border-border/70 bg-background/70"
-                      />
-                    </div>
+                        {/* ===== 服务器 IP ===== */}
+                        <div className="space-y-2">
+                          <div className="text-xs font-medium text-muted-foreground">服务器 IP</div>
+                          <Input
+                            value={serverHost}
+                            onChange={(event) => setServerHost(event.target.value)}
+                            placeholder="127.0.0.1"
+                            className="h-9 rounded-md border-border/70 bg-background/70"
+                          />
+                        </div>
 
-                    {/* 分隔线 */}
-                    <div className="border-t border-border/50" />
+                        {/* 分隔线 */}
+                        <div className="border-t border-border/50" />
 
-                    {/* ===== Gateway 端口配置 ===== */}
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-foreground">Gateway</span>
-                        <span className="text-xs text-muted-foreground">端口:</span>
-                        <Input
-                          value={gatewayPort}
-                          onChange={(event) => setGatewayPort(event.target.value.replace(/[^\d]/g, ""))}
-                          inputMode="numeric"
-                          placeholder="8642"
-                          className="h-8 w-24 rounded-md border-border/70 bg-background/70 text-xs"
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleTestConnection()}
-                          disabled={testingConnection}
-                          className="rounded-md text-[10px] h-7 px-2">
-                          {testingConnection ? "测试中..." : "测试"}
-                        </Button>
-                        {connectionTestResult?.type === "success" && (
-                          <Badge className="rounded px-1.5 py-0.5 text-[10px]">成功</Badge>
-                        )}
-                        {connectionTestResult?.type === "error" && (
-                          <Badge variant="destructive" className="rounded px-1.5 py-0.5 text-[10px]">失败</Badge>
-                        )}
-                        <Button
-                          size="sm"
-                          className="rounded-md text-[10px] h-7 px-2 ml-auto"
-                          onClick={() => void handleSaveConnection()}
-                          disabled={saving}>
-                          {saving ? "保存中..." : "保存"}
-                        </Button>
-                      </div>
-                    </div>
+                        {/* ===== Gateway 端口配置 ===== */}
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">Gateway</span>
+                            <span className="text-xs text-muted-foreground">端口:</span>
+                            <Input
+                              value={gatewayPort}
+                              onChange={(event) => setGatewayPort(event.target.value.replace(/[^\d]/g, ""))}
+                              inputMode="numeric"
+                              placeholder="8642"
+                              className="h-8 w-24 rounded-md border-border/70 bg-background/70 text-xs"
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void handleTestConnection()}
+                              disabled={testingConnection}
+                              className="rounded-md text-[10px] h-7 px-2">
+                              {testingConnection ? "测试中..." : "测试"}
+                            </Button>
+                            {connectionTestResult?.type === "success" && (
+                              <Badge className="rounded px-1.5 py-0.5 text-[10px]">成功</Badge>
+                            )}
+                            {connectionTestResult?.type === "error" && (
+                              <Badge variant="destructive" className="rounded px-1.5 py-0.5 text-[10px]">失败</Badge>
+                            )}
+                            <Button
+                              size="sm"
+                              className="rounded-md text-[10px] h-7 px-2 ml-auto"
+                              onClick={() => void handleSaveConnection()}
+                              disabled={saving}>
+                              {saving ? "保存中..." : "保存"}
+                            </Button>
+                          </div>
+                        </div>
 
-                    {/* ===== Dashboard 端口配置 ===== */}
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-foreground">Dashboard</span>
-                        <span className="text-xs text-muted-foreground">端口:</span>
-                        <Input
-                          value={dashboardPort}
-                          onChange={(event) => {
-                            setDashboardPort(event.target.value.replace(/[^\d]/g, ""))
-                            setDashboardSaved(false)
-                          }}
-                          inputMode="numeric"
-                          placeholder="9119"
-                          className="h-8 w-24 rounded-md border-border/70 bg-background/70 text-xs"
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleTestDashboard()}
-                          disabled={testingDashboard}
-                          className="rounded-md text-[10px] h-7 px-2">
-                          {testingDashboard ? "测试中..." : "测试"}
-                        </Button>
-                        {dashboardTestResult?.type === "success" && (
-                          <Badge className="rounded px-1.5 py-0.5 text-[10px]">成功</Badge>
-                        )}
-                        {dashboardTestResult?.type === "error" && (
-                          <Badge variant="destructive" className="rounded px-1.5 py-0.5 text-[10px]">失败</Badge>
-                        )}
-                        <Button
-                          size="sm"
-                          className="rounded-md text-[10px] h-7 px-2 ml-auto"
-                          onClick={() => void handleSaveDashboard()}
-                          disabled={dashboardSaved || savingDashboard}>
-                          {savingDashboard ? "保存中..." : "保存"}
-                        </Button>
-                      </div>
-                    </div>
+                        {/* ===== Dashboard 端口配置 ===== */}
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">Dashboard</span>
+                            <span className="text-xs text-muted-foreground">端口:</span>
+                            <Input
+                              value={dashboardPort}
+                              onChange={(event) => {
+                                setDashboardPort(event.target.value.replace(/[^\d]/g, ""))
+                                setDashboardSaved(false)
+                              }}
+                              inputMode="numeric"
+                              placeholder="9119"
+                              className="h-8 w-24 rounded-md border-border/70 bg-background/70 text-xs"
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void handleTestDashboard()}
+                              disabled={testingDashboard}
+                              className="rounded-md text-[10px] h-7 px-2">
+                              {testingDashboard ? "测试中..." : "测试"}
+                            </Button>
+                            {dashboardTestResult?.type === "success" && (
+                              <Badge className="rounded px-1.5 py-0.5 text-[10px]">成功</Badge>
+                            )}
+                            {dashboardTestResult?.type === "error" && (
+                              <Badge variant="destructive" className="rounded px-1.5 py-0.5 text-[10px]">失败</Badge>
+                            )}
+                            <Button
+                              size="sm"
+                              className="rounded-md text-[10px] h-7 px-2 ml-auto"
+                              onClick={() => void handleSaveDashboard()}
+                              disabled={dashboardSaved || savingDashboard}>
+                              {savingDashboard ? "保存中..." : "保存"}
+                            </Button>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </section>
               )}
