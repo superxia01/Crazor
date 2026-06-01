@@ -21,9 +21,10 @@ test("customer server preflight passes matching ready hosted backend", () => {
     checks: [
       { id: "api", label: "后端 API", status: "ok", detail: "ok" },
     ],
-  })
+  }, "1", "abc123def456")
   assert.equal(result.ok, true)
   assert.equal(result.identityFingerprint, "abc123def456")
+  assert.equal(result.expectedIdentityFingerprint, "abc123def456")
   assert.deepEqual(result.errors, [])
 })
 
@@ -81,6 +82,61 @@ test("customer server preflight fails delivery protocol mismatch", () => {
   }, "1")
   assert.equal(result.ok, false)
   assert.match(result.errors.join("\n"), /协议为 0/)
+})
+
+test("customer server preflight fails when backend fingerprint is missing", () => {
+  const result = evaluateCustomerServerReadiness("CRAZYAIGC 内部", "https://client.example.com", {
+    status: "ready",
+    delivery: {
+      customer: "CRAZYAIGC 内部",
+      public_base_url: "https://client.example.com",
+      protocol_version: "1",
+    },
+  }, "1", "abc123def456")
+  assert.equal(result.ok, false)
+  assert.match(result.errors.join("\n"), /identity_fingerprint/)
+})
+
+test("customer server preflight fails delivery fingerprint mismatch", () => {
+  const result = evaluateCustomerServerReadiness("CRAZYAIGC 内部", "https://client.example.com", {
+    status: "ready",
+    delivery: {
+      customer: "CRAZYAIGC 内部",
+      public_base_url: "https://client.example.com",
+      protocol_version: "1",
+      identity_fingerprint: "fff123def456",
+    },
+  }, "1", "abc123def456")
+  assert.equal(result.ok, false)
+  assert.match(result.errors.join("\n"), /交付指纹/)
+  assert.match(result.errors.join("\n"), /abc123def456/)
+})
+
+test("customer server preflight fetches delivery readiness endpoint with expected fingerprint", async () => {
+  const result = await verifyCustomerServer({
+    customer: "CRAZYAIGC 内部",
+    serverUrl: "https://client.example.com/",
+    identityFingerprint: "abc123def456",
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          status: "ready",
+          delivery: {
+            customer: "CRAZYAIGC 内部",
+            public_base_url: "https://client.example.com",
+            protocol_version: "1",
+            identity_fingerprint: "fff123def456",
+          },
+          checks: [],
+        }
+      },
+    }),
+  })
+
+  assert.equal(result.ok, false)
+  assert.match(result.errors.join("\n"), /交付指纹/)
 })
 
 test("customer server preflight fetches delivery readiness endpoint", async () => {

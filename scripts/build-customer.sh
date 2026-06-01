@@ -91,6 +91,7 @@ process.stdout.write(createHash("sha256").update(payload).digest("hex").slice(0,
 NODE
 )"
 export DELIVERY_IDENTITY_FINGERPRINT="$DELIVERY_IDENTITY_FINGERPRINT"
+export CRAZOR_DELIVERY_IDENTITY_FINGERPRINT="$DELIVERY_IDENTITY_FINGERPRINT"
 
 if ! command -v npm >/dev/null 2>&1; then
     echo "错误: 未找到 npm，请先安装 Node.js 依赖环境"

@@ -59,6 +59,7 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes("deliveryProtocolVersion") &&
       buildCustomerScript.includes("deliveryIdentityFingerprint") &&
       buildCustomerScript.includes("DELIVERY_IDENTITY_FINGERPRINT") &&
+      buildCustomerScript.includes("CRAZOR_DELIVERY_IDENTITY_FINGERPRINT") &&
       buildCustomerScript.includes("SERVER_PREFLIGHT_RESULT") &&
       buildCustomerScript.includes("serverPreflight") &&
       buildCustomerScript.includes("DELIVERY_DIR") &&
@@ -82,6 +83,8 @@ test("customer package build can strictly preflight the hosted backend before ha
       verifyCustomerServerScript.includes("CRAZOR_DELIVERY_CUSTOMER") &&
       verifyCustomerServerScript.includes("CRAZOR_PUBLIC_BASE_URL") &&
       verifyCustomerServerScript.includes("delivery.protocol_version") &&
+      verifyCustomerServerScript.includes("CRAZOR_DELIVERY_IDENTITY_FINGERPRINT") &&
+      verifyCustomerServerScript.includes("delivery.identity_fingerprint") &&
       verifyCustomerServerScript.includes("托管后端交付自检状态为 blocked"),
     "customer server preflight should verify readiness, delivery identity, and public URL before packaging"
   )

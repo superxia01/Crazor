@@ -86,6 +86,7 @@ export async function runCustomerHandoffCheck({
       customer: delivery.customer,
       serverUrl: delivery.serverUrl,
       protocolVersion: delivery.deliveryProtocolVersion,
+      identityFingerprint: delivery.identityFingerprint,
       timeoutMs,
       fetchImpl,
     })

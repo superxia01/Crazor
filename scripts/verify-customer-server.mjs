@@ -26,9 +26,11 @@ export function evaluateCustomerServerReadiness(
   serverUrl,
   readiness,
   expectedProtocolVersion = DEFAULT_PROTOCOL_VERSION,
+  expectedIdentityFingerprint = "",
 ) {
   const expectedCustomer = normalizeText(customer)
   const expectedProtocol = normalizeText(expectedProtocolVersion)
+  const expectedFingerprint = normalizeText(expectedIdentityFingerprint)
   const normalizedServerUrl = normalizeServerUrl(serverUrl)
   const serverDelivery = readiness?.delivery || {}
   const actualCustomer = normalizeText(serverDelivery.customer || serverDelivery.customerName)
@@ -61,6 +63,11 @@ export function evaluateCustomerServerReadiness(
   } else if (expectedProtocol && actualProtocol !== expectedProtocol) {
     errors.push(`托管后端协议为 ${actualProtocol}，但安装包需要协议 ${expectedProtocol}`)
   }
+  if (expectedFingerprint && !identityFingerprint) {
+    errors.push(`托管后端未声明 delivery.identity_fingerprint，安装包需要指纹 ${expectedFingerprint}`)
+  } else if (expectedFingerprint && identityFingerprint !== expectedFingerprint) {
+    errors.push(`托管后端交付指纹为 ${identityFingerprint}，但安装包需要 ${expectedFingerprint}`)
+  }
   if (status === "blocked") {
     errors.push("托管后端交付自检状态为 blocked")
   } else if (status === "degraded") {
@@ -82,6 +89,7 @@ export function evaluateCustomerServerReadiness(
     customer: expectedCustomer,
     protocolVersion: expectedProtocol,
     identityFingerprint,
+    expectedIdentityFingerprint: expectedFingerprint,
     serverUrl: normalizedServerUrl,
     status,
     errors,
@@ -95,10 +103,11 @@ export async function verifyCustomerServer({
   fetchImpl = globalThis.fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   protocolVersion = process.env.CRAZOR_DELIVERY_PROTOCOL_VERSION || DEFAULT_PROTOCOL_VERSION,
+  identityFingerprint = process.env.CRAZOR_DELIVERY_IDENTITY_FINGERPRINT || "",
 } = {}) {
   const normalizedServerUrl = normalizeServerUrl(serverUrl)
   if (!normalizedServerUrl) {
-    return evaluateCustomerServerReadiness(customer, serverUrl, null, protocolVersion)
+    return evaluateCustomerServerReadiness(customer, serverUrl, null, protocolVersion, identityFingerprint)
   }
 
   const controller = new AbortController()
@@ -114,6 +123,7 @@ export async function verifyCustomerServer({
         customer: normalizeText(customer),
         protocolVersion: normalizeText(protocolVersion),
         identityFingerprint: "",
+        expectedIdentityFingerprint: normalizeText(identityFingerprint),
         serverUrl: normalizedServerUrl,
         status: "",
         errors: [`交付自检接口返回 HTTP ${response.status}`],
@@ -121,13 +131,14 @@ export async function verifyCustomerServer({
       }
     }
     const readiness = await response.json()
-    return evaluateCustomerServerReadiness(customer, normalizedServerUrl, readiness, protocolVersion)
+    return evaluateCustomerServerReadiness(customer, normalizedServerUrl, readiness, protocolVersion, identityFingerprint)
   } catch (error) {
     return {
       ok: false,
       customer: normalizeText(customer),
       protocolVersion: normalizeText(protocolVersion),
       identityFingerprint: "",
+      expectedIdentityFingerprint: normalizeText(identityFingerprint),
       serverUrl: normalizedServerUrl,
       status: "",
       errors: [`无法连接托管后端交付自检: ${error?.message || error}`],
@@ -143,7 +154,8 @@ async function main() {
   const serverUrl = process.argv[3] || ""
   const timeoutMs = Number(process.env.CRAZOR_CUSTOMER_SERVER_PREFLIGHT_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)
   const protocolVersion = process.env.CRAZOR_DELIVERY_PROTOCOL_VERSION || DEFAULT_PROTOCOL_VERSION
-  const result = await verifyCustomerServer({ customer, serverUrl, timeoutMs, protocolVersion })
+  const identityFingerprint = process.env.CRAZOR_DELIVERY_IDENTITY_FINGERPRINT || ""
+  const result = await verifyCustomerServer({ customer, serverUrl, timeoutMs, protocolVersion, identityFingerprint })
 
   if (result.ok) {
     console.log(`客户服务预检通过: ${result.customer} -> ${result.serverUrl}，协议 ${result.protocolVersion}`)
