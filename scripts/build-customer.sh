@@ -160,7 +160,8 @@ const manifest = {
   customer: process.env.CUSTOMER,
   serverUrl: process.env.SERVER_URL,
   platform: process.env.PLATFORM,
-  gitSha: process.env.GITHUB_SHA || "",
+  gitSha: process.env.GITHUB_HEAD_SHA || process.env.GITHUB_SHA || "",
+  workflowSha: process.env.GITHUB_SHA || "",
   githubRunId: process.env.GITHUB_RUN_ID || "",
   builtAt: new Date().toISOString(),
 }

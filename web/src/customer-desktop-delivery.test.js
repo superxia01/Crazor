@@ -110,6 +110,8 @@ test("customer desktop package can be built by CI with configured backend", () =
     buildCustomerScript.includes('"current"') &&
       buildCustomerScript.includes("npx tauri build") &&
       buildCustomerScript.includes("crazor-delivery-manifest.json") &&
+      buildCustomerScript.includes("GITHUB_HEAD_SHA || process.env.GITHUB_SHA") &&
+      buildCustomerScript.includes("workflowSha") &&
       buildCustomerScript.includes('find "$BUNDLE_DIR"') &&
       buildCustomerScript.includes("*.dmg") &&
       buildCustomerScript.includes("*.msi"),
