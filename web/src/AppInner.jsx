@@ -3104,6 +3104,11 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
                               newConversation()
                               setInput(`请以「${emp.name}」的身份协助我：`)
                             }}
+                            onMeeting={() => {
+                              newConversation()
+                              setInput("请总结今天所有会话的聊天记录，生成一份工作日报，包含：1) 今天处理的主要事项 2) 关键决策和进展 3) 待跟进问题。生成后请用 create_doc 将日报存入 knowledge scope。")
+                              setTimeout(() => send(), 100)
+                            }}
                           />
                         )}
                         {view === "content" && <ContentPiecesView />}

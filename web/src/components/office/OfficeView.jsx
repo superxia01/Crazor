@@ -15,7 +15,7 @@ import OfficeToolbar from "./ui/OfficeToolbar"
 
 const OFFICE_ENABLED_KEY = "crazor-office-3d-enabled"
 
-export default function OfficeView({ onSelectEmployee }) {
+export default function OfficeView({ onSelectEmployee, onMeeting }) {
   const containerRef = useRef(null)
   const sceneRef = useRef(null)
   const [enabled, setEnabled] = useState(() => {
@@ -121,7 +121,7 @@ export default function OfficeView({ onSelectEmployee }) {
       badge="BETA"
       actions={
         <div className="flex items-center gap-2">
-          <OfficeToolbar sceneRef={sceneRef} />
+          <OfficeToolbar sceneRef={sceneRef} onMeeting={onMeeting} />
           <Button variant="ghost" size="icon" className="size-7" onClick={handleToggle} title="关闭办公室">
             <PowerIcon className="size-3.5 text-muted-foreground" />
           </Button>
