@@ -19,6 +19,7 @@ export function buildCustomerBackendEnv({
   serverUrl = "",
   protocolVersion = DEFAULT_PROTOCOL_VERSION,
   jwtSecret = "",
+  accessCode = "",
   wechatAppId = "",
   wechatAppSecret = "",
   composeProjectName = "",
@@ -28,6 +29,7 @@ export function buildCustomerBackendEnv({
   const normalizedCustomer = normalizeText(customer)
   const normalizedServerUrl = normalizeServerUrl(serverUrl)
   const generatedJwtSecret = jwtSecret || randomBytes(32).toString("hex")
+  const generatedAccessCode = accessCode || randomBytes(9).toString("base64url")
   const corsOrigins = unique([
     normalizedServerUrl,
     "http://localhost:5173",
@@ -59,6 +61,7 @@ export function buildCustomerBackendEnv({
     CRAZOR_SEED_DEMO_DATA: "false",
     DEPLOYMENT_TIER: deploymentTier || "customer",
     JWT_SECRET: generatedJwtSecret,
+    CRAZOR_CUSTOMER_ACCESS_CODE: generatedAccessCode,
     WECHAT_APP_ID: String(wechatAppId || "").trim(),
     WECHAT_APP_SECRET: String(wechatAppSecret || "").trim(),
     CRAZOR_DELIVERY_CUSTOMER: normalizedCustomer,
@@ -124,6 +127,9 @@ export function validateCustomerBackendEnv(env = {}, {
   if (!isStrongJwtSecret(env.JWT_SECRET)) {
     errors.push("JWT_SECRET 必须是至少 32 字符的正式密钥")
   }
+  if (!isStrongAccessCode(env.CRAZOR_CUSTOMER_ACCESS_CODE)) {
+    errors.push("CRAZOR_CUSTOMER_ACCESS_CODE 必须是至少 8 字符的客户访问码")
+  }
 
   const corsOrigins = splitCsv(env.CORS_ORIGINS)
   for (const requiredOrigin of DEFAULT_TAURI_ORIGINS) {
@@ -147,7 +153,9 @@ export function validateCustomerBackendEnv(env = {}, {
     warnings.push("公网客户交付建议使用 HTTPS；HTTP 仅适合可信局域网")
   }
   if (!normalizeText(env.WECHAT_APP_ID) || !normalizeText(env.WECHAT_APP_SECRET)) {
-    warnings.push("微信登录未配置；客户登录页会提示设置 WECHAT_APP_ID 和 WECHAT_APP_SECRET")
+    if (!isStrongAccessCode(env.CRAZOR_CUSTOMER_ACCESS_CODE)) {
+      warnings.push("微信登录未配置；客户登录页会提示设置 WECHAT_APP_ID 和 WECHAT_APP_SECRET")
+    }
   }
 
   return {
@@ -198,6 +206,12 @@ function isStrongJwtSecret(value) {
   const text = String(value || "").trim()
   if (text.length < 32) return false
   return !["dev-secret-change-in-production", "change-me", "please-change"].some((bad) => text.includes(bad))
+}
+
+function isStrongAccessCode(value) {
+  const text = String(value || "").trim()
+  if (text.length < 8) return false
+  return !["change-me", "please-change", "12345678", "password"].some((bad) => text.toLowerCase().includes(bad))
 }
 
 function unique(items) {
@@ -257,6 +271,7 @@ function parseArgs(argv) {
     else if (arg === "--server-url") options.serverUrl = argv[++index] || ""
     else if (arg === "--protocol-version") options.protocolVersion = argv[++index] || ""
     else if (arg === "--jwt-secret") options.jwtSecret = argv[++index] || ""
+    else if (arg === "--access-code") options.accessCode = argv[++index] || ""
     else if (arg === "--wechat-app-id") options.wechatAppId = argv[++index] || ""
     else if (arg === "--wechat-app-secret") options.wechatAppSecret = argv[++index] || ""
     else if (arg === "--output" || arg === "-o") options.output = argv[++index] || ""
@@ -276,12 +291,12 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`用法:
   node scripts/customer-backend-env.mjs "客户名称" "http://局域网IP:5173" [输出文件]
-  node scripts/customer-backend-env.mjs --customer "客户名称" --server-url "https://crazor.example.com" --output .env.customer --force
+  node scripts/customer-backend-env.mjs --customer "客户名称" --server-url "https://crazor.example.com" --access-code "客户访问码" --output .env.customer --force
   node scripts/customer-backend-env.mjs --check .env.customer --customer "客户名称" --server-url "https://crazor.example.com" --strict
 
 说明:
   生成客户后端 Docker Compose 环境文件，默认输出到 .env.customer。
-  正式交付建议同时传入 --wechat-app-id 和 --wechat-app-secret，并用 --strict 把警告提升为失败。`)
+  默认会生成 CRAZOR_CUSTOMER_ACCESS_CODE 访问码；正式交付也可同时传入 --wechat-app-id 和 --wechat-app-secret。`)
 }
 
 async function main() {

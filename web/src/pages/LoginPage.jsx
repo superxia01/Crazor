@@ -4,8 +4,11 @@ export function LoginPage({ onLogin, allowSkip = true }) {
   const [qrUrl, setQrUrl] = useState(null)
   const [loginState, setLoginState] = useState("")
   const [loading, setLoading] = useState(true)
+  const [accessLoading, setAccessLoading] = useState(false)
   const [error, setError] = useState(null)
   const [polling, setPolling] = useState(false)
+  const [authStatus, setAuthStatus] = useState(null)
+  const [accessCode, setAccessCode] = useState("")
 
   // Check URL for token (callback redirect)
   useEffect(() => {
@@ -26,12 +29,15 @@ export function LoginPage({ onLogin, allowSkip = true }) {
       setError(null)
       const resp = await fetch('/api/auth/status')
       const status = await resp.json()
+      setAuthStatus(status)
 
-      if (!status.wechatConfigured) {
-        setError('微信登录未配置，请设置 WECHAT_APP_ID 和 WECHAT_APP_SECRET 环境变量')
+      if (!status.wechatConfigured && !status.accessCodeConfigured) {
+        setError('登录方式未配置，请设置 WECHAT_APP_ID / WECHAT_APP_SECRET 或 CRAZOR_CUSTOMER_ACCESS_CODE')
         setLoading(false)
         return
       }
+
+      if (!status.wechatConfigured) return
 
       const urlResp = await fetch('/api/auth/wechat/url')
       const data = await urlResp.json()
@@ -81,6 +87,38 @@ export function LoginPage({ onLogin, allowSkip = true }) {
     }
   }
 
+  const handleAccessCodeLogin = async (event) => {
+    event.preventDefault()
+    const code = accessCode.trim()
+    if (!code) {
+      setError('请输入客户访问码')
+      return
+    }
+    try {
+      setAccessLoading(true)
+      setError(null)
+      const resp = await fetch('/api/auth/access-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok || !data.token) {
+        setError(data.error || '客户访问码验证失败')
+        return
+      }
+      localStorage.setItem('crazor_token', data.token)
+      onLogin()
+    } catch {
+      setError('网络错误，请重试')
+    } finally {
+      setAccessLoading(false)
+    }
+  }
+
+  const canUseWechat = Boolean(authStatus?.wechatConfigured && qrUrl)
+  const canUseAccessCode = Boolean(authStatus?.accessCodeConfigured)
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-muted/20">
       <div className="w-full max-w-md px-4">
@@ -111,7 +149,7 @@ export function LoginPage({ onLogin, allowSkip = true }) {
           )}
 
           {/* WeChat login button */}
-          {!loading && !error && (
+          {!loading && !error && canUseWechat && (
             <div className="space-y-4">
               <button
                 onClick={handleWechatLogin}
@@ -123,6 +161,26 @@ export function LoginPage({ onLogin, allowSkip = true }) {
                 微信扫码登录
               </button>
             </div>
+          )}
+
+          {!loading && canUseAccessCode && (
+            <form className="mt-4 space-y-3" onSubmit={handleAccessCodeLogin}>
+              <input
+                value={accessCode}
+                onChange={(event) => setAccessCode(event.target.value)}
+                type="password"
+                autoComplete="one-time-code"
+                placeholder="输入客户访问码"
+                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+              />
+              <button
+                type="submit"
+                disabled={accessLoading}
+                className="flex w-full items-center justify-center rounded-xl bg-primary px-6 py-3.5 text-base font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {accessLoading ? '正在验证' : '使用访问码登录'}
+              </button>
+            </form>
           )}
 
           {/* Skip login (dev / no WeChat config) */}

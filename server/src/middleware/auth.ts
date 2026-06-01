@@ -14,7 +14,7 @@ export const authMiddleware = async (c: Context, next: Next) => {
   }
 
   // Skip auth if no JWT_SECRET configured (dev mode without auth)
-  if (!process.env.JWT_SECRET && !process.env.WECHAT_APP_ID) {
+  if (!process.env.JWT_SECRET && !process.env.WECHAT_APP_ID && !process.env.CRAZOR_CUSTOMER_ACCESS_CODE) {
     return next()
   }
 

@@ -101,6 +101,7 @@ test("customer package build can strictly preflight the hosted backend before ha
     hermesScript.includes("customer-env") &&
       customerBackendEnvScript.includes("buildCustomerBackendEnv") &&
       customerBackendEnvScript.includes("CRAZOR_CUSTOMER_SERVER_PREFLIGHT") &&
+      customerBackendEnvScript.includes("CRAZOR_CUSTOMER_ACCESS_CODE") &&
       customerBackendEnvScript.includes("CRAZOR_REQUIRE_BUSINESS_READ_TOKEN") &&
       customerBackendEnvScript.includes("WECHAT_APP_ID") &&
       customerBackendEnvScript.includes("CORS_ORIGINS") &&
@@ -255,9 +256,11 @@ test("desktop WeChat login uses backend callback plus client polling", () => {
 test("customer desktop requires login before entering workspace when backend enforces auth", () => {
   assert.ok(
     serverIndex.includes("app.get('/api/auth/status'") &&
+      serverIndex.includes("app.post('/api/auth/access-code'") &&
       serverIndex.includes("loginRequired") &&
       serverIndex.includes("loginRequiredByEnv") &&
-      serverIndex.includes("Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID)"),
+      serverIndex.includes("accessCodeConfigured") &&
+      serverIndex.includes("Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID || process.env.CRAZOR_CUSTOMER_ACCESS_CODE)"),
     "backend auth status should tell packaged clients whether login is required"
   )
   assert.ok(
@@ -272,8 +275,10 @@ test("customer desktop requires login before entering workspace when backend enf
   assert.ok(
     loginPageSource.includes("allowSkip = true") &&
       loginPageSource.includes("!loading && allowSkip") &&
-      loginPageSource.includes("WECHAT_APP_ID 和 WECHAT_APP_SECRET"),
-    "login page should keep dev skip optional but hide it for customer auth-gated clients"
+      loginPageSource.includes("/api/auth/access-code") &&
+      loginPageSource.includes("status.accessCodeConfigured") &&
+      loginPageSource.includes("CRAZOR_CUSTOMER_ACCESS_CODE"),
+    "login page should keep dev skip optional but expose customer access-code login for auth-gated clients"
   )
 })
 
@@ -305,6 +310,7 @@ test("customer MCP endpoint is gated by login or Agent token when auth is enable
 test("docker customer backend receives hosted login and plan configuration", () => {
   assert.ok(
     composeSource.includes("JWT_SECRET: ${JWT_SECRET:-}") &&
+      composeSource.includes("CRAZOR_CUSTOMER_ACCESS_CODE: ${CRAZOR_CUSTOMER_ACCESS_CODE:-}") &&
       composeSource.includes("WECHAT_APP_ID: ${WECHAT_APP_ID:-}") &&
       composeSource.includes("WECHAT_APP_SECRET: ${WECHAT_APP_SECRET:-}") &&
       composeSource.includes("DEPLOYMENT_TIER: ${DEPLOYMENT_TIER:-free}") &&
@@ -416,6 +422,7 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
       customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_CHAT_TIMEOUT_MS") &&
       customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_SKIP_LIVE_CHAT") &&
       customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_LOGIN_TOKEN") &&
+      customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_ACCESS_CODE") &&
       customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_ACTOR_TOKEN"),
     "customer desktop smoke should verify delivery identity, login gate, business context, and real chat responses"
   )

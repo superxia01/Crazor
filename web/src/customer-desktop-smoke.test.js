@@ -87,6 +87,68 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
   assert.ok(calls.some((call) => call.url === "https://client.example.com/api/chat/completions"))
 })
 
+test("customer desktop smoke can exchange customer access code for login JWT", async () => {
+  const calls = []
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, init })
+    const pathname = new URL(url).pathname
+    if (pathname === "/api/health") return jsonResponse({ status: "ok" })
+    if (pathname === "/api/delivery/readiness") {
+      return jsonResponse({
+        status: "ready",
+        delivery: {
+          customer: "CRAZYAIGC 内部",
+          public_base_url: "https://client.example.com",
+          protocol_version: "1",
+        },
+        checks: [],
+      })
+    }
+    if (pathname === "/api/auth/status") {
+      return jsonResponse({ loginRequired: true, accessCodeConfigured: true })
+    }
+    if (pathname === "/api/auth/access-code") {
+      assert.equal(init.method, "POST")
+      assert.equal(JSON.parse(init.body).code, "handoff-code")
+      return jsonResponse({ loggedIn: true, token: "access.jwt", nickname: "客户用户" })
+    }
+    if (pathname === "/api/auth/me") {
+      assert.equal(init.headers.Authorization, "Bearer access.jwt")
+      return jsonResponse({ loggedIn: true, nickname: "客户用户" })
+    }
+    if (pathname === "/api/crazor/context") {
+      assert.equal(init.headers.Authorization, "Bearer access.jwt")
+      return jsonResponse({ items: [] })
+    }
+    if (pathname === "/api/agent/provider") {
+      return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
+    }
+    if (pathname === "/api/models") {
+      assert.equal(init.headers.Authorization, "Bearer access.jwt")
+      return jsonResponse({ data: [{ id: "hermes-agent" }] })
+    }
+    if (pathname === "/api/chat/completions") {
+      assert.equal(init.headers.Authorization, "Bearer access.jwt")
+      return jsonResponse({ choices: [{ message: { content: "OK" } }] })
+    }
+    throw new Error(`unexpected ${url}`)
+  }
+
+  const result = await runCustomerDesktopSmoke({
+    customer: "CRAZYAIGC 内部",
+    serverUrl: "https://client.example.com",
+    accessCode: "handoff-code",
+    fetchImpl,
+    logger: { log() {}, warn() {} },
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.accessCodeLoginChecked, true)
+  assert.equal(result.interactiveLoginRequired, false)
+  assert.equal(result.liveChatChecked, true)
+  assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
+})
+
 test("customer desktop smoke treats missing login token as an expected login gate", async () => {
   const calls = []
   const fetchImpl = async (url) => {

@@ -26,6 +26,7 @@ test("customer backend env generator prepares strict hosted delivery settings", 
   assert.equal(env.CRAZOR_REQUIRE_WRITE_TOKEN, "true")
   assert.equal(env.CRAZOR_REQUIRE_BUSINESS_READ_TOKEN, "true")
   assert.equal(env.CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN, "true")
+  assert.ok(env.CRAZOR_CUSTOMER_ACCESS_CODE.length >= 8)
   assert.equal(env.AGENT_GATEWAY_URL, "http://hermes:8642")
   assert.match(env.COMPOSE_PROJECT_NAME, /^crazor-/)
   assert.ok(env.CORS_ORIGINS.includes("https://client.example.com/crazor"))
@@ -46,6 +47,7 @@ test("customer backend env validator rejects unsafe customer handoff config", ()
     CRAZOR_REQUIRE_BUSINESS_READ_TOKEN: "false",
     CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN: "false",
     JWT_SECRET: "dev-secret-change-in-production",
+    CRAZOR_CUSTOMER_ACCESS_CODE: "12345678",
     CORS_ORIGINS: "http://localhost:5173",
     API_SERVER_CORS_ORIGINS: "",
   })
@@ -53,11 +55,12 @@ test("customer backend env validator rejects unsafe customer handoff config", ()
   assert.equal(result.ok, false)
   assert.match(result.errors.join("\n"), /CRAZOR_DELIVERY_CUSTOMER/)
   assert.match(result.errors.join("\n"), /CRAZOR_CUSTOMER_SERVER_PREFLIGHT/)
+  assert.match(result.errors.join("\n"), /CRAZOR_CUSTOMER_ACCESS_CODE/)
   assert.match(result.errors.join("\n"), /演示数据/)
   assert.match(result.errors.join("\n"), /Tauri 来源/)
 })
 
-test("customer backend env validator warns about local URL and missing WeChat login", () => {
+test("customer backend env validator accepts access code login without WeChat", () => {
   const env = buildCustomerBackendEnv({
     customer: "本机验证",
     serverUrl: "http://127.0.0.1:5173",
@@ -67,7 +70,6 @@ test("customer backend env validator warns about local URL and missing WeChat lo
 
   assert.equal(result.ok, true)
   assert.match(result.warnings.join("\n"), /本机地址/)
-  assert.match(result.warnings.join("\n"), /微信登录未配置/)
   assert.equal(validateCustomerBackendEnv(env, { strict: true }).ok, false)
 })
 
@@ -76,12 +78,14 @@ test("customer backend env renderer round-trips quoted customer values", () => {
     customer: "客户 A $测试",
     serverUrl: "http://192.168.103.4:5173/",
     jwtSecret: "0123456789abcdef0123456789abcdef",
+    accessCode: "客户访问码123",
     wechatAppId: "wx-demo",
     wechatAppSecret: "secret-demo",
   })
   const parsed = parseEnvText(renderCustomerBackendEnv(env))
 
   assert.equal(parsed.CRAZOR_DELIVERY_CUSTOMER, "客户 A $测试")
+  assert.equal(parsed.CRAZOR_CUSTOMER_ACCESS_CODE, "客户访问码123")
   assert.equal(parsed.CRAZOR_PUBLIC_BASE_URL, "http://192.168.103.4:5173")
   assert.deepEqual(validateCustomerBackendEnv(parsed).errors, [])
 })

@@ -1,7 +1,7 @@
 // Crazor Authentication — WeChat OAuth2 + JWT
 
-import { createHmac, randomUUID } from 'node:crypto'
-import { WECHAT_APP_ID, WECHAT_APP_SECRET, JWT_SECRET } from './crazor-config'
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
+import { WECHAT_APP_ID, WECHAT_APP_SECRET, JWT_SECRET, CRAZOR_CUSTOMER_ACCESS_CODE } from './crazor-config'
 import { db } from './crazor-db'
 
 // ── JWT (simple implementation, no external deps) ────────────
@@ -52,6 +52,19 @@ export function verifyJWT(token: string): JWTPayload {
 
 function sign(data: string): Buffer {
   return createHmac('sha256', JWT_SECRET).update(data).digest()
+}
+
+export function customerAccessCodeConfigured(): boolean {
+  return CRAZOR_CUSTOMER_ACCESS_CODE.trim().length > 0
+}
+
+export function verifyCustomerAccessCode(code: string): boolean {
+  const expected = CRAZOR_CUSTOMER_ACCESS_CODE.trim()
+  const actual = String(code || '').trim()
+  if (!expected || !actual) return false
+  const expectedHash = createHash('sha256').update(expected).digest()
+  const actualHash = createHash('sha256').update(actual).digest()
+  return timingSafeEqual(expectedHash, actualHash)
 }
 
 // ── WeChat OAuth2 ────────────────────────────────────────────

@@ -103,6 +103,7 @@ export async function runCustomerDesktopSmoke({
   serverUrl = "",
   protocolVersion = process.env.CRAZOR_DELIVERY_PROTOCOL_VERSION || DEFAULT_PROTOCOL_VERSION,
   loginToken = process.env.CRAZOR_DESKTOP_SMOKE_LOGIN_TOKEN || process.env.CRAZOR_CUSTOMER_LOGIN_TOKEN || "",
+  accessCode = process.env.CRAZOR_DESKTOP_SMOKE_ACCESS_CODE || process.env.CRAZOR_CUSTOMER_ACCESS_CODE || "",
   actorToken = process.env.CRAZOR_DESKTOP_SMOKE_ACTOR_TOKEN || process.env.CRAZOR_SMOKE_TOKEN || "",
   timeoutMs = Number(process.env.CRAZOR_DESKTOP_SMOKE_TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
   chatTimeoutMs = Number(process.env.CRAZOR_DESKTOP_SMOKE_CHAT_TIMEOUT_MS || Math.max(timeoutMs, DEFAULT_CHAT_TIMEOUT_MS)),
@@ -120,6 +121,8 @@ export async function runCustomerDesktopSmoke({
   const summary = []
   const warnings = []
   let chatReply = ""
+  let activeLoginToken = String(loginToken || "").trim()
+  let accessCodeLoginChecked = false
 
   async function step(name, fn) {
     logger.log(`- ${name}...`)
@@ -178,13 +181,27 @@ export async function runCustomerDesktopSmoke({
       fetchImpl,
       expected: [200],
     })
+    if (status.data?.loginRequired && !activeLoginToken && String(accessCode || "").trim()) {
+      const login = await requestDesktopJson(normalizedServerUrl, "/api/auth/access-code", {
+        method: "POST",
+        timeoutMs,
+        fetchImpl,
+        expected: [200],
+        body: { code: String(accessCode || "").trim() },
+      })
+      activeLoginToken = String(login.data?.token || "").trim()
+      if (!activeLoginToken) {
+        throw new Error("客户访问码登录成功响应未返回 JWT")
+      }
+      accessCodeLoginChecked = true
+    }
     const me = await requestDesktopJson(normalizedServerUrl, "/api/auth/me", {
-      loginToken,
+      loginToken: activeLoginToken,
       timeoutMs,
       fetchImpl,
       expected: [200],
     })
-    const gate = evaluateDesktopLoginGate(status.data, me.data, { loginToken })
+    const gate = evaluateDesktopLoginGate(status.data, me.data, { loginToken: activeLoginToken })
     if (!gate.ok) {
       throw new Error("已提供登录 token，但 /api/auth/me 未返回登录态")
     }
@@ -205,7 +222,7 @@ export async function runCustomerDesktopSmoke({
     }
 
     await requestDesktopJson(normalizedServerUrl, "/api/crazor/context?limit=1", {
-      loginToken,
+      loginToken: activeLoginToken,
       actorToken,
       timeoutMs,
       fetchImpl,
@@ -227,7 +244,7 @@ export async function runCustomerDesktopSmoke({
     if (authStatus.gate.needsInteractiveLogin) return
 
     await requestDesktopJson(normalizedServerUrl, "/api/models", {
-      loginToken,
+      loginToken: activeLoginToken,
       actorToken,
       timeoutMs,
       fetchImpl,
@@ -237,7 +254,7 @@ export async function runCustomerDesktopSmoke({
     if (liveChat) {
       const chat = await requestDesktopJson(normalizedServerUrl, "/api/chat/completions", {
         method: "POST",
-        loginToken,
+        loginToken: activeLoginToken,
         actorToken,
         timeoutMs: chatTimeoutMs,
         fetchImpl,
@@ -270,6 +287,7 @@ export async function runCustomerDesktopSmoke({
     readinessStatus: readinessResult?.status || "",
     loginRequired: authStatus.gate.loginRequired,
     interactiveLoginRequired: authStatus.gate.needsInteractiveLogin,
+    accessCodeLoginChecked,
     liveChatChecked: Boolean(chatReply),
     chatReplyPreview: chatReply.slice(0, 80),
     warnings,

@@ -53,7 +53,7 @@ import {
 } from './services/agent-gateway'
 import { evaluateReadPermission, evaluateWritePermission } from './services/crazor-permissions'
 import { authMiddleware } from './middleware/auth'
-import { generateState, getWechatLoginUrl, exchangeCodeForToken, upsertUser, isUserBound, signJWT, verifyJWT } from './services/crazor-auth'
+import { generateState, getWechatLoginUrl, exchangeCodeForToken, upsertUser, isUserBound, signJWT, verifyJWT, customerAccessCodeConfigured, verifyCustomerAccessCode } from './services/crazor-auth'
 
 const app = new Hono()
 
@@ -81,7 +81,7 @@ const DEFAULT_ATTACHMENT_EXTENSIONS = [
 const TEXT_ATTACHMENT_EXTENSIONS = new Set(['txt', 'md', 'csv', 'json', 'log', 'yaml', 'yml'])
 
 function loginRequiredByEnv() {
-  return Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID)
+  return Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID || process.env.CRAZOR_CUSTOMER_ACCESS_CODE)
 }
 const IMAGE_ATTACHMENT_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif'])
 const CRAZOR_ATTACHMENT_MAX_BYTES = parsePositiveInt(process.env.CRAZOR_ATTACHMENT_MAX_BYTES, 20 * 1024 * 1024)
@@ -615,7 +615,8 @@ async function buildDeliveryReadiness() {
   const dashboardAvailable = Boolean(dashboard.available)
   const loginRequired = loginRequiredByEnv()
   const wechatConfigured = Boolean(WECHAT_APP_ID && WECHAT_APP_SECRET)
-  const loginReady = !loginRequired || wechatConfigured
+  const accessCodeConfigured = customerAccessCodeConfigured()
+  const loginReady = !loginRequired || wechatConfigured || accessCodeConfigured
   const supportsChat = agentProviderSupports('gateway.chat_completions') || agentProviderSupports('gateway.responses')
   const supportsSessions = agentProviderSupports('gateway.sessions')
   const checks: DeliveryReadinessCheck[] = [
@@ -628,7 +629,9 @@ async function buildDeliveryReadiness() {
       loginRequired
         ? wechatConfigured
           ? '微信扫码登录已配置'
-          : '已启用登录校验，但未配置微信登录'
+          : accessCodeConfigured
+            ? '客户访问码登录已配置'
+            : '已启用登录校验，但未配置微信登录或客户访问码'
         : '当前环境未强制登录',
     ),
     deliveryCheck(
@@ -678,6 +681,7 @@ async function buildDeliveryReadiness() {
     auth: {
       login_required: loginRequired,
       wechat_configured: wechatConfigured,
+      access_code_configured: accessCodeConfigured,
       bound: isUserBound(),
       plan: DEPLOYMENT_TIER,
     },
@@ -1384,6 +1388,33 @@ app.get('/api/auth/wechat/session/:state', (c) => {
   })
 })
 
+app.post('/api/auth/access-code', async (c) => {
+  if (!customerAccessCodeConfigured()) {
+    return c.json({ error: 'Customer access code login not configured' }, 404)
+  }
+
+  let body: any = {}
+  try {
+    body = await c.req.json()
+  } catch {
+    body = {}
+  }
+  const code = String(body?.code || '')
+  if (!verifyCustomerAccessCode(code)) {
+    return c.json({ error: '客户访问码错误' }, 401)
+  }
+
+  const nickname = deliveryCustomerName()
+    ? `${deliveryCustomerName()} 用户`
+    : '客户用户'
+  const token = signJWT({
+    openid: `customer-access-${deliveryCustomerName() || publicBaseUrl() || 'crazor'}`,
+    nickname,
+  })
+  c.header('Set-Cookie', `crazor_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 86400}`, { append: true })
+  return c.json({ loggedIn: true, token, nickname })
+})
+
 app.post('/api/auth/logout', (c) => {
   c.header('Set-Cookie', 'crazor_token=; Path=/; HttpOnly; Max-Age=0', { append: true })
   return c.json({ ok: true })
@@ -1416,6 +1447,7 @@ app.get('/api/auth/status', (c) => {
     loginRequired: loginRequiredByEnv(),
     bound: isUserBound(),
     wechatConfigured: Boolean(WECHAT_APP_ID && WECHAT_APP_SECRET),
+    accessCodeConfigured: customerAccessCodeConfigured(),
     plan: DEPLOYMENT_TIER,
   })
 })
