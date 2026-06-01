@@ -10,6 +10,7 @@ const buildCustomerScript = readFileSync(resolve(repoRoot, "scripts/build-custom
 const hermesScript = readFileSync(resolve(repoRoot, "scripts/hermes"), "utf8")
 const customerDesktopSmokeScript = readFileSync(resolve(repoRoot, "scripts/customer-desktop-smoke.mjs"), "utf8")
 const verifyCustomerServerScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-server.mjs"), "utf8")
+const verifyCustomerDeliveryScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-delivery.mjs"), "utf8")
 const webPackage = readFileSync(resolve(repoRoot, "web/package.json"), "utf8")
 const desktopPackage = readFileSync(resolve(repoRoot, "desktop/package.json"), "utf8")
 const appSource = readFileSync(resolve(repoRoot, "web/src/App.jsx"), "utf8")
@@ -57,6 +58,7 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes("serverPreflight") &&
       buildCustomerScript.includes("DELIVERY_DIR") &&
       buildCustomerScript.includes("customer-delivery") &&
+      buildCustomerScript.includes("verify-customer-delivery.mjs") &&
       !buildCustomerScript.includes("__CUSTOMER_SERVER_URL__"),
     "customer build should write package env before packaging, preflight the hosted backend, and verify backend/customer identity is embedded"
   )
@@ -89,6 +91,7 @@ test("customer package build can strictly preflight the hosted backend before ha
       customerWorkflowSource.includes("PACKAGE_PLATFORM") &&
       customerWorkflowSource.includes('"$PACKAGE_PLATFORM"') &&
       customerWorkflowSource.includes("customer-delivery") &&
+      customerWorkflowSource.includes("verify-customer-delivery.mjs") &&
       customerWorkflowSource.includes("strict") &&
       customerWorkflowSource.includes("skip"),
     "manual customer package builds should let operators choose preflight behavior and delivery protocol version"
@@ -339,6 +342,7 @@ test("customer desktop package can be built by CI with configured backend", () =
       customerWorkflowSource.includes("actions/upload-artifact@v7.0.1") &&
       customerWorkflowSource.includes("crazor-desktop-${{ env.PACKAGE_PLATFORM }}-${{ github.run_id }}") &&
       customerWorkflowSource.includes("desktop/src-tauri/target/release/customer-delivery/**/*") &&
+      customerWorkflowSource.includes("验证客户交付包") &&
       customerWorkflowSource.includes("./scripts/build-customer.sh") &&
       customerWorkflowSource.includes("upload-artifact"),
     "GitHub Actions should expose a manual customer package build that embeds the configured backend URL"
@@ -368,6 +372,16 @@ test("customer desktop package can be built by CI with configured backend", () =
       buildCustomerScript.includes("*.dmg") &&
       buildCustomerScript.includes("*.msi"),
     "customer build script should support current-platform packaging and verify installable bundle outputs"
+  )
+  assert.ok(
+    verifyCustomerDeliveryScript.includes("verifyCustomerDeliveryPackage") &&
+      verifyCustomerDeliveryScript.includes("manifest.bundleFiles") &&
+      verifyCustomerDeliveryScript.includes("crazor-delivery-checksums.txt") &&
+      verifyCustomerDeliveryScript.includes("SHA256 不一致") &&
+      verifyCustomerDeliveryScript.includes("交付目录包含非交付文件") &&
+      verifyCustomerDeliveryScript.includes('lowerName === "share"') &&
+      verifyCustomerDeliveryScript.includes('lowerName === "macos"'),
+    "customer delivery verifier should validate manifest, checksums, installer files, and reject build helper output"
   )
 })
 

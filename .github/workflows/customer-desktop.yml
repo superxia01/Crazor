@@ -80,6 +80,9 @@ jobs:
       - name: 构建客户安装包
         run: ./scripts/build-customer.sh "$CUSTOMER_NAME" "$SERVER_URL" "$PACKAGE_PLATFORM"
 
+      - name: 验证客户交付包
+        run: node ./scripts/verify-customer-delivery.mjs desktop/src-tauri/target/release/customer-delivery
+
       - name: 上传安装包
         uses: actions/upload-artifact@v7.0.1
         with:

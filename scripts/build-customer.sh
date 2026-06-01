@@ -371,6 +371,8 @@ main().catch((error) => {
 })
 NODE
 
+node "$PROJECT_ROOT/scripts/verify-customer-delivery.mjs" "$DELIVERY_DIR"
+
 echo "✅ 交付产物验证通过"
 echo "  Manifest: $DELIVERY_MANIFEST"
 echo "  Checksums: $DELIVERY_CHECKSUMS"
