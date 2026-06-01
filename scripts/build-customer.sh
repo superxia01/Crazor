@@ -22,6 +22,8 @@ PLATFORM="${3:-macos}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TAURI_CONF="$PROJECT_ROOT/desktop/src-tauri/tauri.conf.json"
+BUNDLE_DIR="$PROJECT_ROOT/desktop/src-tauri/target/release/bundle"
+DELIVERY_MANIFEST="$BUNDLE_DIR/crazor-delivery-manifest.json"
 
 echo "============================================"
 echo "  Crazor 客户定制构建"
@@ -59,6 +61,11 @@ fi
 
 if ! command -v npx >/dev/null 2>&1; then
     echo "错误: 未找到 npx，请先安装 Node.js 依赖环境"
+    exit 1
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+    echo "错误: 未找到 node，请先安装 Node.js 依赖环境"
     exit 1
 fi
 
@@ -105,6 +112,63 @@ else
     echo "可选: macos, macos-arm64, macos-x64, windows, windows-x64, current"
     exit 1
 fi
+
+echo ""
+echo "🔎 验证客户交付产物..."
+
+if ! grep -R -F "$SERVER_URL" "$PROJECT_ROOT/web/dist" >/dev/null 2>&1; then
+    echo "错误: 前端构建产物中未找到服务器地址 $SERVER_URL"
+    exit 1
+fi
+
+if [ ! -d "$BUNDLE_DIR" ]; then
+    echo "错误: 找不到 Tauri bundle 目录 $BUNDLE_DIR"
+    exit 1
+fi
+
+case "$PLATFORM" in
+    macos|macos-arm64|macos-x64)
+        if ! find "$BUNDLE_DIR" -name "*.app" -type d | grep -q .; then
+            echo "错误: 未找到 macOS .app 产物"
+            exit 1
+        fi
+        if ! find "$BUNDLE_DIR" -name "*.dmg" -type f | grep -q .; then
+            echo "错误: 未找到 macOS .dmg 安装包"
+            exit 1
+        fi
+        ;;
+    windows|windows-x64)
+        if ! find "$BUNDLE_DIR" \( -name "*.msi" -o -name "*.exe" \) -type f | grep -q .; then
+            echo "错误: 未找到 Windows 安装包"
+            exit 1
+        fi
+        ;;
+    current)
+        if ! find "$BUNDLE_DIR" \( -name "*.dmg" -o -name "*.app" -o -name "*.msi" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \) | grep -q .; then
+            echo "错误: 未找到当前平台安装包产物"
+            exit 1
+        fi
+        ;;
+esac
+
+mkdir -p "$BUNDLE_DIR"
+export CUSTOMER SERVER_URL PLATFORM DELIVERY_MANIFEST
+node -e '
+const { writeFileSync } = require("node:fs")
+const manifest = {
+  product: "Crazor",
+  customer: process.env.CUSTOMER,
+  serverUrl: process.env.SERVER_URL,
+  platform: process.env.PLATFORM,
+  gitSha: process.env.GITHUB_SHA || "",
+  githubRunId: process.env.GITHUB_RUN_ID || "",
+  builtAt: new Date().toISOString(),
+}
+writeFileSync(process.env.DELIVERY_MANIFEST, JSON.stringify(manifest, null, 2) + "\n")
+'
+
+echo "✅ 交付产物验证通过"
+echo "  Manifest: $DELIVERY_MANIFEST"
 
 echo ""
 echo "============================================"

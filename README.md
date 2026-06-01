@@ -520,6 +520,7 @@ CRAZOR_SMOKE_BASE_URL=http://局域网IP:5173 ./scripts/hermes smoke
 
 脚本会使用 `VITE_API_BASE` 构建 Tauri 前端，客户端内所有 `/api/*` 与 `/mcp/*` 请求都会转到该后端服务。
 也可以在 GitHub Actions 的“构建客户桌面安装包”工作流中输入客户名称和服务地址，由远端构建机生成安装包 artifact。
+安装包构建完成后会自检前端产物是否嵌入目标服务地址、Tauri bundle 是否包含当前平台安装包，并生成 `crazor-delivery-manifest.json` 记录客户名、服务地址、平台和构建来源。
 
 Docker 环境会启动：
 

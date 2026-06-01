@@ -25,8 +25,9 @@ test("customer desktop build embeds the configured backend API base", () => {
   assert.ok(
     buildCustomerScript.includes('printf "VITE_API_BASE=%s\\n" "$SERVER_URL" > "$WEB_ENV"') &&
       buildCustomerScript.includes("npm run build:tauri") &&
+      buildCustomerScript.includes('grep -R -F "$SERVER_URL" "$PROJECT_ROOT/web/dist"') &&
       !buildCustomerScript.includes("__CUSTOMER_SERVER_URL__"),
-    "customer build should write VITE_API_BASE before packaging instead of relying on a dead placeholder"
+    "customer build should write VITE_API_BASE before packaging and verify the backend URL is embedded"
   )
   assert.ok(
     buildCustomerScript.includes("command -v cargo") &&
@@ -107,7 +108,11 @@ test("customer desktop package can be built by CI with configured backend", () =
   )
   assert.ok(
     buildCustomerScript.includes('"current"') &&
-      buildCustomerScript.includes("npx tauri build"),
-    "customer build script should support current-platform packaging for CI runners"
+      buildCustomerScript.includes("npx tauri build") &&
+      buildCustomerScript.includes("crazor-delivery-manifest.json") &&
+      buildCustomerScript.includes('find "$BUNDLE_DIR"') &&
+      buildCustomerScript.includes("*.dmg") &&
+      buildCustomerScript.includes("*.msi"),
+    "customer build script should support current-platform packaging and verify installable bundle outputs"
   )
 })
