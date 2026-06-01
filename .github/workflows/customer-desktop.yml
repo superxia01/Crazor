@@ -24,6 +24,15 @@ on:
         options:
           - macos-current
           - windows-current
+      preflight_mode:
+        description: 托管服务预检模式；局域网后端通常选 warn，公网/内网 runner 可选 strict
+        required: true
+        type: choice
+        default: warn
+        options:
+          - warn
+          - strict
+          - skip
 
 jobs:
   build:
@@ -36,7 +45,7 @@ jobs:
       CUSTOMER_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.customer || 'PR 验证' }}
       SERVER_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.server_url || 'http://127.0.0.1:5173' }}
       CRAZOR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      CRAZOR_CUSTOMER_SERVER_PREFLIGHT: ${{ github.event_name == 'workflow_dispatch' && 'strict' || 'warn' }}
+      CRAZOR_CUSTOMER_SERVER_PREFLIGHT: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight_mode || 'warn' }}
 
     steps:
       - name: 检出代码

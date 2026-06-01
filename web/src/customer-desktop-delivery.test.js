@@ -67,8 +67,11 @@ test("customer package build can strictly preflight the hosted backend before ha
   assert.ok(
     customerWorkflowSource.includes("CRAZOR_CUSTOMER_SERVER_PREFLIGHT") &&
       customerWorkflowSource.includes("workflow_dispatch") &&
-      customerWorkflowSource.includes("'strict' || 'warn'"),
-    "manual customer package builds should fail fast when the configured backend is not ready"
+      customerWorkflowSource.includes("preflight_mode") &&
+      customerWorkflowSource.includes("inputs.preflight_mode") &&
+      customerWorkflowSource.includes("strict") &&
+      customerWorkflowSource.includes("skip"),
+    "manual customer package builds should let operators choose strict preflight or LAN-friendly warn/skip mode"
   )
 })
 

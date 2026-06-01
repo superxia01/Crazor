@@ -91,6 +91,8 @@ CRAZOR_PUBLIC_BASE_URL=http://局域网IP:5173
 CRAZOR_CUSTOMER_SERVER_PREFLIGHT=strict ./scripts/build-customer.sh "客户名称" "http://局域网IP:5173" current
 ```
 
+如果通过 GitHub Actions 生成客户包，但后端只在客户局域网内可访问，手动触发工作流时把 `preflight_mode` 设为 `warn` 或 `skip`；如果 runner 能访问客户后端，再设为 `strict`。
+
 如果临时切换到非 Hermes provider，可跳过 Hermes 状态代理检查：
 
 ```bash
