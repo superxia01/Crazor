@@ -37,6 +37,15 @@ on:
         description: 客户端和托管后端必须一致的交付协议版本
         required: true
         default: "1"
+      handoff_mode:
+        description: 交付验收模式；online-chat 会真实调用一次非流式对话
+        required: true
+        type: choice
+        default: offline
+        options:
+          - offline
+          - online-entrypoints
+          - online-chat
 
 jobs:
   build:
@@ -52,6 +61,7 @@ jobs:
       CRAZOR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CRAZOR_CUSTOMER_SERVER_PREFLIGHT: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight_mode || 'warn' }}
       CRAZOR_DELIVERY_PROTOCOL_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_protocol_version || '1' }}
+      CUSTOMER_HANDOFF_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.handoff_mode || 'offline' }}
 
     steps:
       - name: 检出代码
@@ -84,11 +94,33 @@ jobs:
         run: node ./scripts/verify-customer-delivery.mjs desktop/src-tauri/target/release/customer-delivery
 
       - name: 验证客户交付验收入口
+        env:
+          CRAZOR_DESKTOP_SMOKE_ACCESS_CODE: ${{ secrets.CRAZOR_CUSTOMER_ACCESS_CODE }}
+          CRAZOR_DESKTOP_SMOKE_LOGIN_TOKEN: ${{ secrets.CRAZOR_CUSTOMER_LOGIN_TOKEN }}
+          CRAZOR_DESKTOP_SMOKE_ACTOR_TOKEN: ${{ secrets.CRAZOR_SMOKE_TOKEN }}
         run: |
-          bash ./scripts/hermes handoff-check desktop/src-tauri/target/release/customer-delivery \
-            --skip-live \
-            --output desktop/src-tauri/target/release/customer-delivery/crazor-handoff-report.md \
+          HANDOFF_ARGS=(
+            desktop/src-tauri/target/release/customer-delivery
+            --output desktop/src-tauri/target/release/customer-delivery/crazor-handoff-report.md
             --json
+          )
+
+          case "$CUSTOMER_HANDOFF_MODE" in
+            offline)
+              HANDOFF_ARGS+=(--skip-live)
+              ;;
+            online-entrypoints)
+              HANDOFF_ARGS+=(--skip-live-chat)
+              ;;
+            online-chat)
+              ;;
+            *)
+              echo "错误: CUSTOMER_HANDOFF_MODE 只支持 offline、online-entrypoints 或 online-chat"
+              exit 1
+              ;;
+          esac
+
+          bash ./scripts/hermes handoff-check "${HANDOFF_ARGS[@]}"
 
       - name: 上传安装包
         uses: actions/upload-artifact@v7.0.1

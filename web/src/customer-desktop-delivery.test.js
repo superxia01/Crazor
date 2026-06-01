@@ -99,16 +99,23 @@ test("customer package build can strictly preflight the hosted backend before ha
       customerWorkflowSource.includes("inputs.preflight_mode") &&
       customerWorkflowSource.includes("delivery_protocol_version") &&
       customerWorkflowSource.includes("inputs.delivery_protocol_version") &&
+      customerWorkflowSource.includes("handoff_mode") &&
+      customerWorkflowSource.includes("inputs.handoff_mode") &&
       customerWorkflowSource.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION") &&
+      customerWorkflowSource.includes("CUSTOMER_HANDOFF_MODE") &&
       customerWorkflowSource.includes("PACKAGE_PLATFORM") &&
       customerWorkflowSource.includes('"$PACKAGE_PLATFORM"') &&
       customerWorkflowSource.includes("customer-delivery") &&
       customerWorkflowSource.includes("verify-customer-delivery.mjs") &&
       customerWorkflowSource.includes("验证客户交付验收入口") &&
       customerWorkflowSource.includes("bash ./scripts/hermes handoff-check") &&
+      customerWorkflowSource.includes("HANDOFF_ARGS") &&
       customerWorkflowSource.includes("--skip-live") &&
+      customerWorkflowSource.includes("--skip-live-chat") &&
       customerWorkflowSource.includes("--output desktop/src-tauri/target/release/customer-delivery/crazor-handoff-report.md") &&
       customerWorkflowSource.includes("--json") &&
+      customerWorkflowSource.includes("CRAZOR_CUSTOMER_ACCESS_CODE") &&
+      customerWorkflowSource.includes("CRAZOR_CUSTOMER_LOGIN_TOKEN") &&
       customerWorkflowSource.includes("strict") &&
       customerWorkflowSource.includes("skip"),
     "manual customer package builds should let operators choose preflight behavior and delivery protocol version"
@@ -380,6 +387,8 @@ test("customer desktop package can be built by CI with configured backend", () =
       customerWorkflowSource.includes("windows-current") &&
       customerWorkflowSource.includes("PACKAGE_PLATFORM") &&
       customerWorkflowSource.includes("delivery_protocol_version") &&
+      customerWorkflowSource.includes("online-entrypoints") &&
+      customerWorkflowSource.includes("online-chat") &&
       customerWorkflowSource.includes("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24") &&
       customerWorkflowSource.includes("actions/checkout@v6.0.2") &&
       customerWorkflowSource.includes("actions/setup-node@v6.4.0") &&
