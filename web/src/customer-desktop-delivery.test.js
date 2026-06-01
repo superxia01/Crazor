@@ -9,6 +9,7 @@ const repoRoot = resolve(new URL("../..", import.meta.url).pathname)
 const buildCustomerScript = readFileSync(resolve(repoRoot, "scripts/build-customer.sh"), "utf8")
 const hermesScript = readFileSync(resolve(repoRoot, "scripts/hermes"), "utf8")
 const customerDesktopSmokeScript = readFileSync(resolve(repoRoot, "scripts/customer-desktop-smoke.mjs"), "utf8")
+const customerHandoffCheckScript = readFileSync(resolve(repoRoot, "scripts/customer-handoff-check.mjs"), "utf8")
 const verifyCustomerServerScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-server.mjs"), "utf8")
 const verifyCustomerDeliveryScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-delivery.mjs"), "utf8")
 const customerBackendEnvScript = readFileSync(resolve(repoRoot, "scripts/customer-backend-env.mjs"), "utf8")
@@ -406,7 +407,9 @@ test("customer desktop package can be built by CI with configured backend", () =
 test("customer desktop hosted backend chain can be smoke-tested before handoff", () => {
   assert.ok(
     hermesScript.includes("desktop-smoke") &&
-      hermesScript.includes("customer-desktop-smoke.mjs"),
+      hermesScript.includes("customer-desktop-smoke.mjs") &&
+      hermesScript.includes("handoff-check") &&
+      hermesScript.includes("customer-handoff-check.mjs"),
     "operator script should expose a customer desktop remote smoke command"
   )
   assert.ok(
@@ -425,5 +428,16 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
       customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_ACCESS_CODE") &&
       customerDesktopSmokeScript.includes("CRAZOR_DESKTOP_SMOKE_ACTOR_TOKEN"),
     "customer desktop smoke should verify delivery identity, login gate, business context, and real chat responses"
+  )
+  assert.ok(
+    customerHandoffCheckScript.includes("runCustomerHandoffCheck") &&
+      customerHandoffCheckScript.includes("verifyCustomerDeliveryPackage") &&
+      customerHandoffCheckScript.includes("validateCustomerBackendEnv") &&
+      customerHandoffCheckScript.includes("verifyCustomerServer") &&
+      customerHandoffCheckScript.includes("runCustomerDesktopSmoke") &&
+      customerHandoffCheckScript.includes("CRAZOR_CUSTOMER_ACCESS_CODE") &&
+      customerHandoffCheckScript.includes("renderCustomerHandoffReport") &&
+      customerHandoffCheckScript.includes("后端要求登录，但未提供可自动验证的客户访问码或登录 token"),
+    "handoff check should compose artifact, backend env, hosted server, login, and desktop chat verification"
   )
 })

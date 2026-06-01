@@ -25,6 +25,7 @@ usage() {
   ./scripts/hermes smoke                运行 Crazor Docker MVP 烟测
   ./scripts/hermes desktop-smoke        模拟客户桌面端连接托管后端烟测
   ./scripts/hermes customer-env         生成客户后端 Docker 环境文件
+  ./scripts/hermes handoff-check        校验客户安装包、后端配置和桌面链路
   ./scripts/hermes smoke-strict         临时开启严格认证后运行烟测，结束后恢复
   ./scripts/hermes backup               备份 data/hermes/state
   ./scripts/hermes regen-api-key        重新生成 Agent Gateway API Key
@@ -268,6 +269,10 @@ case "$cmd" in
   customer-env)
     need node
     node "$PROJECT_ROOT/scripts/customer-backend-env.mjs" "$@"
+    ;;
+  handoff-check)
+    need node
+    node "$PROJECT_ROOT/scripts/customer-handoff-check.mjs" "$@"
     ;;
   smoke-strict)
     smoke_strict "$@"
