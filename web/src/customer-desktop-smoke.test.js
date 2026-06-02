@@ -6,9 +6,11 @@ import test from "node:test"
 import {
   buildDesktopHeaders,
   evaluateDesktopLoginGate,
+  extractWebEntrypointAssetPaths,
   runCustomerDesktopSmoke,
   summarizeReadinessIssues,
   validateBusinessEntrypointShape,
+  validateWebAssetResponse,
   validateWebEntrypointHtml,
 } from "../../scripts/customer-desktop-smoke.mjs"
 
@@ -23,6 +25,13 @@ function htmlResponse(text = "<!doctype html><html><head><title>Crazor数字员�
   return new Response(text, {
     status: 200,
     headers: { "Content-Type": "text/html" },
+  })
+}
+
+function jsResponse(text = "import('/assets/chunk.js'); const app = 'Crazor';") {
+  return new Response(text, {
+    status: 200,
+    headers: { "Content-Type": "text/javascript" },
   })
 }
 
@@ -44,6 +53,7 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
       return jsonResponse({ status: "ok" })
     }
     if (pathname === "/") return htmlResponse()
+    if (pathname === "/assets/index.js") return jsResponse()
     if (pathname === "/api/delivery/readiness") {
       return jsonResponse({
         status: "ready",
@@ -105,6 +115,7 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
   assert.equal(result.ok, true)
   assert.equal(result.serverUrl, "https://client.example.com")
   assert.equal(result.webEntrypointChecked, true)
+  assert.deepEqual(result.webAssetChecks, [{ path: "/assets/index.js", type: "script", status: "ok" }])
   assert.equal(result.loginRequired, true)
   assert.equal(result.interactiveLoginRequired, false)
   assert.deepEqual(
@@ -115,6 +126,7 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
   assert.equal(result.chatReplyPreview, "OK")
   assert.ok(calls.some((call) => call.url === "https://client.example.com/api/crazor/context?limit=1"))
   assert.ok(calls.some((call) => call.url === "https://client.example.com/"))
+  assert.ok(calls.some((call) => call.url === "https://client.example.com/assets/index.js"))
   assert.ok(calls.some((call) => call.url === "https://client.example.com/api/models"))
   assert.ok(calls.some((call) => call.url === "https://client.example.com/api/chat/completions"))
 })
@@ -126,6 +138,7 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
     if (pathname === "/") return htmlResponse()
+    if (pathname === "/assets/index.js") return jsResponse()
     if (pathname === "/api/delivery/readiness") {
       return jsonResponse({
         status: "ready",
@@ -182,6 +195,7 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
 
   assert.equal(result.ok, true)
   assert.equal(result.webEntrypointChecked, true)
+  assert.equal(result.webAssetChecks.length, 1)
   assert.equal(result.accessCodeLoginChecked, true)
   assert.equal(result.interactiveLoginRequired, false)
   assert.equal(result.businessEntryChecks.length, 5)
@@ -196,6 +210,7 @@ test("customer desktop smoke treats missing login token as an expected login gat
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
     if (pathname === "/") return htmlResponse()
+    if (pathname === "/assets/index.js") return jsResponse()
     if (pathname === "/api/delivery/readiness") {
       return jsonResponse({ status: "ready", delivery: {}, checks: [] })
     }
@@ -217,6 +232,7 @@ test("customer desktop smoke treats missing login token as an expected login gat
   assert.equal(result.ok, true)
   assert.equal(result.loginRequired, true)
   assert.equal(result.webEntrypointChecked, true)
+  assert.equal(result.webAssetChecks.length, 1)
   assert.equal(result.interactiveLoginRequired, true)
   assert.equal(result.liveChatChecked, false)
   assert.ok(result.warnings.some((item) => item.includes("要求登录")))
@@ -229,6 +245,7 @@ test("customer desktop smoke explains degraded readiness checks", async () => {
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
     if (pathname === "/") return htmlResponse()
+    if (pathname === "/assets/index.js") return jsResponse()
     if (pathname === "/api/delivery/readiness") {
       return jsonResponse({
         status: "degraded",
@@ -263,6 +280,7 @@ test("customer desktop smoke explains degraded readiness checks", async () => {
   assert.equal(result.ok, true)
   assert.equal(result.readinessStatus, "degraded")
   assert.equal(result.webEntrypointChecked, true)
+  assert.equal(result.webAssetChecks.length, 1)
   assert.equal(result.businessEntryChecks.length, 5)
   assert.ok(result.warnings.some((item) => item.includes("交付身份警告")))
   assert.ok(result.warnings.some((item) => item.includes("CRAZOR_DELIVERY_CUSTOMER") || item.includes("后端未声明交付客户")))
@@ -306,6 +324,16 @@ test("customer desktop smoke helper exposes desktop request auth semantics", () 
   assert.equal(validateBusinessEntrypointShape({ shape: "object" }, []), false)
   assert.equal(validateWebEntrypointHtml("<!doctype html><html><head><title>Crazor数字员工系统</title></head><body><div id=\"root\"></div><script src=\"/assets/app.js\"></script></body></html>"), true)
   assert.equal(validateWebEntrypointHtml("{\"status\":\"ok\"}"), false)
+  assert.deepEqual(
+    extractWebEntrypointAssetPaths("<script src=\"/assets/app.js\"></script><link rel=\"stylesheet\" href=\"/assets/app.css\"><script src=\"https://cdn.example.com/skip.js\"></script>", "https://client.example.com"),
+    [
+      { path: "/assets/app.js", type: "script", label: "脚本资源" },
+      { path: "/assets/app.css", type: "style", label: "样式资源" },
+    ],
+  )
+  assert.equal(validateWebAssetResponse({ type: "script" }, "const app = 'Crazor'", "text/javascript"), true)
+  assert.equal(validateWebAssetResponse({ type: "style" }, ".app { color: red; }", "text/css"), true)
+  assert.equal(validateWebAssetResponse({ type: "script" }, "<html></html>", "text/html"), false)
 })
 
 test("customer desktop smoke rejects server URLs that do not serve the web shell", async () => {
@@ -326,6 +354,25 @@ test("customer desktop smoke rejects server URLs that do not serve the web shell
   )
 })
 
+test("customer desktop smoke rejects web shells with missing static assets", async () => {
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname
+    if (pathname === "/api/health") return jsonResponse({ status: "ok" })
+    if (pathname === "/") return htmlResponse()
+    if (pathname === "/assets/index.js") return jsonResponse({ error: "missing" }, 404)
+    throw new Error(`unexpected ${url}`)
+  }
+
+  await assert.rejects(
+    runCustomerDesktopSmoke({
+      serverUrl: "http://127.0.0.1:5173",
+      fetchImpl,
+      logger: { log() {}, warn() {} },
+    }),
+    /GET \/assets\/index\.js 返回 404/,
+  )
+})
+
 test("customer desktop smoke can skip live chat when only probing entrypoints", async () => {
   const calls = []
   const fetchImpl = async (url) => {
@@ -333,6 +380,7 @@ test("customer desktop smoke can skip live chat when only probing entrypoints", 
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
     if (pathname === "/") return htmlResponse()
+    if (pathname === "/assets/index.js") return jsResponse()
     if (pathname === "/api/delivery/readiness") {
       return jsonResponse({ status: "ready", delivery: {}, checks: [] })
     }
@@ -355,6 +403,7 @@ test("customer desktop smoke can skip live chat when only probing entrypoints", 
 
   assert.equal(result.liveChatChecked, false)
   assert.equal(result.webEntrypointChecked, true)
+  assert.equal(result.webAssetChecks.length, 1)
   assert.equal(result.businessEntryChecks.length, 5)
   assert.ok(result.warnings.some((item) => item.includes("已跳过真实对话响应检查")))
   assert.ok(!calls.some((url) => new URL(url).pathname === "/api/chat/completions"))

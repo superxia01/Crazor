@@ -31,6 +31,13 @@ function htmlResponse() {
   })
 }
 
+function jsResponse() {
+  return new Response("const app = 'Crazor';", {
+    status: 200,
+    headers: { "Content-Type": "text/javascript" },
+  })
+}
+
 function businessEntrypointResponse(pathname) {
   if (pathname === "/api/crazor/contacts") return jsonResponse([])
   if (pathname === "/api/crazor/projects") return jsonResponse([])
@@ -82,6 +89,7 @@ test("customer handoff check verifies package, env, access-code login, and chat"
       }
       if (pathname === "/api/health") return jsonResponse({ status: "ok" })
       if (pathname === "/") return htmlResponse()
+      if (pathname === "/assets/index.js") return jsResponse()
       if (pathname === "/api/auth/status") {
         return jsonResponse({ loginRequired: true, accessCodeConfigured: true })
       }
@@ -134,12 +142,16 @@ test("customer handoff check verifies package, env, access-code login, and chat"
     assert.equal(result.server.readinessChecks.length, 3)
     assert.equal(result.desktopSmoke.accessCodeLoginChecked, true)
     assert.equal(result.desktopSmoke.webEntrypointChecked, true)
+    assert.deepEqual(result.desktopSmoke.webAssetChecks, [{ path: "/assets/index.js", type: "script", status: "ok" }])
     assert.equal(result.desktopSmoke.businessEntryChecks.length, 5)
     assert.equal(result.desktopSmoke.liveChatChecked, true)
     assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
     const report = renderCustomerHandoffReport(result)
     assert.match(report, /模型连接凭据: ANTHROPIC_API_KEY/)
     assert.match(report, /Web 入口: 已验证/)
+    assert.match(report, /Web 静态资源: 1 项已验证/)
+    assert.match(report, /## Web 入口自检/)
+    assert.match(report, /通过 script: \/assets\/index\.js/)
     assert.match(report, /## 业务入口自检/)
     assert.match(report, /通过 客户 CRM: \/api\/crazor\/contacts/)
     assert.match(report, /## 后端自检项/)
@@ -225,6 +237,7 @@ test("customer handoff check fails when login is required but no access code is 
       }
       if (pathname === "/api/health") return jsonResponse({ status: "ok" })
       if (pathname === "/") return htmlResponse()
+      if (pathname === "/assets/index.js") return jsResponse()
       if (pathname === "/api/auth/status") return jsonResponse({ loginRequired: true })
       if (pathname === "/api/auth/me") return jsonResponse({ loggedIn: false })
       if (pathname === "/api/crazor/context") return jsonResponse({ error: "Unauthorized" }, 401)
@@ -271,6 +284,7 @@ test("customer handoff check rejects hosted backend fingerprint mismatches", asy
       }
       if (pathname === "/api/health") return jsonResponse({ status: "ok" })
       if (pathname === "/") return htmlResponse()
+      if (pathname === "/assets/index.js") return jsResponse()
       if (pathname === "/api/auth/status") return jsonResponse({ loginRequired: false })
       if (pathname === "/api/auth/me") return jsonResponse({ loggedIn: false })
       if (pathname === "/api/crazor/context") return jsonResponse({ items: [] })

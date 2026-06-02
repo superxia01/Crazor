@@ -577,10 +577,14 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
     customerDesktopSmokeScript.includes("runCustomerDesktopSmoke") &&
       customerDesktopSmokeScript.includes("requestDesktopText") &&
       customerDesktopSmokeScript.includes("validateWebEntrypointHtml") &&
+      customerDesktopSmokeScript.includes("extractWebEntrypointAssetPaths") &&
+      customerDesktopSmokeScript.includes("validateWebAssetResponse") &&
       customerDesktopSmokeScript.includes("/api/delivery/readiness") &&
       customerDesktopSmokeScript.includes("网页版统一入口检查") &&
       customerDesktopSmokeScript.includes("webEntrypointChecked") &&
+      customerDesktopSmokeScript.includes("webAssetChecks") &&
       customerDesktopSmokeScript.includes("Web 统一入口未返回 Crazor 前端 HTML") &&
+      customerDesktopSmokeScript.includes("Web 统一入口未声明可验证的前端静态资源") &&
       customerDesktopSmokeScript.includes("/api/auth/status") &&
       customerDesktopSmokeScript.includes("/api/auth/me") &&
       customerDesktopSmokeScript.includes("/api/crazor/context?limit=1") &&
@@ -613,6 +617,8 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
       customerHandoffCheckScript.includes("listModelProviderConnections") &&
       customerHandoffCheckScript.includes("模型连接凭据") &&
       customerHandoffCheckScript.includes("Web 入口") &&
+      customerHandoffCheckScript.includes("Web 静态资源") &&
+      customerHandoffCheckScript.includes("## Web 入口自检") &&
       customerHandoffCheckScript.includes("isLocalModelBaseUrl") &&
       customerHandoffCheckScript.includes("renderCustomerHandoffReport") &&
       customerHandoffCheckScript.includes("## 业务入口自检") &&

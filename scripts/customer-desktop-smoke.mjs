@@ -17,6 +17,7 @@ const BUSINESS_ENTRYPOINTS = [
   { id: "knowledge-tree", label: "知识库树", path: "/api/crazor/docs/knowledge/tree", shape: "any" },
   { id: "attachment-policy", label: "附件策略", path: "/api/crazor/attachments/policy", shape: "object" },
 ]
+const WEB_ASSET_EXTENSIONS = new Set([".js", ".css"])
 
 export function truthy(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase())
@@ -83,9 +84,59 @@ export function validateWebEntrypointHtml(text) {
     /<script\b/i.test(html)
 }
 
+export function extractWebEntrypointAssetPaths(html, baseUrl) {
+  const normalizedBaseUrl = normalizeServerUrl(baseUrl)
+  if (!normalizedBaseUrl) return []
+  const base = new URL("/", `${normalizedBaseUrl}/`)
+  const assets = []
+  const seen = new Set()
+  const attrPattern = /\b(?:src|href)=["']([^"']+)["']/gi
+  let match
+
+  while ((match = attrPattern.exec(String(html || "")))) {
+    const rawValue = String(match[1] || "").trim()
+    if (!rawValue || rawValue.startsWith("#") || rawValue.startsWith("data:") || rawValue.startsWith("blob:")) continue
+
+    let assetUrl
+    try {
+      assetUrl = new URL(rawValue, base)
+    } catch {
+      continue
+    }
+    if (assetUrl.origin !== base.origin) continue
+
+    const extension = assetUrl.pathname.match(/\.[a-z0-9]+$/i)?.[0]?.toLowerCase() || ""
+    if (!WEB_ASSET_EXTENSIONS.has(extension)) continue
+
+    const path = `${assetUrl.pathname}${assetUrl.search}`
+    if (seen.has(path)) continue
+    seen.add(path)
+    assets.push({
+      path,
+      type: extension === ".css" ? "style" : "script",
+      label: extension === ".css" ? "样式资源" : "脚本资源",
+    })
+  }
+
+  return assets
+}
+
+export function validateWebAssetResponse(asset = {}, text = "", contentType = "") {
+  const body = String(text || "").trim()
+  if (!body || /<html[\s>]/i.test(body)) return false
+  const normalizedType = String(contentType || "").toLowerCase()
+  if (asset.type === "style") {
+    return normalizedType.includes("css") || /[.#]?[a-z0-9_-]+\s*\{[^}]+}/i.test(body)
+  }
+  return normalizedType.includes("javascript") ||
+    normalizedType.includes("ecmascript") ||
+    /\b(import|export|function|const|let|var)\b/.test(body)
+}
+
 export async function requestDesktopText(baseUrl, path, {
   timeoutMs = DEFAULT_TIMEOUT_MS,
   expected = [200],
+  accept = "text/html",
   fetchImpl = globalThis.fetch,
 } = {}) {
   const normalizedBaseUrl = normalizeServerUrl(baseUrl)
@@ -96,7 +147,7 @@ export async function requestDesktopText(baseUrl, path, {
 
   try {
     const response = await fetchImpl(new URL(path, `${normalizedBaseUrl}/`).toString(), {
-      headers: { Accept: "text/html" },
+      headers: { Accept: accept },
       signal: controller.signal,
     })
     const text = await response.text()
@@ -189,6 +240,7 @@ export async function runCustomerDesktopSmoke({
   const warnings = []
   let chatReply = ""
   let webEntrypointChecked = false
+  const webAssetChecks = []
   let activeLoginToken = String(loginToken || "").trim()
   let accessCodeLoginChecked = false
   const businessEntryChecks = []
@@ -218,6 +270,26 @@ export async function runCustomerDesktopSmoke({
     })
     if (!validateWebEntrypointHtml(web.text)) {
       throw new Error("Web 统一入口未返回 Crazor 前端 HTML，请确认 serverUrl 指向 crazor-web 网关而不是裸后端 API")
+    }
+    const assets = extractWebEntrypointAssetPaths(web.text, normalizedServerUrl)
+    if (assets.length === 0) {
+      throw new Error("Web 统一入口未声明可验证的前端静态资源，请确认生产构建产物已部署")
+    }
+    for (const asset of assets) {
+      const response = await requestDesktopText(normalizedServerUrl, asset.path, {
+        timeoutMs,
+        fetchImpl,
+        expected: [200],
+        accept: asset.type === "style" ? "text/css,*/*" : "text/javascript,application/javascript,*/*",
+      })
+      if (!validateWebAssetResponse(asset, response.text, response.contentType)) {
+        throw new Error(`${asset.label} ${asset.path} 未返回有效前端资源`)
+      }
+      webAssetChecks.push({
+        path: asset.path,
+        type: asset.type,
+        status: "ok",
+      })
     }
     webEntrypointChecked = true
   })
@@ -388,6 +460,7 @@ export async function runCustomerDesktopSmoke({
     protocolVersion: normalizeText(protocolVersion),
     readinessStatus: readinessResult?.status || "",
     webEntrypointChecked,
+    webAssetChecks,
     loginRequired: authStatus.gate.loginRequired,
     interactiveLoginRequired: authStatus.gate.needsInteractiveLogin,
     accessCodeLoginChecked,

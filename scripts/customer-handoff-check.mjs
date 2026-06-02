@@ -243,10 +243,15 @@ export function renderCustomerHandoffReport(result) {
     `- 后端自检: ${result.server?.status || "未执行"}`,
     `- 后端指纹: ${result.server?.identityFingerprint || "未执行"}`,
     `- Web 入口: ${result.desktopSmoke?.webEntrypointChecked ? "已验证" : "未验证"}`,
+    `- Web 静态资源: ${formatWebAssetSummary(result.desktopSmoke?.webAssetChecks)}`,
     `- 登录门禁: ${result.desktopSmoke ? (result.desktopSmoke.loginRequired ? "需要登录" : "未要求登录") : "未执行"}`,
     `- 访问码登录: ${result.desktopSmoke?.accessCodeLoginChecked ? "已验证" : "未验证"}`,
     `- 业务入口: ${formatBusinessEntrySummary(result.desktopSmoke?.businessEntryChecks)}`,
     `- 真实对话: ${result.desktopSmoke?.liveChatChecked ? "已验证" : "未验证"}`,
+    "",
+    "## Web 入口自检",
+    "",
+    ...renderWebAssetChecks(result.desktopSmoke?.webAssetChecks),
     "",
     "## 业务入口自检",
     "",
@@ -357,6 +362,20 @@ function renderReadinessChecks(checks = []) {
 function formatBusinessEntrySummary(checks = []) {
   if (!Array.isArray(checks) || checks.length === 0) return "未执行"
   return `${checks.length} 项已验证`
+}
+
+function formatWebAssetSummary(checks = []) {
+  if (!Array.isArray(checks) || checks.length === 0) return "未执行"
+  return `${checks.length} 项已验证`
+}
+
+function renderWebAssetChecks(checks = []) {
+  if (!Array.isArray(checks) || checks.length === 0) return ["- 未执行或未发现可验证的前端静态资源"]
+  return checks.map((check) => {
+    const type = normalizeText(check?.type || "asset")
+    const path = normalizeText(check?.path || "")
+    return `- 通过 ${type}${path ? `: ${path}` : ""}`
+  })
 }
 
 function renderBusinessEntryChecks(checks = []) {
