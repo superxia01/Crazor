@@ -57,7 +57,11 @@ test("customer handoff check verifies package, env, access-code login, and chat"
             protocol_version: "1",
             identity_fingerprint: deliveryFingerprint("CRAZYAIGC 客户", "https://client.example.com", "customer", "1"),
           },
-          checks: [],
+          checks: [
+            { id: "agent-gateway", label: "Agent Gateway", status: "ok", detail: "Agent Gateway 可访问" },
+            { id: "model-config", label: "模型配置", status: "ok", detail: "模型 hermes-agent 可用" },
+            { id: "business-data", label: "业务数据 API", status: "ok", detail: "CRM、项目和任务数据库可读" },
+          ],
         })
       }
       if (pathname === "/api/health") return jsonResponse({ status: "ok" })
@@ -105,11 +109,15 @@ test("customer handoff check verifies package, env, access-code login, and chat"
     assert.deepEqual(result.env.modelConnections, ["ANTHROPIC_API_KEY"])
     assert.equal(result.delivery.identityFingerprint, deliveryFingerprint("CRAZYAIGC 客户", "https://client.example.com", "customer", "1"))
     assert.equal(result.server.identityFingerprint, result.delivery.identityFingerprint)
+    assert.equal(result.server.readinessChecks.length, 3)
     assert.equal(result.desktopSmoke.accessCodeLoginChecked, true)
     assert.equal(result.desktopSmoke.liveChatChecked, true)
     assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
     const report = renderCustomerHandoffReport(result)
     assert.match(report, /模型连接凭据: ANTHROPIC_API_KEY/)
+    assert.match(report, /## 后端自检项/)
+    assert.match(report, /通过 模型配置: 模型 hermes-agent 可用/)
+    assert.match(report, /通过 业务数据 API: CRM、项目和任务数据库可读/)
     assert.ok(!report.includes("handoff-code"))
     assert.ok(!report.includes("sk-live-handoff-secret"))
   } finally {

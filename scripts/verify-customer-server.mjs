@@ -21,6 +21,18 @@ export function normalizeServerUrl(value) {
   }
 }
 
+export function normalizeReadinessChecks(checks = []) {
+  if (!Array.isArray(checks)) return []
+  return checks
+    .map((check) => ({
+      id: normalizeText(check?.id || ""),
+      label: normalizeText(check?.label || check?.id || "检查项"),
+      status: normalizeText(check?.status || "unknown"),
+      detail: normalizeText(check?.detail || "无详情"),
+    }))
+    .filter((check) => check.id || check.label || check.detail)
+}
+
 export function evaluateCustomerServerReadiness(
   customer,
   serverUrl,
@@ -38,7 +50,7 @@ export function evaluateCustomerServerReadiness(
   const actualProtocol = normalizeText(serverDelivery.protocol_version || serverDelivery.protocolVersion)
   const identityFingerprint = normalizeText(serverDelivery.identity_fingerprint || serverDelivery.identityFingerprint)
   const status = normalizeText(readiness?.status)
-  const checks = Array.isArray(readiness?.checks) ? readiness.checks : []
+  const checks = normalizeReadinessChecks(readiness?.checks)
   const errors = []
   const warnings = []
 
@@ -77,10 +89,10 @@ export function evaluateCustomerServerReadiness(
   }
 
   for (const check of checks) {
-    if (check?.status === "error") {
-      errors.push(`${check.label || check.id || "检查项"}失败: ${check.detail || "无详情"}`)
-    } else if (check?.status === "warn") {
-      warnings.push(`${check.label || check.id || "检查项"}警告: ${check.detail || "无详情"}`)
+    if (check.status === "error") {
+      errors.push(`${check.label}失败: ${check.detail}`)
+    } else if (check.status === "warn") {
+      warnings.push(`${check.label}警告: ${check.detail}`)
     }
   }
 
@@ -92,6 +104,7 @@ export function evaluateCustomerServerReadiness(
     expectedIdentityFingerprint: expectedFingerprint,
     serverUrl: normalizedServerUrl,
     status,
+    readinessChecks: checks,
     errors,
     warnings,
   }
@@ -126,6 +139,7 @@ export async function verifyCustomerServer({
         expectedIdentityFingerprint: normalizeText(identityFingerprint),
         serverUrl: normalizedServerUrl,
         status: "",
+        readinessChecks: [],
         errors: [`交付自检接口返回 HTTP ${response.status}`],
         warnings: [],
       }
@@ -141,6 +155,7 @@ export async function verifyCustomerServer({
       expectedIdentityFingerprint: normalizeText(identityFingerprint),
       serverUrl: normalizedServerUrl,
       status: "",
+      readinessChecks: [],
       errors: [`无法连接托管后端交付自检: ${error?.message || error}`],
       warnings: [],
     }

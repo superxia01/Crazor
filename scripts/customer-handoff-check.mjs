@@ -246,6 +246,10 @@ export function renderCustomerHandoffReport(result) {
     `- 访问码登录: ${result.desktopSmoke?.accessCodeLoginChecked ? "已验证" : "未验证"}`,
     `- 真实对话: ${result.desktopSmoke?.liveChatChecked ? "已验证" : "未验证"}`,
     "",
+    "## 后端自检项",
+    "",
+    ...renderReadinessChecks(result.server?.readinessChecks),
+    "",
     "## 错误",
     "",
   )
@@ -332,6 +336,23 @@ export function listModelProviderConnections(env = {}) {
 
 function formatModelConnections(connections = []) {
   return connections.length > 0 ? connections.join(", ") : "未在环境文件中发现"
+}
+
+function renderReadinessChecks(checks = []) {
+  if (!Array.isArray(checks) || checks.length === 0) return ["- 未执行或未返回自检项"]
+  return checks.map((check) => {
+    const label = normalizeText(check?.label || check?.id || "检查项")
+    const status = formatReadinessStatus(check?.status)
+    const detail = normalizeText(check?.detail || "无详情")
+    return `- ${status} ${label}: ${detail}`
+  })
+}
+
+function formatReadinessStatus(status) {
+  if (status === "ok") return "通过"
+  if (status === "warn") return "警告"
+  if (status === "error") return "失败"
+  return "未知"
 }
 
 function isPlaceholderSecretValue(value) {

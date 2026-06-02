@@ -25,6 +25,9 @@ test("customer server preflight passes matching ready hosted backend", () => {
   assert.equal(result.ok, true)
   assert.equal(result.identityFingerprint, "abc123def456")
   assert.equal(result.expectedIdentityFingerprint, "abc123def456")
+  assert.deepEqual(result.readinessChecks, [
+    { id: "api", label: "后端 API", status: "ok", detail: "ok" },
+  ])
   assert.deepEqual(result.errors, [])
 })
 
@@ -67,6 +70,9 @@ test("customer server preflight reports degraded backend as warning", () => {
     ],
   })
   assert.equal(result.ok, true)
+  assert.deepEqual(result.readinessChecks, [
+    { id: "agent-dashboard", label: "Agent Dashboard", status: "warn", detail: "不可访问" },
+  ])
   assert.ok(result.warnings.some((item) => item.includes("degraded")))
   assert.ok(result.warnings.some((item) => item.includes("Agent Dashboard")))
 })
