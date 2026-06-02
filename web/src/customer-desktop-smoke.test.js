@@ -36,7 +36,13 @@ function jsResponse(text = "import('/assets/chunk.js'); const app = 'Crazor';") 
   })
 }
 
-function businessEntrypointResponse(pathname) {
+function businessEntrypointResponse(pathname, init = {}) {
+  if (pathname === "/api/crazor/contacts" && init.method === "POST") {
+    return jsonResponse({ id: "contact_smoke" }, 201)
+  }
+  if (pathname === "/api/crazor/contacts/contact_smoke" && init.method === "DELETE") {
+    return jsonResponse({ ok: true })
+  }
   if (pathname === "/api/crazor/contacts") return jsonResponse([])
   if (pathname === "/api/crazor/projects") return jsonResponse([])
   if (pathname === "/api/crazor/tasks") return jsonResponse([])
@@ -78,7 +84,7 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
       assert.equal(init.headers["X-Crazor-Token"], "czr_actor")
       return jsonResponse({ items: [] })
     }
-    const businessResponse = businessEntrypointResponse(pathname)
+    const businessResponse = businessEntrypointResponse(pathname, init)
     if (businessResponse) {
       assert.equal(init.headers.Authorization, "Bearer login.jwt")
       assert.equal(init.headers["X-Crazor-Token"], "czr_actor")
@@ -123,6 +129,7 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
     result.businessEntryChecks.map((item) => item.id),
     ["contacts", "projects", "tasks", "knowledge-tree", "attachment-policy"],
   )
+  assert.equal(result.businessWriteChecked, true)
   assert.equal(result.liveChatChecked, true)
   assert.equal(result.chatReplyPreview, "OK")
   assert.ok(calls.some((call) => call.url === "https://client.example.com/api/crazor/context?limit=1"))
@@ -134,7 +141,7 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
 
 test("customer desktop smoke preserves path-prefixed hosted server URLs", async () => {
   const calls = []
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, init = {}) => {
     calls.push(url)
     const pathname = new URL(url).pathname
     const appPathname = pathname.replace(/^\/crazor(?=\/|$)/, "") || "/"
@@ -159,7 +166,7 @@ test("customer desktop smoke preserves path-prefixed hosted server URLs", async 
     if (appPathname === "/api/auth/status") return jsonResponse({ loginRequired: false })
     if (appPathname === "/api/auth/me") return jsonResponse({ loggedIn: false })
     if (appPathname === "/api/crazor/context") return jsonResponse({ items: [] })
-    const businessResponse = businessEntrypointResponse(appPathname)
+    const businessResponse = businessEntrypointResponse(appPathname, init)
     if (businessResponse) return businessResponse
     if (appPathname === "/api/agent/provider") {
       return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
@@ -210,7 +217,7 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
     if (pathname === "/api/auth/access-code") {
       assert.equal(init.method, "POST")
       assert.equal(JSON.parse(init.body).code, "handoff-code")
-      return jsonResponse({ loggedIn: true, token: "access.jwt", nickname: "客户用户" })
+      return jsonResponse({ loggedIn: true, token: "access.jwt", actor_token: "czr_customer", nickname: "客户用户" })
     }
     if (pathname === "/api/auth/me") {
       assert.equal(init.headers.Authorization, "Bearer access.jwt")
@@ -220,9 +227,10 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
       assert.equal(init.headers.Authorization, "Bearer access.jwt")
       return jsonResponse({ items: [] })
     }
-    const businessResponse = businessEntrypointResponse(pathname)
+    const businessResponse = businessEntrypointResponse(pathname, init)
     if (businessResponse) {
       assert.equal(init.headers.Authorization, "Bearer access.jwt")
+      assert.equal(init.headers["X-Crazor-Token"], "czr_customer")
       return businessResponse
     }
     if (pathname === "/api/agent/provider") {
@@ -230,10 +238,12 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
     }
     if (pathname === "/api/models") {
       assert.equal(init.headers.Authorization, "Bearer access.jwt")
+      assert.equal(init.headers["X-Crazor-Token"], "czr_customer")
       return jsonResponse({ data: [{ id: "hermes-agent" }] })
     }
     if (pathname === "/api/chat/completions") {
       assert.equal(init.headers.Authorization, "Bearer access.jwt")
+      assert.equal(init.headers["X-Crazor-Token"], "czr_customer")
       return jsonResponse({ choices: [{ message: { content: "OK" } }] })
     }
     throw new Error(`unexpected ${url}`)
@@ -251,15 +261,17 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
   assert.equal(result.webEntrypointChecked, true)
   assert.equal(result.webAssetChecks.length, 1)
   assert.equal(result.accessCodeLoginChecked, true)
+  assert.equal(result.accessActorTokenChecked, true)
   assert.equal(result.interactiveLoginRequired, false)
   assert.equal(result.businessEntryChecks.length, 5)
+  assert.equal(result.businessWriteChecked, true)
   assert.equal(result.liveChatChecked, true)
   assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
 })
 
 test("customer desktop smoke treats missing login token as an expected login gate", async () => {
   const calls = []
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, init = {}) => {
     calls.push(url)
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
@@ -295,7 +307,7 @@ test("customer desktop smoke treats missing login token as an expected login gat
 
 test("customer desktop smoke explains degraded readiness checks", async () => {
   const warnings = []
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, init = {}) => {
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
     if (pathname === "/") return htmlResponse()
@@ -317,7 +329,7 @@ test("customer desktop smoke explains degraded readiness checks", async () => {
     if (pathname === "/api/auth/status") return jsonResponse({ loginRequired: false })
     if (pathname === "/api/auth/me") return jsonResponse({ loggedIn: false })
     if (pathname === "/api/crazor/context") return jsonResponse({ items: [] })
-    const businessResponse = businessEntrypointResponse(pathname)
+    const businessResponse = businessEntrypointResponse(pathname, init)
     if (businessResponse) return businessResponse
     if (pathname === "/api/agent/provider") return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
     if (pathname === "/api/models") return jsonResponse({ data: [{ id: "hermes-agent" }] })
@@ -407,7 +419,7 @@ test("customer desktop smoke helper exposes desktop request auth semantics", () 
 })
 
 test("customer desktop smoke rejects server URLs that do not serve the web shell", async () => {
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, init = {}) => {
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
     if (pathname === "/") return jsonResponse({ status: "api-only" })
@@ -425,7 +437,7 @@ test("customer desktop smoke rejects server URLs that do not serve the web shell
 })
 
 test("customer desktop smoke rejects web shells with missing static assets", async () => {
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, init = {}) => {
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
     if (pathname === "/") return htmlResponse()
@@ -445,7 +457,7 @@ test("customer desktop smoke rejects web shells with missing static assets", asy
 
 test("customer desktop smoke can skip live chat when only probing entrypoints", async () => {
   const calls = []
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, init = {}) => {
     calls.push(url)
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
@@ -457,7 +469,7 @@ test("customer desktop smoke can skip live chat when only probing entrypoints", 
     if (pathname === "/api/auth/status") return jsonResponse({ loginRequired: false })
     if (pathname === "/api/auth/me") return jsonResponse({ loggedIn: false })
     if (pathname === "/api/crazor/context") return jsonResponse({ items: [] })
-    const businessResponse = businessEntrypointResponse(pathname)
+    const businessResponse = businessEntrypointResponse(pathname, init)
     if (businessResponse) return businessResponse
     if (pathname === "/api/agent/provider") return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
     if (pathname === "/api/models") return jsonResponse({ data: [{ id: "hermes-agent" }] })

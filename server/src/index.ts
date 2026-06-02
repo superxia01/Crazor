@@ -1337,6 +1337,7 @@ const WECHAT_LOGIN_SESSION_TTL_MS = 10 * 60 * 1000
 const wechatLoginSessions = new Map<string, {
   createdAt: number
   token?: string
+  actorToken?: string
   nickname?: string
   avatarUrl?: string
 }>()
@@ -1346,12 +1347,13 @@ function rememberWechatLoginSession(state: string) {
   wechatLoginSessions.set(state, { createdAt: Date.now() })
 }
 
-function completeWechatLoginSession(state: string, data: { token: string; nickname?: string; avatarUrl?: string }) {
+function completeWechatLoginSession(state: string, data: { token: string; actorToken?: string; nickname?: string; avatarUrl?: string }) {
   const current = wechatLoginSessions.get(state)
   if (!current) return
   wechatLoginSessions.set(state, {
     ...current,
     token: data.token,
+    actorToken: data.actorToken,
     nickname: data.nickname,
     avatarUrl: data.avatarUrl,
   })
@@ -1371,6 +1373,38 @@ function pruneWechatLoginSessions() {
 
 function backendOrigin(c: any): string {
   return publicBaseUrl() || new URL(c.req.url).origin
+}
+
+function issueCustomerLoginActorToken(nickname: string) {
+  if (!CRAZOR_REQUIRE_WRITE_TOKEN && !CRAZOR_REQUIRE_BUSINESS_READ_TOKEN && !CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN) {
+    return null
+  }
+
+  const memberName = `${cleanString(nickname) || '客户用户'} · 客户访问`
+  const existingMember = (listTeamMembers() as any[]).find((member) =>
+    member?.name === memberName &&
+    member?.actor_type === 'human' &&
+    member?.status === 'active',
+  )
+  const member = existingMember || createTeamMember({
+    name: memberName,
+    actor_type: 'human',
+    role: 'member',
+    status: 'active',
+  })
+  const actorToken = createActorToken({
+    member_id: member.id,
+    token_type: 'api',
+    label: 'customer-login',
+    scopes: '*',
+  })
+
+  return {
+    token: actorToken.token,
+    token_prefix: actorToken.token_prefix,
+    member_id: member.id,
+    scopes: actorToken.scopes,
+  }
 }
 
 // --- Agent Provider Adapter ---
@@ -1411,10 +1445,13 @@ app.get('/api/auth/wechat/callback', async (c) => {
   try {
     const wechatInfo = await exchangeCodeForToken(code)
     const user = upsertUser(wechatInfo)
-    const token = signJWT({ openid: wechatInfo.openid, nickname: wechatInfo.nickname || user.nickname })
+    const nickname = wechatInfo.nickname || user.nickname
+    const token = signJWT({ openid: wechatInfo.openid, nickname })
+    const actorToken = issueCustomerLoginActorToken(nickname)
     completeWechatLoginSession(String(state || ''), {
       token,
-      nickname: wechatInfo.nickname || user.nickname,
+      actorToken: actorToken?.token || '',
+      nickname,
       avatarUrl: wechatInfo.avatar_url || user.avatar_url || '',
     })
 
@@ -1455,6 +1492,8 @@ app.get('/api/auth/wechat/session/:state', (c) => {
   return c.json({
     loggedIn: true,
     token: session.token,
+    actor_token: session.actorToken || '',
+    actorToken: session.actorToken || '',
     nickname: session.nickname || '',
     avatarUrl: session.avatarUrl || '',
   })
@@ -1483,8 +1522,22 @@ app.post('/api/auth/access-code', async (c) => {
     openid: `customer-access-${deliveryCustomerName() || publicBaseUrl() || 'crazor'}`,
     nickname,
   })
+  const actorToken = issueCustomerLoginActorToken(nickname)
   c.header('Set-Cookie', `crazor_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 86400}`, { append: true })
-  return c.json({ loggedIn: true, token, nickname })
+  return c.json({
+    loggedIn: true,
+    token,
+    actor_token: actorToken?.token || '',
+    actorToken: actorToken?.token || '',
+    actor: actorToken
+      ? {
+          member_id: actorToken.member_id,
+          token_prefix: actorToken.token_prefix,
+          scopes: actorToken.scopes,
+        }
+      : null,
+    nickname,
+  })
 })
 
 app.post('/api/auth/logout', (c) => {

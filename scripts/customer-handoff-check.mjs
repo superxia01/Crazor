@@ -166,6 +166,12 @@ export async function runCustomerHandoffCheck({
         if (desktopSmoke.loginRequired && !desktopSmoke.accessCodeLoginChecked && !resolvedLoginToken) {
           errors.push("后端要求登录，但本次未验证客户访问码换取 JWT")
         }
+        if (desktopSmoke.loginRequired && !desktopSmoke.accessActorTokenChecked && !resolvedActorToken && !desktopSmoke.businessWriteChecked) {
+          errors.push("后端要求登录，但客户访问码未返回可写业务数据的 actor token")
+        }
+        if (!desktopSmoke.businessWriteChecked) {
+          errors.push("本次未完成客户业务写入与清理检查")
+        }
         if (liveChat && !desktopSmoke.liveChatChecked) {
           errors.push("本次未完成真实对话响应检查")
         }
@@ -247,6 +253,7 @@ export function renderCustomerHandoffReport(result) {
     `- 登录门禁: ${result.desktopSmoke ? (result.desktopSmoke.loginRequired ? "需要登录" : "未要求登录") : "未执行"}`,
     `- 访问码登录: ${result.desktopSmoke?.accessCodeLoginChecked ? "已验证" : "未验证"}`,
     `- 业务入口: ${formatBusinessEntrySummary(result.desktopSmoke?.businessEntryChecks)}`,
+    `- 业务写入: ${result.desktopSmoke?.businessWriteChecked ? "已验证" : "未验证"}`,
     `- 真实对话: ${result.desktopSmoke?.liveChatChecked ? "已验证" : "未验证"}`,
     "",
     "## Web 入口自检",

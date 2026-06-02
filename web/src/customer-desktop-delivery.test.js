@@ -352,9 +352,16 @@ test("desktop WeChat login uses backend callback plus client polling", () => {
       loginDialogSource.includes("status.accessCodeConfigured") &&
       loginDialogSource.includes("使用访问码登录") &&
       loginDialogSource.includes("请输入客户访问码") &&
+      loginDialogSource.includes("setCrazorAuthToken") &&
+      loginDialogSource.includes("data.actor_token || data.actorToken") &&
+      loginPageSource.includes("setCrazorAuthToken") &&
+      loginPageSource.includes("data.actor_token || data.actorToken") &&
+      appSource.includes("clearCrazorAuthToken") &&
+      serverIndex.includes("issueCustomerLoginActorToken") &&
+      serverIndex.includes("actor_token") &&
       appInnerSource.includes("客户登录") &&
       !appInnerSource.includes("微信扫码登录"),
-    "desktop login dialog should also support access-code customer handoff instead of assuming WeChat-only login"
+    "desktop login should also support access-code customer handoff and store the issued actor token instead of assuming WeChat-only login"
   )
 })
 

@@ -262,8 +262,11 @@ export async function runCustomerDesktopSmoke({
   let webEntrypointChecked = false
   const webAssetChecks = []
   let activeLoginToken = String(loginToken || "").trim()
+  let activeActorToken = String(actorToken || "").trim()
   let accessCodeLoginChecked = false
+  let accessActorTokenChecked = false
   const businessEntryChecks = []
+  let businessWriteChecked = false
 
   async function step(name, fn) {
     logger.log(`- ${name}...`)
@@ -368,6 +371,11 @@ export async function runCustomerDesktopSmoke({
       if (!activeLoginToken) {
         throw new Error("客户访问码登录成功响应未返回 JWT")
       }
+      const issuedActorToken = String(login.data?.actor_token || login.data?.actorToken || "").trim()
+      if (!activeActorToken && issuedActorToken) {
+        activeActorToken = issuedActorToken
+        accessActorTokenChecked = true
+      }
       accessCodeLoginChecked = true
     }
     const me = await requestDesktopJson(normalizedServerUrl, "/api/auth/me", {
@@ -398,7 +406,7 @@ export async function runCustomerDesktopSmoke({
 
     await requestDesktopJson(normalizedServerUrl, "/api/crazor/context?limit=1", {
       loginToken: activeLoginToken,
-      actorToken,
+      actorToken: activeActorToken,
       timeoutMs,
       fetchImpl,
       expected: [200],
@@ -407,7 +415,7 @@ export async function runCustomerDesktopSmoke({
     for (const entrypoint of BUSINESS_ENTRYPOINTS) {
       const response = await requestDesktopJson(normalizedServerUrl, entrypoint.path, {
         loginToken: activeLoginToken,
-        actorToken,
+        actorToken: activeActorToken,
         timeoutMs,
         fetchImpl,
         expected: [200],
@@ -422,6 +430,38 @@ export async function runCustomerDesktopSmoke({
         status: "ok",
       })
     }
+  })
+
+  await step("业务写入权限检查", async () => {
+    if (authStatus.gate.needsInteractiveLogin) return
+
+    const created = await requestDesktopJson(normalizedServerUrl, "/api/crazor/contacts", {
+      method: "POST",
+      loginToken: activeLoginToken,
+      actorToken: activeActorToken,
+      timeoutMs,
+      fetchImpl,
+      expected: [200, 201],
+      body: {
+        name: `Crazor 交付验收 ${Date.now()}`,
+        status: "lead",
+        notes: "客户交付自动验收创建，验证后删除。",
+      },
+    })
+    const contactId = normalizeText(created.data?.id)
+    if (!contactId) {
+      throw new Error("业务写入接口返回成功，但未返回客户记录 ID")
+    }
+
+    await requestDesktopJson(normalizedServerUrl, `/api/crazor/contacts/${encodeURIComponent(contactId)}`, {
+      method: "DELETE",
+      loginToken: activeLoginToken,
+      actorToken: activeActorToken,
+      timeoutMs,
+      fetchImpl,
+      expected: [200, 204],
+    })
+    businessWriteChecked = true
   })
 
   await step("对话能力入口检查", async () => {
@@ -439,7 +479,7 @@ export async function runCustomerDesktopSmoke({
 
     await requestDesktopJson(normalizedServerUrl, "/api/models", {
       loginToken: activeLoginToken,
-      actorToken,
+      actorToken: activeActorToken,
       timeoutMs,
       fetchImpl,
       expected: [200],
@@ -449,7 +489,7 @@ export async function runCustomerDesktopSmoke({
       const chat = await requestDesktopJson(normalizedServerUrl, "/api/chat/completions", {
         method: "POST",
         loginToken: activeLoginToken,
-        actorToken,
+        actorToken: activeActorToken,
         timeoutMs: chatTimeoutMs,
         fetchImpl,
         expected: [200],
@@ -484,7 +524,9 @@ export async function runCustomerDesktopSmoke({
     loginRequired: authStatus.gate.loginRequired,
     interactiveLoginRequired: authStatus.gate.needsInteractiveLogin,
     accessCodeLoginChecked,
+    accessActorTokenChecked,
     businessEntryChecks,
+    businessWriteChecked,
     liveChatChecked: Boolean(chatReply),
     chatReplyPreview: chatReply.slice(0, 80),
     warnings,

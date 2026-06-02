@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { AppInner } from "./AppInner"
 import { CustomerDeliveryGate } from "./CustomerDeliveryGate"
 import { LoginPage } from "./pages/LoginPage"
+import { clearCrazorAuthToken } from "./api/crazor-auth"
 import { consumeLoginTokenFromLocation } from "./api/login-token-redirect"
 
 class ErrorBoundary extends React.Component {
@@ -100,6 +101,7 @@ export default function App() {
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('crazor_token')
+    clearCrazorAuthToken()
     setUserInfo(null)
     fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
   }, [])

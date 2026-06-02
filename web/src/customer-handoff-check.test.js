@@ -38,7 +38,13 @@ function jsResponse() {
   })
 }
 
-function businessEntrypointResponse(pathname) {
+function businessEntrypointResponse(pathname, init = {}) {
+  if (pathname === "/api/crazor/contacts" && init.method === "POST") {
+    return jsonResponse({ id: "contact_smoke" }, 201)
+  }
+  if (pathname === "/api/crazor/contacts/contact_smoke" && init.method === "DELETE") {
+    return jsonResponse({ ok: true })
+  }
   if (pathname === "/api/crazor/contacts") return jsonResponse([])
   if (pathname === "/api/crazor/projects") return jsonResponse([])
   if (pathname === "/api/crazor/tasks") return jsonResponse([])
@@ -96,7 +102,7 @@ test("customer handoff check verifies package, env, access-code login, and chat"
       if (pathname === "/api/auth/access-code") {
         assert.equal(init.method, "POST")
         assert.equal(JSON.parse(init.body).code, "handoff-code")
-        return jsonResponse({ loggedIn: true, token: "access.jwt", nickname: "客户用户" })
+        return jsonResponse({ loggedIn: true, token: "access.jwt", actor_token: "czr_customer", nickname: "客户用户" })
       }
       if (pathname === "/api/auth/me") {
         assert.equal(init.headers.Authorization, "Bearer access.jwt")
@@ -106,9 +112,10 @@ test("customer handoff check verifies package, env, access-code login, and chat"
         assert.equal(init.headers.Authorization, "Bearer access.jwt")
         return jsonResponse({ items: [] })
       }
-      const businessResponse = businessEntrypointResponse(pathname)
+      const businessResponse = businessEntrypointResponse(pathname, init)
       if (businessResponse) {
         assert.equal(init.headers.Authorization, "Bearer access.jwt")
+        assert.equal(init.headers["X-Crazor-Token"], "czr_customer")
         return businessResponse
       }
       if (pathname === "/api/agent/provider") {
@@ -116,10 +123,12 @@ test("customer handoff check verifies package, env, access-code login, and chat"
       }
       if (pathname === "/api/models") {
         assert.equal(init.headers.Authorization, "Bearer access.jwt")
+        assert.equal(init.headers["X-Crazor-Token"], "czr_customer")
         return jsonResponse({ data: [{ id: "hermes-agent" }] })
       }
       if (pathname === "/api/chat/completions") {
         assert.equal(init.headers.Authorization, "Bearer access.jwt")
+        assert.equal(init.headers["X-Crazor-Token"], "czr_customer")
         assert.equal(JSON.parse(init.body).stream, false)
         return jsonResponse({ choices: [{ message: { content: "OK" } }] })
       }
@@ -141,13 +150,16 @@ test("customer handoff check verifies package, env, access-code login, and chat"
     assert.equal(result.server.identityFingerprint, result.delivery.identityFingerprint)
     assert.equal(result.server.readinessChecks.length, 3)
     assert.equal(result.desktopSmoke.accessCodeLoginChecked, true)
+    assert.equal(result.desktopSmoke.accessActorTokenChecked, true)
     assert.equal(result.desktopSmoke.webEntrypointChecked, true)
     assert.deepEqual(result.desktopSmoke.webAssetChecks, [{ path: "/assets/index.js", type: "script", status: "ok" }])
     assert.equal(result.desktopSmoke.businessEntryChecks.length, 5)
+    assert.equal(result.desktopSmoke.businessWriteChecked, true)
     assert.equal(result.desktopSmoke.liveChatChecked, true)
     assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
     const report = renderCustomerHandoffReport(result)
     assert.match(report, /模型连接凭据: ANTHROPIC_API_KEY/)
+    assert.match(report, /业务写入: 已验证/)
     assert.match(report, /Web 入口: 已验证/)
     assert.match(report, /Web 静态资源: 1 项已验证/)
     assert.match(report, /## Web 入口自检/)
