@@ -70,6 +70,7 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes("serverPreflight") &&
       buildCustomerScript.includes("DELIVERY_DIR") &&
       buildCustomerScript.includes("customer-delivery") &&
+      buildCustomerScript.includes("crazor-start-here.md") &&
       buildCustomerScript.includes("verify-customer-delivery.mjs") &&
       !buildCustomerScript.includes("__CUSTOMER_SERVER_URL__"),
     "customer build should write package env before packaging, preflight the hosted backend, and verify backend/customer identity is embedded"
@@ -475,6 +476,7 @@ test("customer desktop package can be built by CI with configured backend", () =
       customerWorkflowSource.includes("验证客户交付包") &&
       customerWorkflowSource.includes("验证安装包可安装性") &&
       customerWorkflowSource.includes("验证客户交付验收入口") &&
+      customerWorkflowSource.includes("验证最终交付目录") &&
       customerWorkflowSource.includes("crazor-handoff-report.md") &&
       customerWorkflowSource.includes("--output desktop/src-tauri/target/release/customer-delivery/crazor-handoff-report.md") &&
       customerWorkflowSource.includes("准备 macOS 公证密钥") &&
@@ -517,6 +519,8 @@ test("customer desktop package can be built by CI with configured backend", () =
       buildCustomerScript.includes("npx tauri build") &&
       buildCustomerScript.includes("crazor-delivery-manifest.json") &&
       buildCustomerScript.includes("crazor-delivery-checksums.txt") &&
+      buildCustomerScript.includes("crazor-start-here.md") &&
+      buildCustomerScript.includes("renderStartGuide") &&
       buildCustomerScript.includes("copyFileSync") &&
       buildCustomerScript.includes('if (lowerName.endsWith(".app")) continue') &&
       buildCustomerScript.includes("bundleFiles") &&
@@ -539,6 +543,9 @@ test("customer desktop package can be built by CI with configured backend", () =
     verifyCustomerDeliveryScript.includes("verifyCustomerDeliveryPackage") &&
       verifyCustomerDeliveryScript.includes("manifest.bundleFiles") &&
       verifyCustomerDeliveryScript.includes("crazor-delivery-checksums.txt") &&
+      verifyCustomerDeliveryScript.includes("crazor-start-here.md") &&
+      verifyCustomerDeliveryScript.includes("validateStartGuide") &&
+      verifyCustomerDeliveryScript.includes("缺少客户交付说明") &&
       verifyCustomerDeliveryScript.includes("deliveryIdentityFingerprint") &&
       verifyCustomerDeliveryScript.includes("crazor-handoff-report.md") &&
       verifyCustomerDeliveryScript.includes("Crazor 客户交付验收报告") &&

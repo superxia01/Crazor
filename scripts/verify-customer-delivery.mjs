@@ -9,6 +9,7 @@ const DEFAULT_DELIVERY_DIR = fileURLToPath(new URL("../desktop/src-tauri/target/
 const MANIFEST_FILE = "crazor-delivery-manifest.json"
 const CHECKSUM_FILE = "crazor-delivery-checksums.txt"
 const HANDOFF_REPORT_FILE = "crazor-handoff-report.md"
+const START_GUIDE_FILE = "crazor-start-here.md"
 const INSTALLER_EXTENSIONS = new Set([".dmg", ".msi", ".exe", ".deb", ".rpm", ".pkg", ".zip"])
 
 export async function verifyCustomerDeliveryPackage(deliveryDir = DEFAULT_DELIVERY_DIR) {
@@ -42,6 +43,20 @@ export async function verifyCustomerDeliveryPackage(deliveryDir = DEFAULT_DELIVE
   const bundleFiles = Array.isArray(manifest.bundleFiles) ? manifest.bundleFiles : []
   const expectedChecksums = new Map()
   const allowedFiles = new Set([MANIFEST_FILE, checksumFile || CHECKSUM_FILE])
+  const startGuidePath = join(root, START_GUIDE_FILE)
+  let startGuide = null
+  if (!existsSync(startGuidePath)) {
+    errors.push(`缺少客户交付说明: ${START_GUIDE_FILE}`)
+  } else {
+    const guideText = readFileSync(startGuidePath, "utf8")
+    validateStartGuide(guideText, manifest, errors)
+    startGuide = {
+      path: START_GUIDE_FILE,
+      sizeBytes: statSync(startGuidePath).size,
+    }
+  }
+  allowedFiles.add(START_GUIDE_FILE)
+
   const handoffReportPath = join(root, HANDOFF_REPORT_FILE)
   let handoffReport = null
   if (existsSync(handoffReportPath)) {
@@ -126,6 +141,7 @@ export async function verifyCustomerDeliveryPackage(deliveryDir = DEFAULT_DELIVE
     deliveryDir: root,
     manifest,
     installers,
+    startGuide,
     handoffReport,
     warnings,
   }
@@ -143,6 +159,35 @@ function validateManifestShape(manifest, errors) {
   if (Number.isNaN(Date.parse(String(manifest?.builtAt || "")))) errors.push("manifest.builtAt 不是有效时间")
   if (!Array.isArray(manifest?.bundleFiles) || manifest.bundleFiles.length === 0) {
     errors.push("manifest.bundleFiles 不能为空")
+  }
+}
+
+function validateStartGuide(text, manifest, errors) {
+  if (!text.startsWith("# Crazor 客户交付说明")) {
+    errors.push(`${START_GUIDE_FILE} 不是有效的客户交付说明`)
+    return
+  }
+
+  const requiredTexts = [
+    String(manifest?.customer || "").trim(),
+    String(manifest?.serverUrl || "").trim(),
+    String(manifest?.deliveryProtocolVersion || "").trim(),
+    String(manifest?.deliveryIdentityFingerprint || "").trim(),
+    MANIFEST_FILE,
+    CHECKSUM_FILE,
+  ].filter(Boolean)
+
+  for (const value of requiredTexts) {
+    if (!text.includes(value)) {
+      errors.push(`${START_GUIDE_FILE} 缺少交付信息: ${value}`)
+    }
+  }
+
+  for (const file of Array.isArray(manifest?.bundleFiles) ? manifest.bundleFiles : []) {
+    const packagePath = normalizePackagePath(file?.path)
+    if (packagePath && !text.includes(packagePath)) {
+      errors.push(`${START_GUIDE_FILE} 未列出安装包: ${packagePath}`)
+    }
   }
 }
 
@@ -254,6 +299,9 @@ async function main() {
   }
   if (result.handoffReport) {
     console.log(`- 验收报告: ${result.handoffReport.path} (${result.handoffReport.sizeBytes} bytes)`)
+  }
+  if (result.startGuide) {
+    console.log(`- 客户交付说明: ${result.startGuide.path} (${result.startGuide.sizeBytes} bytes)`)
   }
 }
 

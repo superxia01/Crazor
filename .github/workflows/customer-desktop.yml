@@ -247,6 +247,9 @@ jobs:
 
           bash ./scripts/hermes handoff-check "${HANDOFF_ARGS[@]}"
 
+      - name: 验证最终交付目录
+        run: node ./scripts/verify-customer-delivery.mjs desktop/src-tauri/target/release/customer-delivery
+
       - name: 上传安装包
         uses: actions/upload-artifact@v7.0.1
         with:

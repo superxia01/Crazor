@@ -25,6 +25,7 @@ BUNDLE_DIR="$PROJECT_ROOT/desktop/src-tauri/target/release/bundle"
 DELIVERY_DIR="$PROJECT_ROOT/desktop/src-tauri/target/release/customer-delivery"
 DELIVERY_MANIFEST="$BUNDLE_DIR/crazor-delivery-manifest.json"
 DELIVERY_CHECKSUMS="$BUNDLE_DIR/crazor-delivery-checksums.txt"
+DELIVERY_START_GUIDE="$DELIVERY_DIR/crazor-start-here.md"
 
 usage() {
     cat <<'EOF'
@@ -400,7 +401,7 @@ case "$PLATFORM" in
 esac
 
 mkdir -p "$BUNDLE_DIR"
-export CUSTOMER SERVER_URL PLATFORM DELIVERY_PROTOCOL_VERSION DELIVERY_IDENTITY_FINGERPRINT BUILD_SHA BUILD_TIME BUNDLE_DIR DELIVERY_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS SERVER_PREFLIGHT_MODE SERVER_PREFLIGHT_RESULT
+export CUSTOMER SERVER_URL PLATFORM DELIVERY_PROTOCOL_VERSION DELIVERY_IDENTITY_FINGERPRINT BUILD_SHA BUILD_TIME BUNDLE_DIR DELIVERY_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS DELIVERY_START_GUIDE SERVER_PREFLIGHT_MODE SERVER_PREFLIGHT_RESULT
 node <<'NODE'
 const { createHash } = require("node:crypto")
 const { copyFileSync, createReadStream, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs")
@@ -410,6 +411,7 @@ const bundleDir = process.env.BUNDLE_DIR
 const deliveryDir = process.env.DELIVERY_DIR
 const deliveryManifest = process.env.DELIVERY_MANIFEST
 const deliveryChecksums = process.env.DELIVERY_CHECKSUMS
+const deliveryStartGuide = process.env.DELIVERY_START_GUIDE
 const fileExtensions = new Set([".dmg", ".msi", ".exe", ".deb", ".rpm", ".pkg", ".zip"])
 
 function normalizePath(filePath) {
@@ -446,6 +448,45 @@ function sha256File(filePath) {
     stream.on("error", reject)
     stream.on("end", () => resolve(hash.digest("hex")))
   })
+}
+
+function renderStartGuide(manifest) {
+  const installerLines = manifest.bundleFiles
+    .map((file) => `- ${file.path} (${file.sizeBytes} bytes, sha256=${file.sha256})`)
+    .join("\n")
+  const preflight = manifest.serverPreflight || {}
+  const preflightText = [preflight.mode, preflight.result].filter(Boolean).join(" / ") || "未记录"
+
+  return `# Crazor 客户交付说明
+
+## 交付对象
+
+- 客户: ${manifest.customer}
+- Web 统一入口: ${manifest.serverUrl}
+- 桌面客户端后端: ${manifest.serverUrl}
+- 交付协议: ${manifest.deliveryProtocolVersion}
+- 交付指纹: ${manifest.deliveryIdentityFingerprint}
+- 构建版本: ${manifest.gitSha}
+- 构建时间: ${manifest.builtAt}
+- 服务预检: ${preflightText}
+
+## 桌面安装包
+
+${installerLines}
+
+## 使用入口
+
+1. 浏览器访问 ${manifest.serverUrl} 可使用网页版前端。
+2. 安装本目录中的桌面安装包，客户端会自动连接 ${manifest.serverUrl}。
+3. 首次打开后按页面提示使用客户访问码或微信登录；访问码不写入交付包，请由交付负责人通过安全渠道单独发送。
+4. 如果客户端提示托管服务不可用，先访问 ${manifest.serverUrl}/api/delivery/readiness 查看后端自检结果。
+
+## 验收文件
+
+- crazor-delivery-manifest.json: 交付清单。
+- crazor-delivery-checksums.txt: 安装包 SHA256 校验和。
+- crazor-handoff-report.md: 自动验收报告；如果当前包未包含该文件，请先执行 handoff-check 生成。
+`
 }
 
 async function main() {
@@ -511,6 +552,7 @@ async function main() {
     mkdirSync(dirname(targetPath), { recursive: true })
     copyFileSync(item.absolutePath, targetPath)
   }
+  writeFileSync(deliveryStartGuide, renderStartGuide(manifest))
 }
 
 main().catch((error) => {

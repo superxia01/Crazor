@@ -279,37 +279,54 @@ function createDeliveryFixture({
   mkdirSync(join(dir, "dmg"), { recursive: true })
   writeFileSync(join(dir, installerPath), installerContent)
   writeFileSync(join(dir, "crazor-delivery-checksums.txt"), `${sha256}  ${installerPath}\n`)
+  const manifest = {
+    product: "Crazor",
+    customer,
+    serverUrl,
+    platform: "macos-current",
+    serverPreflight: {
+      mode: "strict",
+      result: "passed",
+    },
+    deliveryProtocolVersion: protocolVersion,
+    deliveryIdentityFingerprint: deliveryFingerprint(customer, serverUrl, "customer", protocolVersion),
+    gitSha: "abc123",
+    workflowSha: "def456",
+    githubRunId: "123",
+    builtAt: "2026-06-01T20:00:00.000Z",
+    checksumFile: "crazor-delivery-checksums.txt",
+    bundleFiles: [
+      {
+        path: installerPath,
+        type: "installer",
+        sizeBytes: Buffer.byteLength(installerContent),
+        sha256,
+      },
+    ],
+  }
   writeFileSync(
     join(dir, "crazor-delivery-manifest.json"),
-    JSON.stringify(
-      {
-        product: "Crazor",
-        customer,
-        serverUrl,
-        platform: "macos-current",
-        serverPreflight: {
-          mode: "strict",
-          result: "passed",
-        },
-        deliveryProtocolVersion: protocolVersion,
-        deliveryIdentityFingerprint: deliveryFingerprint(customer, serverUrl, "customer", protocolVersion),
-        gitSha: "abc123",
-        workflowSha: "def456",
-        githubRunId: "123",
-        builtAt: "2026-06-01T20:00:00.000Z",
-        checksumFile: "crazor-delivery-checksums.txt",
-        bundleFiles: [
-          {
-            path: installerPath,
-            type: "installer",
-            sizeBytes: Buffer.byteLength(installerContent),
-            sha256,
-          },
-        ],
-      },
-      null,
-      2,
-    ) + "\n",
+    JSON.stringify(manifest, null, 2) + "\n",
+  )
+  writeFileSync(
+    join(dir, "crazor-start-here.md"),
+    `# Crazor 客户交付说明
+
+- 客户: ${manifest.customer}
+- Web 统一入口: ${manifest.serverUrl}
+- 桌面客户端后端: ${manifest.serverUrl}
+- 交付协议: ${manifest.deliveryProtocolVersion}
+- 交付指纹: ${manifest.deliveryIdentityFingerprint}
+
+## 桌面安装包
+
+- ${installerPath}
+
+## 验收文件
+
+- crazor-delivery-manifest.json
+- crazor-delivery-checksums.txt
+`,
   )
   return dir
 }
