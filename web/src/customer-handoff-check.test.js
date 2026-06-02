@@ -12,6 +12,7 @@ import {
   renderCustomerBackendEnv,
 } from "../../scripts/customer-backend-env.mjs"
 import {
+  listModelProviderConnections,
   renderCustomerHandoffReport,
   runCustomerHandoffCheck,
 } from "../../scripts/customer-handoff-check.mjs"
@@ -32,14 +33,14 @@ test("customer handoff check verifies package, env, access-code login, and chat"
   const envFile = join(envDir, ".env.customer")
   writeFileSync(
     envFile,
-    renderCustomerBackendEnv(
+    `${renderCustomerBackendEnv(
       buildCustomerBackendEnv({
         customer: "CRAZYAIGC 客户",
         serverUrl: "https://client.example.com",
         jwtSecret: "0123456789abcdef0123456789abcdef",
         accessCode: "handoff-code",
       }),
-    ),
+    )}ANTHROPIC_API_KEY=\"sk-live-handoff-secret\"\n`,
   )
 
   try {
@@ -50,12 +51,12 @@ test("customer handoff check verifies package, env, access-code login, and chat"
       if (pathname === "/api/delivery/readiness") {
         return jsonResponse({
           status: "ready",
-        delivery: {
-          customer: "CRAZYAIGC 客户",
-          public_base_url: "https://client.example.com",
-          protocol_version: "1",
-          identity_fingerprint: deliveryFingerprint("CRAZYAIGC 客户", "https://client.example.com", "customer", "1"),
-        },
+          delivery: {
+            customer: "CRAZYAIGC 客户",
+            public_base_url: "https://client.example.com",
+            protocol_version: "1",
+            identity_fingerprint: deliveryFingerprint("CRAZYAIGC 客户", "https://client.example.com", "customer", "1"),
+          },
           checks: [],
         })
       }
@@ -101,16 +102,34 @@ test("customer handoff check verifies package, env, access-code login, and chat"
     assert.equal(result.ok, true)
     assert.equal(result.env.checked, true)
     assert.equal(result.env.accessCodeConfigured, true)
+    assert.deepEqual(result.env.modelConnections, ["ANTHROPIC_API_KEY"])
     assert.equal(result.delivery.identityFingerprint, deliveryFingerprint("CRAZYAIGC 客户", "https://client.example.com", "customer", "1"))
     assert.equal(result.server.identityFingerprint, result.delivery.identityFingerprint)
     assert.equal(result.desktopSmoke.accessCodeLoginChecked, true)
     assert.equal(result.desktopSmoke.liveChatChecked, true)
     assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
-    assert.ok(!renderCustomerHandoffReport(result).includes("handoff-code"))
+    const report = renderCustomerHandoffReport(result)
+    assert.match(report, /模型连接凭据: ANTHROPIC_API_KEY/)
+    assert.ok(!report.includes("handoff-code"))
+    assert.ok(!report.includes("sk-live-handoff-secret"))
   } finally {
     rmSync(dir, { recursive: true, force: true })
     rmSync(envDir, { recursive: true, force: true })
   }
+})
+
+test("customer handoff model connection audit redacts values and accepts local model base URLs", () => {
+  assert.deepEqual(
+    listModelProviderConnections({
+      OPENAI_API_KEY: "change-me",
+      ANTHROPIC_API_KEY: "sk-secret",
+      OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
+      OLLAMA_BASE_URL: "http://127.0.0.1:11434/v1",
+      LM_BASE_URL: "http://192.168.103.252:1234/v1",
+      DEEPSEEK_BASE_URL: "https://api.deepseek.com/v1",
+    }),
+    ["ANTHROPIC_API_KEY", "OLLAMA_BASE_URL(local)", "LM_BASE_URL(local)"],
+  )
 })
 
 test("customer handoff check rejects env server URL mismatches", async () => {
@@ -160,12 +179,12 @@ test("customer handoff check fails when login is required but no access code is 
       if (pathname === "/api/delivery/readiness") {
         return jsonResponse({
           status: "ready",
-        delivery: {
-          customer: "CRAZYAIGC 客户",
-          public_base_url: "https://client.example.com",
-          protocol_version: "1",
-          identity_fingerprint: deliveryFingerprint("CRAZYAIGC 客户", "https://client.example.com", "customer", "1"),
-        },
+          delivery: {
+            customer: "CRAZYAIGC 客户",
+            public_base_url: "https://client.example.com",
+            protocol_version: "1",
+            identity_fingerprint: deliveryFingerprint("CRAZYAIGC 客户", "https://client.example.com", "customer", "1"),
+          },
           checks: [],
         })
       }

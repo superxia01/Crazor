@@ -591,6 +591,9 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
       customerHandoffCheckScript.includes("runCustomerDesktopSmoke") &&
       customerHandoffCheckScript.includes("交付指纹不一致") &&
       customerHandoffCheckScript.includes("CRAZOR_CUSTOMER_ACCESS_CODE") &&
+      customerHandoffCheckScript.includes("listModelProviderConnections") &&
+      customerHandoffCheckScript.includes("模型连接凭据") &&
+      customerHandoffCheckScript.includes("isLocalModelBaseUrl") &&
       customerHandoffCheckScript.includes("renderCustomerHandoffReport") &&
       customerHandoffCheckScript.includes("后端要求登录，但未提供可自动验证的客户访问码或登录 token"),
     "handoff check should compose artifact, backend env, hosted server, login, and desktop chat verification"

@@ -18,6 +18,54 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 8000
 const DEFAULT_CHAT_TIMEOUT_MS = 60000
+const MODEL_PROVIDER_CONNECTION_KEYS = [
+  "OPENROUTER_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_BASE_URL",
+  "GOOGLE_API_KEY",
+  "GEMINI_API_KEY",
+  "GEMINI_BASE_URL",
+  "DASHSCOPE_API_KEY",
+  "DASHSCOPE_BASE_URL",
+  "HERMES_QWEN_API_KEY",
+  "HERMES_QWEN_BASE_URL",
+  "DEEPSEEK_API_KEY",
+  "DEEPSEEK_BASE_URL",
+  "NOUS_API_KEY",
+  "NOUS_BASE_URL",
+  "GLM_API_KEY",
+  "GLM_BASE_URL",
+  "ZAI_API_KEY",
+  "ZAI_BASE_URL",
+  "Z_AI_API_KEY",
+  "Z_AI_BASE_URL",
+  "KIMI_API_KEY",
+  "KIMI_BASE_URL",
+  "MINIMAX_API_KEY",
+  "MINIMAX_BASE_URL",
+  "MINIMAX_CN_API_KEY",
+  "MINIMAX_CN_BASE_URL",
+  "HF_TOKEN",
+  "HF_BASE_URL",
+  "NVIDIA_API_KEY",
+  "NVIDIA_BASE_URL",
+  "XIAOMI_API_KEY",
+  "XIAOMI_BASE_URL",
+  "XAI_API_KEY",
+  "XAI_BASE_URL",
+  "STEPFUN_API_KEY",
+  "STEPFUN_BASE_URL",
+  "ARCEEAI_API_KEY",
+  "ARCEEAI_BASE_URL",
+  "OLLAMA_API_KEY",
+  "OLLAMA_BASE_URL",
+  "LM_API_KEY",
+  "LM_BASE_URL",
+  "KILOCODE_API_KEY",
+  "KILOCODE_BASE_URL",
+]
 
 export async function runCustomerHandoffCheck({
   deliveryDir,
@@ -140,6 +188,8 @@ export async function runCustomerHandoffCheck({
       serverUrl: env.serverUrl,
       deliveryProtocolVersion: env.deliveryProtocolVersion,
       accessCodeConfigured: Boolean(resolvedAccessCode),
+      modelConnections: env.modelConnections,
+      modelConnectionConfigured: env.modelConnections.length > 0,
     },
     server,
     desktopSmoke,
@@ -185,6 +235,7 @@ export function renderCustomerHandoffReport(result) {
     `- 配置客户: ${result.env.customer || "未声明"}`,
     `- 配置后端地址: ${result.env.serverUrl || "未声明"}`,
     `- 配置交付协议: ${result.env.deliveryProtocolVersion || "未声明"}`,
+    `- 模型连接凭据: ${formatModelConnections(result.env.modelConnections)}`,
     "",
     "## 在线链路",
     "",
@@ -229,6 +280,7 @@ function readCustomerEnv(envFile, {
     serverUrl: "",
     deliveryProtocolVersion: "",
     accessCode: "",
+    modelConnections: [],
   }
 
   if (!envFile) {
@@ -253,6 +305,7 @@ function readCustomerEnv(envFile, {
   result.serverUrl = normalizeServerUrl(parsed.CRAZOR_PUBLIC_BASE_URL)
   result.deliveryProtocolVersion = normalizeText(parsed.CRAZOR_DELIVERY_PROTOCOL_VERSION)
   result.accessCode = normalizeText(parsed.CRAZOR_CUSTOMER_ACCESS_CODE)
+  result.modelConnections = listModelProviderConnections(parsed)
 
   if (!validation.ok) errors.push(...validation.errors)
   warnings.push(...validation.warnings)
@@ -261,6 +314,46 @@ function readCustomerEnv(envFile, {
   }
 
   return result
+}
+
+export function listModelProviderConnections(env = {}) {
+  const connections = []
+  for (const key of MODEL_PROVIDER_CONNECTION_KEYS) {
+    const value = normalizeText(env[key])
+    if (isPlaceholderSecretValue(value)) continue
+    if (isModelApiKeyName(key)) {
+      connections.push(key)
+    } else if (key.endsWith("_BASE_URL") && isLocalModelBaseUrl(value)) {
+      connections.push(`${key}(local)`)
+    }
+  }
+  return connections
+}
+
+function formatModelConnections(connections = []) {
+  return connections.length > 0 ? connections.join(", ") : "未在环境文件中发现"
+}
+
+function isPlaceholderSecretValue(value) {
+  if (!value) return true
+  return value.startsWith("请替换") || value.startsWith("change-me") || value.startsWith("please-change")
+}
+
+function isModelApiKeyName(key) {
+  return key.endsWith("_API_KEY") || key === "HF_TOKEN"
+}
+
+function isLocalModelBaseUrl(value) {
+  if (!value) return false
+  try {
+    const hostname = new URL(value).hostname.toLowerCase()
+    if (["localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal"].includes(hostname)) return true
+    if (hostname.startsWith("10.") || hostname.startsWith("192.168.")) return true
+    const match = hostname.match(/^172\.(\d+)\./)
+    return Boolean(match && Number(match[1]) >= 16 && Number(match[1]) <= 31)
+  } catch {
+    return /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal|\[::1\]|::1|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[0-1])\.)/i.test(value)
+  }
 }
 
 function parseArgs(argv) {
