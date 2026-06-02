@@ -413,6 +413,10 @@ test("customer desktop package can be built by CI with configured backend", () =
       customerWorkflowSource.includes("crazor-handoff-report.md") &&
       customerWorkflowSource.includes("--output desktop/src-tauri/target/release/customer-delivery/crazor-handoff-report.md") &&
       customerWorkflowSource.includes("准备 macOS 公证密钥") &&
+      customerWorkflowSource.includes("配置 macOS 签名参数") &&
+      customerWorkflowSource.includes("CRAZOR_APPLE_CERTIFICATE") &&
+      customerWorkflowSource.includes("export_if_set") &&
+      customerWorkflowSource.includes("未签名测试包") &&
       customerWorkflowSource.includes("APPLE_CERTIFICATE") &&
       customerWorkflowSource.includes("APPLE_CERTIFICATE_PASSWORD") &&
       customerWorkflowSource.includes("APPLE_API_KEY_P8") &&
@@ -429,6 +433,16 @@ test("customer desktop package can be built by CI with configured backend", () =
       customerWorkflowSource.includes("verify-customer-installer.mjs") &&
       customerWorkflowSource.includes("upload-artifact"),
     "GitHub Actions should expose a manual customer package build that embeds the configured backend URL"
+  )
+  const buildPackageStep = customerWorkflowSource.slice(
+    customerWorkflowSource.indexOf("- name: 构建客户安装包"),
+    customerWorkflowSource.indexOf("- name: 验证客户交付包")
+  )
+  assert.ok(
+    !buildPackageStep.includes("APPLE_CERTIFICATE:") &&
+      !buildPackageStep.includes("APPLE_CERTIFICATE_PASSWORD:") &&
+      !buildPackageStep.includes("APPLE_SIGNING_IDENTITY:"),
+    "Build step should not inject empty macOS signing secrets and accidentally trigger Tauri codesigning"
   )
   assert.ok(
     buildCustomerScript.includes('"current"') &&

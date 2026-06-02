@@ -6,6 +6,7 @@ data/
 .env.customer
 .env.customer.*
 web/.env.tauri
+.secrets/
 *.log
 .DS_Store
 .claude/
