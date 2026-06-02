@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { setCrazorAuthToken } from '@/api/crazor-auth'
+import { storeCustomerLoginCredentials } from '@/api/crazor-auth'
 import { consumeLoginTokenFromLocation } from '@/api/login-token-redirect'
 
 export function LoginPage({ onLogin, allowSkip = true }) {
@@ -65,8 +65,7 @@ export function LoginPage({ onLogin, allowSkip = true }) {
         const resp = await fetch(`/api/auth/wechat/session/${encodeURIComponent(loginState)}`)
         const data = await resp.json()
         if (data.loggedIn && data.token) {
-          localStorage.setItem('crazor_token', data.token)
-          if (data.actor_token || data.actorToken) setCrazorAuthToken(data.actor_token || data.actorToken)
+          storeCustomerLoginCredentials(data)
           setPolling(false)
           onLogin()
         } else if (data.expired) {
@@ -106,8 +105,7 @@ export function LoginPage({ onLogin, allowSkip = true }) {
         setError(data.error || '客户访问码验证失败')
         return
       }
-      localStorage.setItem('crazor_token', data.token)
-      if (data.actor_token || data.actorToken) setCrazorAuthToken(data.actor_token || data.actorToken)
+      storeCustomerLoginCredentials(data)
       onLogin()
     } catch {
       setError('网络错误，请重试')

@@ -20,6 +20,16 @@ export function clearCrazorAuthToken() {
   setCrazorAuthToken("")
 }
 
+export function storeCustomerLoginCredentials(data = {}) {
+  if (typeof window === "undefined") return false
+  const token = String(data?.token || "").trim()
+  if (!token) return false
+
+  window.localStorage.setItem(LOGIN_TOKEN_STORAGE_KEY, token)
+  setCrazorAuthToken(data?.actor_token || data?.actorToken || "")
+  return true
+}
+
 export function maskCrazorToken(token) {
   const value = String(token || "")
   if (!value) return "未设置"

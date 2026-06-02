@@ -1,12 +1,14 @@
 // Copyright (c) 2026 MeeJoy
 
 const LOGIN_TOKEN_STORAGE_KEY = "crazor_token"
+const ACTOR_TOKEN_STORAGE_KEY = "crazor.actorToken"
 
 export function consumeLoginTokenFromLocation({
   location = globalThis.window?.location,
   history = globalThis.window?.history,
   storage = globalThis.window?.localStorage,
   tokenKey = LOGIN_TOKEN_STORAGE_KEY,
+  actorTokenKey = ACTOR_TOKEN_STORAGE_KEY,
 } = {}) {
   if (!location) return ""
 
@@ -15,6 +17,7 @@ export function consumeLoginTokenFromLocation({
   if (!token) return ""
 
   storage?.setItem?.(tokenKey, token)
+  storage?.removeItem?.(actorTokenKey)
   params.delete("token")
 
   const pathname = location.pathname || "/"

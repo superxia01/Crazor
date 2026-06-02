@@ -6,7 +6,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
-import { setCrazorAuthToken } from '@/api/crazor-auth'
+import { storeCustomerLoginCredentials } from '@/api/crazor-auth'
 
 export function LoginDialog({ open, onOpenChange, onLogin }) {
   const [qrUrl, setQrUrl] = useState(null)
@@ -73,8 +73,7 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
         const resp = await fetch(`/api/auth/wechat/session/${encodeURIComponent(loginState)}`)
         const data = await resp.json()
         if (data.loggedIn && data.token) {
-          localStorage.setItem('crazor_token', data.token)
-          if (data.actor_token || data.actorToken) setCrazorAuthToken(data.actor_token || data.actorToken)
+          storeCustomerLoginCredentials(data)
           setPolling(false)
           onLogin()
           onOpenChange(false)
@@ -114,8 +113,7 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
         setError(data.error || '客户访问码验证失败')
         return
       }
-      localStorage.setItem('crazor_token', data.token)
-      if (data.actor_token || data.actorToken) setCrazorAuthToken(data.actor_token || data.actorToken)
+      storeCustomerLoginCredentials(data)
       setPolling(false)
       onLogin()
       onOpenChange(false)

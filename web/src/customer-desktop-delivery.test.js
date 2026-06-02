@@ -344,18 +344,19 @@ test("desktop WeChat login uses backend callback plus client polling", () => {
   )
   assert.ok(
     loginDialogSource.includes("/api/auth/wechat/session/") &&
-      loginDialogSource.includes("localStorage.setItem('crazor_token', data.token)"),
-    "desktop client should poll the backend login session and store the returned JWT"
+      loginDialogSource.includes("storeCustomerLoginCredentials(data)"),
+    "desktop client should poll the backend login session and store the returned customer login credentials"
   )
   assert.ok(
     loginDialogSource.includes("/api/auth/access-code") &&
       loginDialogSource.includes("status.accessCodeConfigured") &&
       loginDialogSource.includes("使用访问码登录") &&
       loginDialogSource.includes("请输入客户访问码") &&
-      loginDialogSource.includes("setCrazorAuthToken") &&
-      loginDialogSource.includes("data.actor_token || data.actorToken") &&
-      loginPageSource.includes("setCrazorAuthToken") &&
-      loginPageSource.includes("data.actor_token || data.actorToken") &&
+      loginDialogSource.includes("storeCustomerLoginCredentials(data)") &&
+      loginPageSource.includes("storeCustomerLoginCredentials(data)") &&
+      authFetchSource.includes("storeCustomerLoginCredentials") &&
+      authFetchSource.includes("window.localStorage.setItem(LOGIN_TOKEN_STORAGE_KEY, token)") &&
+      authFetchSource.includes("setCrazorAuthToken(data?.actor_token || data?.actorToken || \"\")") &&
       appSource.includes("clearCrazorAuthToken") &&
       serverIndex.includes("issueCustomerLoginActorToken") &&
       serverIndex.includes("actor_token") &&
