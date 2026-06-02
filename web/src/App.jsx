@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { AppInner } from "./AppInner"
 import { CustomerDeliveryGate } from "./CustomerDeliveryGate"
 import { LoginPage } from "./pages/LoginPage"
+import { consumeLoginTokenFromLocation } from "./api/login-token-redirect"
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -82,12 +83,7 @@ export default function App() {
 
   useEffect(() => {
     // Check if token exists in URL (callback redirect)
-    const params = new URLSearchParams(window.location.search)
-    const token = params.get('token')
-    if (token) {
-      localStorage.setItem('crazor_token', token)
-      window.history.replaceState({}, '', '/')
-    }
+    consumeLoginTokenFromLocation()
 
     // Check auth status on mount
     void refreshAuth()

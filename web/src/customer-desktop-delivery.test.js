@@ -19,6 +19,7 @@ const webPackage = readFileSync(resolve(repoRoot, "web/package.json"), "utf8")
 const desktopPackage = readFileSync(resolve(repoRoot, "desktop/package.json"), "utf8")
 const appSource = readFileSync(resolve(repoRoot, "web/src/App.jsx"), "utf8")
 const authFetchSource = readFileSync(resolve(repoRoot, "web/src/api/crazor-auth.js"), "utf8")
+const loginTokenRedirectSource = readFileSync(resolve(repoRoot, "web/src/api/login-token-redirect.js"), "utf8")
 const customerDeliverySource = readFileSync(resolve(repoRoot, "web/src/api/customer-delivery.js"), "utf8")
 const deliveryIdentitySource = readFileSync(resolve(repoRoot, "web/src/api/delivery-identity.js"), "utf8")
 const customerDeliveryGateSource = readFileSync(resolve(repoRoot, "web/src/CustomerDeliveryGate.jsx"), "utf8")
@@ -373,6 +374,16 @@ test("customer desktop requires login before entering workspace when backend enf
       loginPageSource.includes("status.accessCodeConfigured") &&
       loginPageSource.includes("CRAZOR_CUSTOMER_ACCESS_CODE"),
     "login page should keep dev skip optional but expose customer access-code login for auth-gated clients"
+  )
+  assert.ok(
+    appSource.includes("consumeLoginTokenFromLocation") &&
+      loginPageSource.includes("consumeLoginTokenFromLocation") &&
+      loginTokenRedirectSource.includes("params.delete(\"token\")") &&
+      loginTokenRedirectSource.includes("location.pathname || \"/\"") &&
+      loginTokenRedirectSource.includes("location.hash || \"\"") &&
+      !appSource.includes("replaceState({}, '', '/')") &&
+      !loginPageSource.includes("replaceState({}, '', '/')"),
+    "login callback should remove token without leaving a customer's path-prefixed web entrypoint"
   )
 })
 

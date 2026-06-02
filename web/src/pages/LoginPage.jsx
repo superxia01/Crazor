@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
+import { consumeLoginTokenFromLocation } from '@/api/login-token-redirect'
 
 export function LoginPage({ onLogin, allowSkip = true }) {
   const [qrUrl, setQrUrl] = useState(null)
@@ -12,11 +13,7 @@ export function LoginPage({ onLogin, allowSkip = true }) {
 
   // Check URL for token (callback redirect)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const token = params.get('token')
-    if (token) {
-      localStorage.setItem('crazor_token', token)
-      window.history.replaceState({}, '', '/')
+    if (consumeLoginTokenFromLocation()) {
       onLogin()
       return
     }
