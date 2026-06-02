@@ -7,6 +7,7 @@ import {
   buildDesktopHeaders,
   evaluateDesktopLoginGate,
   runCustomerDesktopSmoke,
+  summarizeReadinessIssues,
 } from "../../scripts/customer-desktop-smoke.mjs"
 
 function jsonResponse(data, status = 200) {
@@ -181,6 +182,47 @@ test("customer desktop smoke treats missing login token as an expected login gat
   assert.ok(!calls.some((url) => new URL(url).pathname === "/api/models"))
 })
 
+test("customer desktop smoke explains degraded readiness checks", async () => {
+  const warnings = []
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname
+    if (pathname === "/api/health") return jsonResponse({ status: "ok" })
+    if (pathname === "/api/delivery/readiness") {
+      return jsonResponse({
+        status: "degraded",
+        delivery: { channel: "local" },
+        checks: [
+          {
+            id: "delivery-identity",
+            label: "交付身份",
+            status: "warn",
+            detail: "后端未声明交付客户，客户包无法校验是否连到正确服务",
+          },
+        ],
+      })
+    }
+    if (pathname === "/api/auth/status") return jsonResponse({ loginRequired: false })
+    if (pathname === "/api/auth/me") return jsonResponse({ loggedIn: false })
+    if (pathname === "/api/crazor/context") return jsonResponse({ items: [] })
+    if (pathname === "/api/agent/provider") return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
+    if (pathname === "/api/models") return jsonResponse({ data: [{ id: "hermes-agent" }] })
+    throw new Error(`unexpected ${url}`)
+  }
+
+  const result = await runCustomerDesktopSmoke({
+    serverUrl: "http://127.0.0.1:5173",
+    liveChat: false,
+    fetchImpl,
+    logger: { log() {}, warn(message) { warnings.push(message) } },
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.readinessStatus, "degraded")
+  assert.ok(result.warnings.some((item) => item.includes("交付身份警告")))
+  assert.ok(result.warnings.some((item) => item.includes("CRAZOR_DELIVERY_CUSTOMER") || item.includes("后端未声明交付客户")))
+  assert.ok(warnings.some((item) => item.includes("交付身份警告")))
+})
+
 test("customer desktop smoke helper exposes desktop request auth semantics", () => {
   assert.deepEqual(buildDesktopHeaders({ loginToken: " jwt ", actorToken: " czr ", json: true }), {
     Accept: "application/json",
@@ -202,6 +244,16 @@ test("customer desktop smoke helper exposes desktop request auth semantics", () 
     evaluateDesktopLoginGate({ loginRequired: true }, { loggedIn: false }, { loginToken: "bad" }).ok,
     false,
   )
+  assert.deepEqual(summarizeReadinessIssues({
+    checks: [
+      { label: "交付身份", status: "warn", detail: "缺少客户" },
+      { label: "模型配置", status: "error", detail: "缺少 API Key" },
+      { label: "后端 API", status: "ok", detail: "已响应" },
+    ],
+  }), [
+    "交付身份警告: 缺少客户",
+    "模型配置失败: 缺少 API Key",
+  ])
 })
 
 test("customer desktop smoke can skip live chat when only probing entrypoints", async () => {

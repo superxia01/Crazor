@@ -50,6 +50,18 @@ export function extractChatCompletionText(data = {}) {
   return ""
 }
 
+export function summarizeReadinessIssues(readiness = {}) {
+  const checks = Array.isArray(readiness?.checks) ? readiness.checks : []
+  return checks
+    .filter((check) => check?.status === "warn" || check?.status === "error")
+    .map((check) => {
+      const label = normalizeText(check?.label || check?.id || "检查项")
+      const detail = normalizeText(check?.detail || "无详情")
+      const status = normalizeText(check?.status)
+      return `${label}${status === "error" ? "失败" : "警告"}: ${detail}`
+    })
+}
+
 export async function requestDesktopJson(baseUrl, path, {
   method = "GET",
   body,
@@ -167,10 +179,12 @@ export async function runCustomerDesktopSmoke({
       throw new Error(`交付自检返回未知状态: ${status || "空"}`)
     }
     if (status === "blocked") {
-      throw new Error("托管后端交付自检状态为 blocked")
+      const issues = summarizeReadinessIssues(readiness.data)
+      throw new Error(`托管后端交付自检状态为 blocked${issues.length ? `：${issues.join("；")}` : ""}`)
     }
     if (status === "degraded") {
-      warnings.push("托管后端交付自检状态为 degraded，客户可启动但需要关注警告项")
+      const issues = summarizeReadinessIssues(readiness.data)
+      warnings.push(`托管后端交付自检状态为 degraded，客户可启动但需要关注警告项${issues.length ? `：${issues.join("；")}` : ""}`)
     }
     return readiness.data
   })
