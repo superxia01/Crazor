@@ -72,6 +72,9 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes("CRAZOR_DELIVERY_IDENTITY_FINGERPRINT") &&
       buildCustomerScript.includes("SERVER_PREFLIGHT_RESULT") &&
       buildCustomerScript.includes("serverPreflight") &&
+      buildCustomerScript.includes("clientRuntime") &&
+      buildCustomerScript.includes("apiBase: process.env.SERVER_URL") &&
+      buildCustomerScript.includes('deliveryChannel: "customer"') &&
       buildCustomerScript.includes("DELIVERY_DIR") &&
       buildCustomerScript.includes("customer-delivery") &&
       buildCustomerScript.includes("crazor-start-here.md") &&

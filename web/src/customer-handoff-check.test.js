@@ -159,6 +159,8 @@ test("customer handoff check verifies package, env, access-code login, and chat"
     assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
     const report = renderCustomerHandoffReport(result)
     assert.match(report, /模型连接凭据: ANTHROPIC_API_KEY/)
+    assert.match(report, /## 客户端内置配置/)
+    assert.match(report, /API Base: https:\/\/client\.example\.com/)
     assert.match(report, /业务写入: 已验证/)
     assert.match(report, /Web 入口: 已验证/)
     assert.match(report, /Web 静态资源: 1 项已验证/)
@@ -349,6 +351,15 @@ function createDeliveryFixture({
     workflowSha: "def456",
     githubRunId: "123",
     builtAt: "2026-06-01T20:00:00.000Z",
+    clientRuntime: {
+      apiBase: serverUrl,
+      customerName: customer,
+      deliveryChannel: "customer",
+      deliveryProtocolVersion: protocolVersion,
+      deliveryFingerprint: deliveryFingerprint(customer, serverUrl, "customer", protocolVersion),
+      buildSha: "abc123",
+      buildTime: "2026-06-01T20:00:00.000Z",
+    },
     checksumFile: "crazor-delivery-checksums.txt",
     bundleFiles: [
       {
@@ -372,6 +383,14 @@ function createDeliveryFixture({
 - 桌面客户端后端: ${manifest.serverUrl}
 - 交付协议: ${manifest.deliveryProtocolVersion}
 - 交付指纹: ${manifest.deliveryIdentityFingerprint}
+
+## 客户端内置配置
+
+- API Base: ${manifest.clientRuntime.apiBase}
+- 交付通道: ${manifest.clientRuntime.deliveryChannel}
+- 内置客户: ${manifest.clientRuntime.customerName}
+- 内置协议: ${manifest.clientRuntime.deliveryProtocolVersion}
+- 内置指纹: ${manifest.clientRuntime.deliveryFingerprint}
 
 ## 桌面安装包
 

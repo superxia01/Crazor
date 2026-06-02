@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import test from "node:test"
@@ -99,6 +99,23 @@ test("customer delivery verifier rejects checksum mismatches", async () => {
   }
 })
 
+test("customer delivery verifier rejects client runtime mismatches", async () => {
+  const dir = createDeliveryFixture()
+  try {
+    const manifestPath = join(dir, "crazor-delivery-manifest.json")
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
+    manifest.clientRuntime.apiBase = "https://wrong.example.com"
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n")
+
+    const result = await verifyCustomerDeliveryPackage(dir)
+
+    assert.equal(result.ok, false)
+    assert.match(result.errors.join("\n"), /clientRuntime\.apiBase/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("customer delivery verifier rejects build helper files", async () => {
   const dir = createDeliveryFixture()
   try {
@@ -152,6 +169,15 @@ function createManifest({ installerPath, installerContent, platform, sha256 }) {
     workflowSha: "def456",
     githubRunId: "123",
     builtAt: "2026-06-01T20:00:00.000Z",
+    clientRuntime: {
+      apiBase: "https://crazor.example.com",
+      customerName: "测试客户",
+      deliveryChannel: "customer",
+      deliveryProtocolVersion: "1",
+      deliveryFingerprint: deliveryFingerprint("测试客户", "https://crazor.example.com", "customer", "1"),
+      buildSha: "abc123",
+      buildTime: "2026-06-01T20:00:00.000Z",
+    },
     checksumFile: "crazor-delivery-checksums.txt",
     bundleFiles: [
       {
@@ -172,6 +198,14 @@ function renderStartGuide(manifest) {
 - 桌面客户端后端: ${manifest.serverUrl}
 - 交付协议: ${manifest.deliveryProtocolVersion}
 - 交付指纹: ${manifest.deliveryIdentityFingerprint}
+
+## 客户端内置配置
+
+- API Base: ${manifest.clientRuntime.apiBase}
+- 交付通道: ${manifest.clientRuntime.deliveryChannel}
+- 内置客户: ${manifest.clientRuntime.customerName}
+- 内置协议: ${manifest.clientRuntime.deliveryProtocolVersion}
+- 内置指纹: ${manifest.clientRuntime.deliveryFingerprint}
 
 ## 桌面安装包
 

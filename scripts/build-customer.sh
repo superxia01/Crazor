@@ -456,6 +456,7 @@ function renderStartGuide(manifest) {
     .join("\n")
   const preflight = manifest.serverPreflight || {}
   const preflightText = [preflight.mode, preflight.result].filter(Boolean).join(" / ") || "未记录"
+  const clientRuntime = manifest.clientRuntime || {}
 
   return `# Crazor 客户交付说明
 
@@ -469,6 +470,14 @@ function renderStartGuide(manifest) {
 - 构建版本: ${manifest.gitSha}
 - 构建时间: ${manifest.builtAt}
 - 服务预检: ${preflightText}
+
+## 客户端内置配置
+
+- API Base: ${clientRuntime.apiBase || manifest.serverUrl}
+- 交付通道: ${clientRuntime.deliveryChannel || "customer"}
+- 内置客户: ${clientRuntime.customerName || manifest.customer}
+- 内置协议: ${clientRuntime.deliveryProtocolVersion || manifest.deliveryProtocolVersion}
+- 内置指纹: ${clientRuntime.deliveryFingerprint || manifest.deliveryIdentityFingerprint}
 
 ## 桌面安装包
 
@@ -520,6 +529,10 @@ async function main() {
 
   writeFileSync(deliveryChecksums, checksumLines ? `${checksumLines}\n` : "")
 
+  const gitSha = process.env.BUILD_SHA || process.env.CRAZOR_HEAD_SHA || process.env.GITHUB_HEAD_SHA || process.env.GITHUB_SHA || ""
+  const builtAt = process.env.BUILD_TIME || new Date().toISOString()
+  const deliveryProtocolVersion = process.env.DELIVERY_PROTOCOL_VERSION || ""
+  const deliveryIdentityFingerprint = process.env.DELIVERY_IDENTITY_FINGERPRINT || ""
   const manifest = {
     product: "Crazor",
     customer: process.env.CUSTOMER,
@@ -529,12 +542,21 @@ async function main() {
       mode: process.env.SERVER_PREFLIGHT_MODE || "",
       result: process.env.SERVER_PREFLIGHT_RESULT || "",
     },
-    deliveryProtocolVersion: process.env.DELIVERY_PROTOCOL_VERSION || "",
-    deliveryIdentityFingerprint: process.env.DELIVERY_IDENTITY_FINGERPRINT || "",
-    gitSha: process.env.BUILD_SHA || process.env.CRAZOR_HEAD_SHA || process.env.GITHUB_HEAD_SHA || process.env.GITHUB_SHA || "",
+    deliveryProtocolVersion,
+    deliveryIdentityFingerprint,
+    gitSha,
     workflowSha: process.env.GITHUB_SHA || "",
     githubRunId: process.env.GITHUB_RUN_ID || "",
-    builtAt: process.env.BUILD_TIME || new Date().toISOString(),
+    builtAt,
+    clientRuntime: {
+      apiBase: process.env.SERVER_URL,
+      customerName: process.env.CUSTOMER,
+      deliveryChannel: "customer",
+      deliveryProtocolVersion,
+      deliveryFingerprint: deliveryIdentityFingerprint,
+      buildSha: gitSha,
+      buildTime: builtAt,
+    },
     checksumFile: normalizePath(relative(bundleDir, deliveryChecksums)),
     bundleFiles,
   }

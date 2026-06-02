@@ -100,6 +100,7 @@ export async function runCustomerHandoffCheck({
     identityFingerprint: normalizeText(manifest.deliveryIdentityFingerprint),
     gitSha: normalizeText(manifest.gitSha),
     builtAt: normalizeText(manifest.builtAt),
+    clientRuntime: normalizeClientRuntime(manifest.clientRuntime),
     installers: deliveryCheck.installers || [],
   }
   const env = readCustomerEnv(envFile, {
@@ -220,6 +221,16 @@ export function renderCustomerHandoffReport(result) {
     `- 交付指纹: ${result.delivery.identityFingerprint || "未声明"}`,
     `- 平台: ${result.delivery.platform || "未声明"}`,
     `- 客户访问码: ${result.env.accessCodeConfigured ? "已提供" : "未提供"}`,
+    "",
+    "## 客户端内置配置",
+    "",
+    `- API Base: ${result.delivery.clientRuntime.apiBase || "未声明"}`,
+    `- 交付通道: ${result.delivery.clientRuntime.deliveryChannel || "未声明"}`,
+    `- 内置客户: ${result.delivery.clientRuntime.customerName || "未声明"}`,
+    `- 内置协议: ${result.delivery.clientRuntime.deliveryProtocolVersion || "未声明"}`,
+    `- 内置指纹: ${result.delivery.clientRuntime.deliveryFingerprint || "未声明"}`,
+    `- 构建版本: ${result.delivery.clientRuntime.buildSha || "未声明"}`,
+    `- 构建时间: ${result.delivery.clientRuntime.buildTime || "未声明"}`,
     "",
     "## 安装包",
     "",
@@ -354,6 +365,18 @@ export function listModelProviderConnections(env = {}) {
 
 function formatModelConnections(connections = []) {
   return connections.length > 0 ? connections.join(", ") : "未在环境文件中发现"
+}
+
+function normalizeClientRuntime(runtime = {}) {
+  return {
+    apiBase: normalizeServerUrl(runtime.apiBase),
+    customerName: normalizeText(runtime.customerName),
+    deliveryChannel: normalizeText(runtime.deliveryChannel),
+    deliveryProtocolVersion: normalizeText(runtime.deliveryProtocolVersion),
+    deliveryFingerprint: normalizeText(runtime.deliveryFingerprint),
+    buildSha: normalizeText(runtime.buildSha),
+    buildTime: normalizeText(runtime.buildTime),
+  }
 }
 
 function renderReadinessChecks(checks = []) {

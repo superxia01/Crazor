@@ -157,8 +157,49 @@ function validateManifestShape(manifest, errors) {
     errors.push("manifest.deliveryIdentityFingerprint 必须是 12 位十六进制交付指纹")
   }
   if (Number.isNaN(Date.parse(String(manifest?.builtAt || "")))) errors.push("manifest.builtAt 不是有效时间")
+  validateClientRuntime(manifest, errors)
   if (!Array.isArray(manifest?.bundleFiles) || manifest.bundleFiles.length === 0) {
     errors.push("manifest.bundleFiles 不能为空")
+  }
+}
+
+function validateClientRuntime(manifest, errors) {
+  const runtime = manifest?.clientRuntime
+  if (!runtime || typeof runtime !== "object" || Array.isArray(runtime)) {
+    errors.push("manifest 缺少 clientRuntime")
+    return
+  }
+
+  const serverUrl = normalizeHttpUrl(manifest?.serverUrl)
+  const apiBase = normalizeHttpUrl(runtime.apiBase)
+  if (!apiBase) {
+    errors.push("manifest.clientRuntime.apiBase 必须是 http:// 或 https:// 地址")
+  } else if (serverUrl && apiBase !== serverUrl) {
+    errors.push(`manifest.clientRuntime.apiBase 必须等于 manifest.serverUrl: ${serverUrl}`)
+  }
+
+  const expectedPairs = [
+    ["customerName", manifest?.customer],
+    ["deliveryProtocolVersion", manifest?.deliveryProtocolVersion],
+    ["deliveryFingerprint", manifest?.deliveryIdentityFingerprint],
+    ["buildSha", manifest?.gitSha],
+    ["buildTime", manifest?.builtAt],
+  ]
+  for (const [key, expectedValue] of expectedPairs) {
+    const actual = normalizeManifestText(runtime[key])
+    const expected = normalizeManifestText(expectedValue)
+    if (!actual) {
+      errors.push(`manifest.clientRuntime 缺少 ${key}`)
+    } else if (expected && actual !== expected) {
+      errors.push(`manifest.clientRuntime.${key} 必须等于 manifest 中对应值`)
+    }
+  }
+
+  if (normalizeManifestText(runtime.deliveryChannel) !== "customer") {
+    errors.push("manifest.clientRuntime.deliveryChannel 必须为 customer")
+  }
+  if (Number.isNaN(Date.parse(String(runtime.buildTime || "")))) {
+    errors.push("manifest.clientRuntime.buildTime 不是有效时间")
   }
 }
 
@@ -173,6 +214,8 @@ function validateStartGuide(text, manifest, errors) {
     String(manifest?.serverUrl || "").trim(),
     String(manifest?.deliveryProtocolVersion || "").trim(),
     String(manifest?.deliveryIdentityFingerprint || "").trim(),
+    String(manifest?.clientRuntime?.apiBase || "").trim(),
+    String(manifest?.clientRuntime?.deliveryChannel || "").trim(),
     MANIFEST_FILE,
     CHECKSUM_FILE,
   ].filter(Boolean)
@@ -258,12 +301,23 @@ function isInstallerFile(packagePath) {
 }
 
 function isHttpUrl(value) {
+  return Boolean(normalizeHttpUrl(value))
+}
+
+function normalizeHttpUrl(value) {
+  const text = String(value || "").trim().replace(/\/+$/, "")
+  if (!text) return ""
   try {
-    const url = new URL(String(value || ""))
-    return url.protocol === "http:" || url.protocol === "https:"
+    const url = new URL(text)
+    if (url.protocol !== "http:" && url.protocol !== "https:") return ""
+    return `${url.origin}${url.pathname.replace(/\/+$/, "")}`
   } catch {
-    return false
+    return ""
   }
+}
+
+function normalizeManifestText(value) {
+  return String(value || "").trim().replace(/\s+/g, " ")
 }
 
 function sha256File(filePath) {
