@@ -540,6 +540,7 @@ docker compose --env-file .env.customer up -d --build
 脚本会从环境文件读取 `CRAZOR_DELIVERY_CUSTOMER`、`CRAZOR_PUBLIC_BASE_URL`、`CRAZOR_DELIVERY_PROTOCOL_VERSION` 和 `CRAZOR_CUSTOMER_SERVER_PREFLIGHT`，再使用 `VITE_API_BASE` 构建 Tauri 前端；客户端内所有 `/api/*` 与 `/mcp/*` 请求都会转到该后端服务。
 也可以在 GitHub Actions 的“构建客户桌面安装包”工作流中输入客户名称和服务地址，由远端构建机生成安装包 artifact。PR 会默认同时构建 `macos-current` 和 `windows-current` 两个平台；手动触发时可选择单个平台，并可选择 `handoff_mode=offline`、`online-entrypoints` 或 `online-chat`；在线模式会让 runner 连接托管后端并把验收结果写入报告。若后端启用了客户访问码或登录 token，可提前配置仓库 Secrets：`CRAZOR_CUSTOMER_ACCESS_CODE`、`CRAZOR_CUSTOMER_LOGIN_TOKEN`、`CRAZOR_SMOKE_TOKEN`。
 安装包构建完成后会自检前端产物是否嵌入目标服务地址、Tauri bundle 是否包含目标平台安装包，并生成 `desktop/src-tauri/target/release/customer-delivery/` 精简交付目录。该目录包含客户安装包、`crazor-delivery-manifest.json`、`crazor-delivery-checksums.txt`，CI 与验收命令还会写入不含访问码明文的 `crazor-handoff-report.md`，不包含 Tauri 构建辅助文件。Manifest 会记录客户名、服务地址、交付指纹、平台（如 `macos-current` / `windows-current`）、构建来源、安装文件清单、文件大小和 SHA256，客户端设置页也会显示交付指纹、构建版本和构建时间，便于客户现场验收与后续问题追溯。
+CI 还会运行安装器烟测：macOS 会校验并只读挂载 DMG，Windows 会用系统安装器行政解包 MSI 并确认可执行文件存在。默认签名问题以警告呈现；正式客户包可设置 `CRAZOR_REQUIRE_INSTALLER_TRUST=1`，把 macOS Gatekeeper / Windows Authenticode 校验提升为硬门槛。
 交付目录会通过 `scripts/verify-customer-delivery.mjs` 自动校验；下载 CI artifact 后也可以运行同一脚本复验 manifest、checksum 和安装包 SHA256。
 客户端启动时还会校验后端 `/api/delivery/readiness` 返回的交付客户、交付协议和 `delivery.public_base_url`；公开地址缺失或与安装包内置服务地址不一致时会阻止进入工作台。
 交付前用统一验收命令把安装包、客户后端环境、访问码登录和桌面对话链路一次性跑通，并生成可归档报告：

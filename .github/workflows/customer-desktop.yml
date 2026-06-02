@@ -97,6 +97,9 @@ jobs:
       - name: 验证客户交付包
         run: node ./scripts/verify-customer-delivery.mjs desktop/src-tauri/target/release/customer-delivery
 
+      - name: 验证安装包可安装性
+        run: node ./scripts/verify-customer-installer.mjs desktop/src-tauri/target/release/customer-delivery
+
       - name: 验证客户交付验收入口
         env:
           CRAZOR_DESKTOP_SMOKE_ACCESS_CODE: ${{ secrets.CRAZOR_CUSTOMER_ACCESS_CODE }}
