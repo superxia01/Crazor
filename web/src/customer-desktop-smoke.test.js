@@ -5,6 +5,7 @@ import test from "node:test"
 
 import {
   buildDesktopHeaders,
+  buildCustomerServerUrl,
   evaluateDesktopLoginGate,
   extractWebEntrypointAssetPaths,
   runCustomerDesktopSmoke,
@@ -129,6 +130,59 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
   assert.ok(calls.some((call) => call.url === "https://client.example.com/assets/index.js"))
   assert.ok(calls.some((call) => call.url === "https://client.example.com/api/models"))
   assert.ok(calls.some((call) => call.url === "https://client.example.com/api/chat/completions"))
+})
+
+test("customer desktop smoke preserves path-prefixed hosted server URLs", async () => {
+  const calls = []
+  const fetchImpl = async (url) => {
+    calls.push(url)
+    const pathname = new URL(url).pathname
+    const appPathname = pathname.replace(/^\/crazor(?=\/|$)/, "") || "/"
+    if (appPathname === "/api/health") return jsonResponse({ status: "ok" })
+    if (appPathname === "/") {
+      return htmlResponse([
+        "<!doctype html><html><head><title>Crazor数字员工系统</title></head>",
+        "<body><div id=\"root\"></div><script type=\"module\" src=\"assets/index.js\"></script></body></html>",
+      ].join(""))
+    }
+    if (appPathname === "/assets/index.js") return jsResponse()
+    if (appPathname === "/api/delivery/readiness") {
+      return jsonResponse({
+        status: "ready",
+        delivery: {
+          public_base_url: "https://client.example.com/crazor",
+          protocol_version: "1",
+        },
+        checks: [],
+      })
+    }
+    if (appPathname === "/api/auth/status") return jsonResponse({ loginRequired: false })
+    if (appPathname === "/api/auth/me") return jsonResponse({ loggedIn: false })
+    if (appPathname === "/api/crazor/context") return jsonResponse({ items: [] })
+    const businessResponse = businessEntrypointResponse(appPathname)
+    if (businessResponse) return businessResponse
+    if (appPathname === "/api/agent/provider") {
+      return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
+    }
+    if (appPathname === "/api/models") return jsonResponse({ data: [{ id: "hermes-agent" }] })
+    throw new Error(`unexpected ${url}`)
+  }
+
+  const result = await runCustomerDesktopSmoke({
+    serverUrl: "https://client.example.com/crazor/",
+    liveChat: false,
+    fetchImpl,
+    logger: { log() {}, warn() {} },
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.serverUrl, "https://client.example.com/crazor")
+  assert.deepEqual(result.webAssetChecks, [{ path: "/crazor/assets/index.js", type: "script", status: "ok" }])
+  assert.ok(calls.some((url) => url === "https://client.example.com/crazor/api/health"))
+  assert.ok(calls.some((url) => url === "https://client.example.com/crazor/"))
+  assert.ok(calls.some((url) => url === "https://client.example.com/crazor/assets/index.js"))
+  assert.ok(calls.some((url) => url === "https://client.example.com/crazor/api/crazor/context?limit=1"))
+  assert.ok(!calls.some((url) => url.includes("/crazor/crazor/")))
 })
 
 test("customer desktop smoke can exchange customer access code for login JWT", async () => {
@@ -288,6 +342,18 @@ test("customer desktop smoke explains degraded readiness checks", async () => {
 })
 
 test("customer desktop smoke helper exposes desktop request auth semantics", () => {
+  assert.equal(
+    buildCustomerServerUrl("https://client.example.com/crazor/", "/api/health"),
+    "https://client.example.com/crazor/api/health",
+  )
+  assert.equal(
+    buildCustomerServerUrl("https://client.example.com/crazor", "/crazor/assets/index.js"),
+    "https://client.example.com/crazor/assets/index.js",
+  )
+  assert.equal(
+    buildCustomerServerUrl("https://client.example.com/crazor", "/"),
+    "https://client.example.com/crazor/",
+  )
   assert.deepEqual(buildDesktopHeaders({ loginToken: " jwt ", actorToken: " czr ", json: true }), {
     Accept: "application/json",
     Authorization: "Bearer jwt",
@@ -330,6 +396,10 @@ test("customer desktop smoke helper exposes desktop request auth semantics", () 
       { path: "/assets/app.js", type: "script", label: "脚本资源" },
       { path: "/assets/app.css", type: "style", label: "样式资源" },
     ],
+  )
+  assert.deepEqual(
+    extractWebEntrypointAssetPaths("<script src=\"assets/app.js\"></script>", "https://client.example.com/crazor"),
+    [{ path: "/crazor/assets/app.js", type: "script", label: "脚本资源" }],
   )
   assert.equal(validateWebAssetResponse({ type: "script" }, "const app = 'Crazor'", "text/javascript"), true)
   assert.equal(validateWebAssetResponse({ type: "style" }, ".app { color: red; }", "text/css"), true)

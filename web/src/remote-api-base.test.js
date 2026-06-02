@@ -27,12 +27,20 @@ test("remote API base rewrites only same-origin Crazor API paths", () => {
     "https://api.example.com/api/status?x=1",
   )
   assert.equal(
+    buildRemoteApiUrl("/api/status?x=1", "https://api.example.com/crazor/", "tauri://localhost"),
+    "https://api.example.com/crazor/api/status?x=1",
+  )
+  assert.equal(
     buildRemoteApiUrl("tauri://localhost/api/crazor/context#top", "https://api.example.com", "tauri://localhost"),
     "https://api.example.com/api/crazor/context#top",
   )
   assert.equal(
     buildRemoteApiUrl("/mcp", "https://api.example.com", "tauri://localhost"),
     "https://api.example.com/mcp",
+  )
+  assert.equal(
+    buildRemoteApiUrl("/mcp", "https://api.example.com/crazor", "tauri://localhost"),
+    "https://api.example.com/crazor/mcp",
   )
   assert.equal(
     buildRemoteApiUrl("https://other.example.com/api/status", "https://api.example.com", "tauri://localhost"),

@@ -576,6 +576,7 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
   assert.ok(
     customerDesktopSmokeScript.includes("runCustomerDesktopSmoke") &&
       customerDesktopSmokeScript.includes("requestDesktopText") &&
+      customerDesktopSmokeScript.includes("buildCustomerServerUrl") &&
       customerDesktopSmokeScript.includes("validateWebEntrypointHtml") &&
       customerDesktopSmokeScript.includes("extractWebEntrypointAssetPaths") &&
       customerDesktopSmokeScript.includes("validateWebAssetResponse") &&

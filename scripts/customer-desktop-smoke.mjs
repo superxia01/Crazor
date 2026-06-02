@@ -84,10 +84,30 @@ export function validateWebEntrypointHtml(text) {
     /<script\b/i.test(html)
 }
 
+export function buildCustomerServerUrl(baseUrl, path = "/") {
+  const normalizedBaseUrl = normalizeServerUrl(baseUrl)
+  if (!normalizedBaseUrl) return ""
+
+  const base = new URL(`${normalizedBaseUrl}/`)
+  const normalizedPath = String(path || "/").trim()
+  if (!normalizedPath || normalizedPath === "/") return base.toString()
+
+  const basePath = base.pathname.replace(/\/+$/, "")
+  const pathAlreadyIncludesBase =
+    basePath &&
+    normalizedPath.startsWith("/") &&
+    (normalizedPath === basePath || normalizedPath.startsWith(`${basePath}/`))
+  if (pathAlreadyIncludesBase) {
+    return new URL(normalizedPath, base.origin).toString()
+  }
+
+  return new URL(normalizedPath.replace(/^\/+/, ""), base).toString()
+}
+
 export function extractWebEntrypointAssetPaths(html, baseUrl) {
   const normalizedBaseUrl = normalizeServerUrl(baseUrl)
   if (!normalizedBaseUrl) return []
-  const base = new URL("/", `${normalizedBaseUrl}/`)
+  const base = new URL(buildCustomerServerUrl(normalizedBaseUrl, "/"))
   const assets = []
   const seen = new Set()
   const attrPattern = /\b(?:src|href)=["']([^"']+)["']/gi
@@ -146,7 +166,7 @@ export async function requestDesktopText(baseUrl, path, {
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
-    const response = await fetchImpl(new URL(path, `${normalizedBaseUrl}/`).toString(), {
+    const response = await fetchImpl(buildCustomerServerUrl(normalizedBaseUrl, path), {
       headers: { Accept: accept },
       signal: controller.signal,
     })
@@ -185,7 +205,7 @@ export async function requestDesktopJson(baseUrl, path, {
   const headers = buildDesktopHeaders({ loginToken, actorToken, json: body !== undefined })
 
   try {
-    const response = await fetchImpl(new URL(path, `${normalizedBaseUrl}/`).toString(), {
+    const response = await fetchImpl(buildCustomerServerUrl(normalizedBaseUrl, path), {
       method,
       headers,
       signal: controller.signal,
