@@ -12,6 +12,7 @@ import {
   ExternalLinkIcon,
   MailIcon,
   MessageSquareIcon,
+  PackageCheckIcon,
   PaperclipIcon,
   PhoneIcon,
   PlusIcon,
@@ -80,6 +81,18 @@ const PROJECT_FIELDS = [
   { key: "team", label: "团队成员", placeholder: "团队成员" },
   { key: "deadline", label: "截止日期", type: "date" },
   { key: "description", label: "项目说明", type: "textarea", placeholder: "交付范围、客户目标、约束条件", fullWidth: true },
+]
+
+const DELIVERY_KICKOFF_FIELDS = [
+  { key: "title", label: "交付名称", required: true, placeholder: "交付名称 *" },
+  { key: "delivery_type", label: "交付类型", placeholder: "培训、系统实施、咨询..." },
+  { key: "owner", label: "内部负责人", placeholder: "内部负责人" },
+  { key: "customer_owner", label: "客户负责人", placeholder: "客户负责人" },
+  { key: "start_date", label: "启动日期", type: "date", defaultValue: today() },
+  { key: "due_date", label: "计划验收", type: "date" },
+  { key: "deliverables", label: "交付物", type: "textarea", placeholder: "每行一个交付物", fullWidth: true },
+  { key: "risks", label: "风险和约束", type: "textarea", placeholder: "每行一个风险，没有可以留空", fullWidth: true },
+  { key: "remark", label: "交付说明", type: "textarea", placeholder: "交付范围、验收标准或特殊约束", fullWidth: true },
 ]
 
 const TASK_PRIORITIES = [
@@ -349,6 +362,7 @@ export default {
     const [uploadingAttachment, setUploadingAttachment] = useState(false)
     const [projects, setProjects] = useState([])
     const [tasks, setTasks] = useState([])
+    const [deliveries, setDeliveries] = useState([])
     const [loading, setLoading] = useState(true)
     const [activeForm, setActiveForm] = useState(null)
     const [activeDoc, setActiveDoc] = useState(null)
@@ -358,7 +372,7 @@ export default {
     const load = useCallback(async () => {
       setLoading(true)
       try {
-        const [channelsResp, followUpsResp, docsResp, attachmentsResp, attachmentPolicyResp, projectsResp, tasksResp] = await Promise.all([
+        const [channelsResp, followUpsResp, docsResp, attachmentsResp, attachmentPolicyResp, projectsResp, tasksResp, deliveriesResp] = await Promise.all([
           fetch(`/api/crazor/contacts/${item.id}/channels`),
           fetch(`/api/crazor/follow-ups?contact_id=${encodeURIComponent(item.id)}`),
           fetch(`/api/crazor/contacts/${item.id}/docs`),
@@ -366,6 +380,7 @@ export default {
           fetch("/api/crazor/attachments/policy"),
           fetch("/api/crazor/projects"),
           fetch(`/api/crazor/tasks?contact_id=${encodeURIComponent(item.id)}`),
+          fetch(`/api/crazor/deliveries?contact_id=${encodeURIComponent(item.id)}`),
         ])
         setChannels(channelsResp.ok ? await channelsResp.json() : [])
         setFollowUps(followUpsResp.ok ? await followUpsResp.json() : [])
@@ -375,6 +390,7 @@ export default {
         const allProjects = projectsResp.ok ? await projectsResp.json() : []
         setProjects(allProjects.filter((project) => project.contact_id === item.id))
         setTasks(tasksResp.ok ? await tasksResp.json() : [])
+        setDeliveries(deliveriesResp.ok ? await deliveriesResp.json() : [])
       } catch { /* ignore */ }
       setLoading(false)
     }, [item.id])
@@ -623,6 +639,29 @@ export default {
       }
     }
 
+    const handleCreateDeliveryKickoff = async (data) => {
+      try {
+        const kickoff = await postJson(`/api/crazor/contacts/${item.id}/delivery-kickoff`, {
+          ...data,
+          project_id: projects[0]?.id || "",
+          title: data.title || `${item.name || "客户"} 交付`,
+          delivery_type: data.delivery_type || item.project_type || "客户交付",
+          owner: data.owner || item.sales_person || "",
+          customer_owner: data.customer_owner || item.name || "",
+          start_date: data.start_date || today(),
+          deliverables: data.deliverables || defaultDeliveryDeliverables(item),
+        })
+        toast.success("交付已启动", { description: kickoff?.plan?.title ? `已生成计划文档：${kickoff.plan.title}` : undefined })
+        setActiveForm(null)
+        await load()
+        await onReload?.()
+        window.__activeDelivery = kickoff?.delivery?.id
+        window.dispatchEvent(new CustomEvent("dataview-reload"))
+      } catch (error) {
+        toast.error("交付启动失败", { description: String(error?.message || error) })
+      }
+    }
+
     const handleOpenTaskForm = (projectId = "") => {
       if (projects.length === 0) {
         toast.error("请先从客户生成项目机会")
@@ -681,6 +720,10 @@ export default {
             <KanbanSquareIcon className="size-3.5" />
             生成项目
           </Button>
+          <Button size="sm" variant={activeForm === "delivery" ? "default" : "outline"} onClick={() => setActiveForm(activeForm === "delivery" ? null : "delivery")}>
+            <PackageCheckIcon className="size-3.5" />
+            启动交付
+          </Button>
           <Button size="sm" variant={activeForm === "task" ? "default" : "outline"} onClick={() => handleOpenTaskForm()}>
             <CheckSquareIcon className="size-3.5" />
             拆任务
@@ -735,6 +778,26 @@ export default {
               onSubmit={handleCreateProject}
               onCancel={() => setActiveForm(null)}
               submitLabel="创建项目"
+            />
+          </ActionForm>
+        )}
+
+        {activeForm === "delivery" && (
+          <ActionForm title="从客户启动交付">
+            <DataForm
+              fields={DELIVERY_KICKOFF_FIELDS}
+              initial={{
+                title: `${item.name || "客户"} ${item.project_type || "项目"}交付`,
+                delivery_type: item.project_type || "客户交付",
+                owner: item.sales_person || "",
+                customer_owner: item.name || "",
+                start_date: today(),
+                deliverables: defaultDeliveryDeliverables(item),
+                remark: item.next_follow_up || "",
+              }}
+              onSubmit={handleCreateDeliveryKickoff}
+              onCancel={() => setActiveForm(null)}
+              submitLabel="启动交付"
             />
           </ActionForm>
         )}
@@ -983,6 +1046,49 @@ export default {
             })
           )}
         </CaseSection>
+
+        <CaseSection title={`交付记录 (${deliveries.length})`}>
+          {deliveries.length === 0 ? (
+            <EmptyLine>暂无交付记录</EmptyLine>
+          ) : (
+            deliveries.map((delivery) => (
+              <div key={delivery.id} className="rounded-md border px-2.5 py-2 text-[12px]">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 font-medium">
+                      <PackageCheckIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{delivery.title}</span>
+                      <Badge variant="outline" className="h-4 text-[10px]">{delivery.stage || "准备中"}</Badge>
+                      <Badge variant="outline" className="h-4 text-[10px]">{delivery.acceptance_status || "未验收"}</Badge>
+                    </div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {delivery.delivery_type || "客户交付"} · 内部 {delivery.owner || "-"} · 客户 {delivery.customer_owner || "-"}
+                    </div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      启动 {delivery.start_date || "-"} · 验收 {delivery.due_date || "待确认"}
+                    </div>
+                    {Array.isArray(delivery.deliverables) && delivery.deliverables.length > 0 && (
+                      <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
+                        交付物：{delivery.deliverables.join("、")}
+                      </div>
+                    )}
+                  </div>
+                  {delivery.handover_doc_id && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleOpenDoc({ id: delivery.handover_doc_id, source: "knowledge", title: delivery.handover_doc_id })}
+                      className="h-6 shrink-0 rounded-md px-2 text-[11px]"
+                    >
+                      <FileTextIcon className="size-3" />
+                      计划文档
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </CaseSection>
       </div>
     )
   },
@@ -1150,6 +1256,14 @@ function buildDefaultProjectDescription(contact) {
     "",
     "## 下一步",
     contact.next_follow_up || "",
+  ].join("\n")
+}
+
+function defaultDeliveryDeliverables(contact) {
+  return [
+    "交付计划文档",
+    `${contact.project_type || "项目"}材料`,
+    "验收记录",
   ].join("\n")
 }
 

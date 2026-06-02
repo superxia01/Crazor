@@ -497,6 +497,7 @@ async function main() {
   let project
   let task
   let delivery
+  let deliveryPlan
   let channel
   let transaction
   let contentPiece
@@ -669,10 +670,9 @@ async function main() {
   })
 
   await step("客户交付记录与验收链路", async () => {
-    delivery = (await request("/api/crazor/deliveries", {
+    const kickoff = (await request(`/api/crazor/contacts/${encodeURIComponent(contact.id)}/delivery-kickoff`, {
       method: "POST",
       body: {
-        contact_id: contact.id,
         project_id: project.id,
         title: `烟测交付-${marker}`,
         delivery_type: "企业培训",
@@ -687,11 +687,27 @@ async function main() {
         remark: `烟测交付闭环 ${marker}`,
       },
     })).data
+    delivery = kickoff.delivery
+    deliveryPlan = kickoff.plan
+    if (deliveryPlan?.folder_id) {
+      trackCleanup("烟测交付计划目录", () => deleteIfExists(query("/api/crazor/docs/knowledge/folders-ops", { id: deliveryPlan.folder_id })))
+    }
+    if (deliveryPlan?.id) {
+      trackCleanup("烟测交付计划文档", () => deleteIfExists(query("/api/crazor/docs/knowledge/notes-ops", { id: deliveryPlan.id })))
+    }
     trackCleanup("烟测交付记录", () => deleteIfExists(`/api/crazor/deliveries/${encodeURIComponent(delivery.id)}`))
 
     assert(delivery.contact_id === contact.id, "交付记录未关联客户", delivery)
     assert(delivery.project_id === project.id, "交付记录未关联项目", delivery)
+    assert(delivery.handover_doc_id === deliveryPlan?.id, "交付记录未绑定自动生成的计划文档", { delivery, deliveryPlan })
     assert(Array.isArray(delivery.deliverables) && delivery.deliverables.includes("培训课件"), "交付物清单未结构化读回", delivery)
+
+    const planNote = await request(query("/api/crazor/docs/knowledge/notes-ops", { id: deliveryPlan.id }))
+    assert(String(planNote.data?.content || "").includes(`烟测交付-${marker}`), "交付计划文档未写入交付标题", planNote.data)
+    assert(String(planNote.data?.content || "").includes("## 验收节点"), "交付计划文档缺少验收节点", planNote.data)
+
+    const contactDocs = await request(`/api/crazor/contacts/${encodeURIComponent(contact.id)}/docs`)
+    assert(contactDocs.data.some((item) => item.id === deliveryPlan.id), "客户详情未能反查交付计划文档", contactDocs.data)
 
     const patched = await request(`/api/crazor/deliveries/${encodeURIComponent(delivery.id)}`, {
       method: "PATCH",

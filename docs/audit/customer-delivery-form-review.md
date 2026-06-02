@@ -47,7 +47,7 @@ P0：不要把当前形态包装成正式客户交付系统。演示时应表述
 
 已完成：新增交付记录实体，包含 `contact_id`、`project_id`、`delivery_type`、`stage`、`owner`、`start_date`、`due_date`、`acceptance_status`、`deliverables`、`risks`、`handover_doc_id`，并接入前端交付管理、REST、审计、分析和 Unified Context。
 
-P1：从客户成交后一键生成交付记录，并自动生成交付计划文档，默认写入 `20-业务流程/40-产品交付`。
+已完成：客户详情可一键启动交付，自动复用或创建客户项目，生成交付记录，并把交付计划文档写入 `20-业务流程/40-产品交付/<客户>`。
 
 P1：附件支持挂到项目或交付记录，区分需求材料、合同、课件、交付包、验收材料。
 

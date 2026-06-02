@@ -1143,6 +1143,7 @@ function deriveAuditAction(method: string, lastSegment: string) {
 function deriveAuditEntity(segments: string[]) {
   if (segments[0] === 'contacts' && segments[2] === 'docs') return 'contact_doc'
   if (segments[0] === 'contacts' && segments[2] === 'attachments') return 'contact_attachment'
+  if (segments[0] === 'contacts' && segments[2] === 'delivery-kickoff') return 'delivery'
   if (segments[0] === 'channels' && segments[2] === 'referrals') return 'channel_referral'
   if (segments[0] === 'doc-files') return 'doc_file'
   if (segments[0] === 'docs') {
@@ -1341,6 +1342,87 @@ function buildDocSearchSnippet(content: string, query: string): string {
   const start = Math.max(0, index - 50)
   const end = Math.min(text.length, index + q.length + 90)
   return `${start > 0 ? '...' : ''}${text.slice(start, end)}${end < text.length ? '...' : ''}`
+}
+
+const DELIVERY_PLAN_ROOT_FOLDER_ID = 'knowledge/20-业务流程/40-产品交付'
+
+function todayDateString(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function shortRecordId(value: unknown): string {
+  const text = String(value || '').trim()
+  return text ? text.slice(0, 8) : Date.now().toString(36)
+}
+
+function normalizeTextList(value: unknown, fallback: string[] = []): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean)
+  }
+  const text = String(value || '').trim()
+  if (!text) return fallback
+  return text.split(/\n|,|，|、/).map((item) => item.trim()).filter(Boolean)
+}
+
+function buildDeliveryContactFolderId(contact: any): string {
+  const baseName = contact?.name || contact?.company || '客户'
+  return `${DELIVERY_PLAN_ROOT_FOLDER_ID}/${baseName}-${shortRecordId(contact?.id)}`
+}
+
+function buildDeliveryProjectDescription(contact: any, body: any): string {
+  return [
+    `客户：${contact?.name || ''}`,
+    `公司：${contact?.company || ''}`,
+    `来源：${contact?.source || ''}`,
+    `项目类型：${body?.delivery_type || contact?.project_type || ''}`,
+    `预算范围：${contact?.budget_range || ''}`,
+    "",
+    "## 客户背景",
+    contact?.situation || "",
+    "",
+    "## 交付目标",
+    body?.description || body?.remark || "从成交客户启动交付，沉淀计划文档、交付物和验收节点。",
+    "",
+    "## 下一步",
+    contact?.next_follow_up || "确认交付范围、客户对接人和验收标准。",
+  ].join("\n")
+}
+
+function buildDeliveryPlanContent(contact: any, project: any, body: any, title: string, deliverables: string[], risks: string[]): string {
+  const startDate = body?.start_date || todayDateString()
+  const dueDate = body?.due_date || ''
+  return [
+    `# ${title}`,
+    "",
+    "## 基本信息",
+    `- 客户：${contact?.name || ""}`,
+    `- 公司：${contact?.company || ""}`,
+    `- 项目：${project?.name || ""}`,
+    `- 交付类型：${body?.delivery_type || contact?.project_type || ""}`,
+    `- 内部负责人：${body?.owner || contact?.sales_person || ""}`,
+    `- 客户负责人：${body?.customer_owner || contact?.contact_person || contact?.name || ""}`,
+    `- 启动日期：${startDate}`,
+    `- 计划验收：${dueDate || "待确认"}`,
+    "",
+    "## 交付范围",
+    body?.description || body?.remark || "围绕客户成交需求开展交付，持续记录范围变更、材料沉淀和验收反馈。",
+    "",
+    "## 交付物",
+    ...(deliverables.length > 0 ? deliverables.map((item) => `- ${item}`) : ["- 待补充"]),
+    "",
+    "## 风险和约束",
+    ...(risks.length > 0 ? risks.map((item) => `- ${item}`) : ["- 暂无"]),
+    "",
+    "## 验收节点",
+    "- [ ] 交付范围确认",
+    "- [ ] 关键材料交付",
+    "- [ ] 客户验收反馈",
+    "- [ ] 归档复盘",
+    "",
+    "## 关联信息",
+    `- contact_id：${contact?.id || ""}`,
+    `- project_id：${project?.id || ""}`,
+  ].join("\n")
 }
 
 // --- Health ---
@@ -2838,6 +2920,67 @@ app.post('/api/crazor/contacts/:id/docs', async (c) => {
   // Create the doc in tree + filesystem
   const note = docTree.createContactNote(contactId, body.filename, body.content || '')
   return c.json(note || docs.createContactDoc(contactId, body.filename, body.content || ''), 201)
+})
+
+app.post('/api/crazor/contacts/:id/delivery-kickoff', async (c) => {
+  const contactId = c.req.param('id')
+  const contact = getContact(contactId)
+  if (!contact) return c.json({ error: 'not found' }, 404)
+
+  const body = await c.req.json().catch(() => ({}))
+  const requestedProjectId = stringOrEmpty(body.project_id)
+  const existingProject = listProjects().find((project: any) => {
+    if (requestedProjectId) return project.id === requestedProjectId
+    return project.contact_id === contactId
+  })
+  if (requestedProjectId && !existingProject) {
+    return c.json({ error: 'project not found' }, 404)
+  }
+
+  const deliveryType = stringOrEmpty(body.delivery_type) || contact.project_type || '客户交付'
+  const title = stringOrEmpty(body.title) || `${contact.name || contact.company || '客户'} ${deliveryType}交付`
+  const deliverables = normalizeTextList(body.deliverables, ["交付计划文档", "交付材料", "验收记录"])
+  const risks = normalizeTextList(body.risks, [])
+  const startDate = stringOrEmpty(body.start_date) || todayDateString()
+  const dueDate = stringOrEmpty(body.due_date)
+  const owner = stringOrEmpty(body.owner) || contact.sales_person || ''
+  const customerOwner = stringOrEmpty(body.customer_owner) || contact.contact_person || contact.name || ''
+  const project = existingProject || createProject({
+    name: stringOrEmpty(body.project_name) || `${contact.name || contact.company || '客户'} 交付项目`,
+    description: buildDeliveryProjectDescription(contact, body),
+    contact_id: contactId,
+    budget: Number(body.budget || contact.deal || 0),
+    team: owner,
+    start_date: startDate,
+    deadline: dueDate || null,
+  })
+
+  const planTitle = stringOrEmpty(body.plan_title) || `${title}计划`
+  const plan = docTree.createNote(
+    'knowledge',
+    buildDeliveryContactFolderId(contact),
+    planTitle,
+    buildDeliveryPlanContent(contact, project, { ...body, delivery_type: deliveryType, owner, customer_owner: customerOwner, start_date: startDate, due_date: dueDate }, planTitle, deliverables, risks),
+    contactId,
+  )
+  const delivery = createDelivery({
+    contact_id: contactId,
+    project_id: project?.id || null,
+    title,
+    delivery_type: deliveryType,
+    stage: stringOrEmpty(body.stage) || '准备中',
+    acceptance_status: stringOrEmpty(body.acceptance_status) || '未验收',
+    owner,
+    customer_owner: customerOwner,
+    start_date: startDate,
+    due_date: dueDate || null,
+    handover_doc_id: plan?.id || '',
+    deliverables,
+    risks,
+    remark: stringOrEmpty(body.remark) || `交付计划文档：${plan?.title || planTitle}`,
+  })
+
+  return c.json({ id: delivery.id, delivery, project, plan }, 201)
 })
 
 // --- Contact attachments ---
