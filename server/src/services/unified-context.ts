@@ -6,6 +6,7 @@ import {
   listProjects,
   listTasks,
   listTasksByContact,
+  listDeliveries,
   listFollowUps,
   listContentPieces,
   listChannels,
@@ -18,6 +19,7 @@ const DEFAULT_TYPES = [
   'contact',
   'project',
   'task',
+  'delivery',
   'follow_up',
   'content_piece',
   'channel',
@@ -33,6 +35,8 @@ const TYPE_ALIASES: Record<string, string> = {
   project: 'project',
   tasks: 'task',
   task: 'task',
+  deliveries: 'delivery',
+  delivery: 'delivery',
   followups: 'follow_up',
   'follow-ups': 'follow_up',
   follow_up: 'follow_up',
@@ -107,6 +111,23 @@ export function getUnifiedContext(options: UnifiedContextOptions = {}) {
     add(tasks
       .filter((item: any) => matchesQuery(q, [item.title, item.description, item.status, item.assignee, item.project_name]))
       .map(mapTask))
+  }
+
+  if (types.has('delivery')) {
+    add(listDeliveries(contactId ? { contact_id: contactId, q } : (q ? { q } : undefined))
+      .filter((item: any) => matchesQuery(q, [
+        item.title,
+        item.delivery_type,
+        item.stage,
+        item.acceptance_status,
+        item.owner,
+        item.customer_owner,
+        item.contact_name,
+        item.project_name,
+        ...(Array.isArray(item.deliverables) ? item.deliverables : []),
+        ...(Array.isArray(item.risks) ? item.risks : []),
+      ]))
+      .map(mapDelivery))
   }
 
   if (types.has('follow_up')) {
@@ -231,6 +252,39 @@ function mapTask(item: any): ContextItem {
       priority: item.priority,
       due_date: item.due_date,
       assignee: item.assignee,
+    },
+  })
+}
+
+function mapDelivery(item: any): ContextItem {
+  const deliverables = Array.isArray(item.deliverables) ? item.deliverables : []
+  const risks = Array.isArray(item.risks) ? item.risks : []
+  return baseItem({
+    type: 'delivery',
+    id: item.id,
+    title: item.title,
+    subtitle: [item.contact_name, item.project_name, item.delivery_type].filter(Boolean).join(' / '),
+    summary: [
+      deliverables.length ? `交付物：${deliverables.join('、')}` : '',
+      item.remark || '',
+    ].filter(Boolean).join('；'),
+    status: [item.stage, item.acceptance_status].filter(Boolean).join(' / '),
+    updated_at: item.updated_at || item.created_at,
+    url: `/deliveries/${item.id}`,
+    relations: {
+      contact_id: item.contact_id || '',
+      project_id: item.project_id || '',
+      handover_doc_id: item.handover_doc_id || '',
+    },
+    metadata: {
+      delivery_type: item.delivery_type,
+      owner: item.owner,
+      customer_owner: item.customer_owner,
+      start_date: item.start_date,
+      due_date: item.due_date,
+      accepted_at: item.accepted_at,
+      deliverables,
+      risks,
     },
   })
 }

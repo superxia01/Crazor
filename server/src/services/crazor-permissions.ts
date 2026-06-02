@@ -19,21 +19,23 @@ const WRITE_ACTIONS = new Set(["create", "update", "delete", "move", "reorder", 
 
 const ROLE_WRITE_SCOPE_POLICIES: Record<string, string[]> = {
   admin: ["*"],
-  member: ["crm:*", "docs:*", "project:*", "content:*", "ai_employee:run"],
+  member: ["crm:*", "docs:*", "project:*", "delivery:*", "content:*", "ai_employee:run"],
   viewer: [],
 }
 
 const ROLE_READ_SCOPE_POLICIES: Record<string, string[]> = {
   admin: ["*"],
-  member: ["crm:*", "docs:*", "project:*", "content:*", "analytics:read", "context:read", "ai_employee:read"],
-  viewer: ["crm:read", "docs:read", "project:read", "content:read", "analytics:read", "context:read", "ai_employee:read"],
+  member: ["crm:*", "docs:*", "project:*", "delivery:*", "content:*", "analytics:read", "context:read", "ai_employee:read"],
+  viewer: ["crm:read", "docs:read", "project:read", "delivery:read", "content:read", "analytics:read", "context:read", "ai_employee:read"],
 }
 
 const ENTITY_GROUPS: Record<string, string[]> = {
   crm: ["contact", "follow_up", "transaction", "channel", "channel_referral", "contact_doc", "contact_attachment"],
   docs: ["doc", "doc_note", "doc_folder", "doc_file", "contact_doc", "contact_attachment"],
-  project: ["project", "task"],
-  projects: ["project", "task"],
+  project: ["project", "task", "delivery"],
+  projects: ["project", "task", "delivery"],
+  delivery: ["delivery"],
+  deliveries: ["delivery"],
   content: ["content_piece"],
   analytics: ["analytics"],
   context: ["context"],

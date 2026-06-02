@@ -11,6 +11,7 @@ import {
   LandmarkIcon,
   MessageSquareIcon,
   MessageSquareCodeIcon,
+  PackageIcon,
   SparklesIcon,
   UsersIcon,
   KanbanSquareIcon,
@@ -72,6 +73,12 @@ export const SIDEBAR_MENU_ITEMS = [
     labelKey: "nav.projects",
     icon: KanbanSquareIcon,
     mainView: "projects",
+  },
+  {
+    id: "deliveries",
+    labelKey: "nav.deliveries",
+    icon: PackageIcon,
+    mainView: "deliveries",
   },
   {
     id: "notebook",

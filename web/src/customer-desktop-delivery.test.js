@@ -642,6 +642,7 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
       customerDesktopSmokeScript.includes("/api/crazor/contacts") &&
       customerDesktopSmokeScript.includes("/api/crazor/projects") &&
       customerDesktopSmokeScript.includes("/api/crazor/tasks") &&
+      customerDesktopSmokeScript.includes("/api/crazor/deliveries") &&
       customerDesktopSmokeScript.includes("/api/crazor/docs/knowledge/tree") &&
       customerDesktopSmokeScript.includes("/api/crazor/attachments/policy") &&
       customerDesktopSmokeScript.includes("businessEntryChecks") &&

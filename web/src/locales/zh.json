@@ -138,6 +138,8 @@
     "finance": "财务中心",
     "channels": "渠道管理",
     "projects": "项目看板",
+    "deliveries": "交付管理",
+    "deliveriesDescription": "追踪交付阶段、验收状态和交付物",
     "knowledge": "知识库",
     "analytics": "数据分析",
     "hermesAnalytics": "分析",

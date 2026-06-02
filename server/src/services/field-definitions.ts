@@ -119,6 +119,32 @@ const SEEDS: Record<string, FieldSeed[]> = {
     { field_key: "invoice_status", label: "发票", field_type: "select", width: 80, sort_order: 11, visible: 0,
       options: JSON.stringify(["none", "pending", "overdue"].map(v => ({ value: v, label: v }))) },
   ],
+  deliveries: [
+    { field_key: "title", label: "交付名称", field_type: "text", required: 1, width: 180, sort_order: 0, render_hint: "title" },
+    { field_key: "contact_id", label: "关联客户", field_type: "relation", width: 140, sort_order: 1, relation_entity: "contacts" },
+    { field_key: "project_id", label: "关联项目", field_type: "relation", width: 140, sort_order: 2, relation_entity: "projects" },
+    { field_key: "delivery_type", label: "交付类型", field_type: "select", width: 110, sort_order: 3, filterable: 1,
+      options: JSON.stringify(["企业培训", "课程二开", "软件开发", "AI系统部署", "咨询服务", "资料交付"].map(v => ({ value: v, label: v }))) },
+    { field_key: "stage", label: "交付阶段", field_type: "select", width: 110, sort_order: 4, filterable: 1, render_hint: "kanban_lane",
+      options: JSON.stringify([
+        { value: "准备中", label: "准备中", color: "bg-slate-100 text-slate-700" },
+        { value: "交付中", label: "交付中", color: "bg-blue-100 text-blue-700" },
+        { value: "验收中", label: "验收中", color: "bg-amber-100 text-amber-700" },
+        { value: "已完成", label: "已完成", color: "bg-emerald-100 text-emerald-700" },
+        { value: "已归档", label: "已归档", color: "bg-zinc-100 text-zinc-600" },
+      ]) },
+    { field_key: "acceptance_status", label: "验收状态", field_type: "select", width: 110, sort_order: 5, filterable: 1,
+      options: JSON.stringify(["未验收", "待客户确认", "返工中", "已验收"].map(v => ({ value: v, label: v }))) },
+    { field_key: "owner", label: "内部负责人", field_type: "text", width: 110, sort_order: 6 },
+    { field_key: "customer_owner", label: "客户负责人", field_type: "text", width: 110, sort_order: 7 },
+    { field_key: "start_date", label: "开始日期", field_type: "date", width: 110, sort_order: 8 },
+    { field_key: "due_date", label: "计划验收", field_type: "date", width: 110, sort_order: 9 },
+    { field_key: "accepted_at", label: "验收时间", field_type: "date", width: 110, sort_order: 10, visible: 0 },
+    { field_key: "deliverables", label: "交付物清单", field_type: "textarea", width: 220, sort_order: 11, visible: 0 },
+    { field_key: "risks", label: "风险与阻塞", field_type: "textarea", width: 220, sort_order: 12, visible: 0 },
+    { field_key: "handover_doc_id", label: "交接文档", field_type: "text", width: 120, sort_order: 13, visible: 0 },
+    { field_key: "remark", label: "备注", field_type: "textarea", width: 220, sort_order: 14, visible: 0 },
+  ],
 }
 
 // ── Seed: auto-populate field_definitions from SEEDS ─────────

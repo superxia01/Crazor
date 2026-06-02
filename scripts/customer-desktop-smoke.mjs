@@ -14,6 +14,7 @@ const BUSINESS_ENTRYPOINTS = [
   { id: "contacts", label: "客户 CRM", path: "/api/crazor/contacts", shape: "array" },
   { id: "projects", label: "项目机会", path: "/api/crazor/projects", shape: "array" },
   { id: "tasks", label: "任务协作", path: "/api/crazor/tasks", shape: "array" },
+  { id: "deliveries", label: "交付记录", path: "/api/crazor/deliveries", shape: "array" },
   { id: "knowledge-tree", label: "知识库树", path: "/api/crazor/docs/knowledge/tree", shape: "any" },
   { id: "attachment-policy", label: "附件策略", path: "/api/crazor/attachments/policy", shape: "object" },
 ]

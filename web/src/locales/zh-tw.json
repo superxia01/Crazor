@@ -135,6 +135,8 @@
     "teamops": "協作審計",
     "teamopsDescription": "管理團隊身份、Agent Token 與寫入審計",
     "finance": "財務中心",
+    "deliveries": "交付管理",
+    "deliveriesDescription": "追蹤交付階段、驗收狀態和交付物",
     "projects": "專案看板",
     "knowledge": "知識庫",
     "analytics": "數據分析",

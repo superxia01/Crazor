@@ -11,6 +11,7 @@ import {
   listTransactions, createTransaction, updateTransaction, deleteTransaction,
   getMonthlyRevenue, listProjects, createProject, updateProject, deleteProject,
   listTasks, listTasksByContact, getTaskReminders, createTask, updateTask, deleteTask, moveTask,
+  listDeliveries, getDelivery, createDelivery, updateDelivery, deleteDelivery, getDeliveryStats,
   getContactStats, getFinanceStats, getProjectStats, getHermesSessionStats,
   listFollowUps, createFollowUp, updateFollowUp, deleteFollowUp, getFollowUpReminders,
   listChannels, getChannel, createChannel, updateChannel, deleteChannel, getChannelStats,
@@ -507,7 +508,8 @@ function readBusinessDataReadiness(): DeliveryReadinessCheck {
   try {
     getContactStats()
     getProjectStats()
-    return deliveryCheck('business-data', '业务数据 API', 'ok', 'CRM、项目和任务数据库可读')
+    getDeliveryStats()
+    return deliveryCheck('business-data', '业务数据 API', 'ok', 'CRM、项目、任务和交付记录数据库可读')
   } catch (error) {
     const message = error instanceof Error ? error.message : '业务数据库读取失败'
     return deliveryCheck('business-data', '业务数据 API', 'error', message)
@@ -840,6 +842,7 @@ const BUSINESS_READ_ROOTS = new Set([
   'transactions',
   'projects',
   'tasks',
+  'deliveries',
   'task-reminders',
   'channels',
   'content-pieces',
@@ -1159,6 +1162,7 @@ function deriveAuditEntity(segments: string[]) {
     transactions: 'transaction',
     projects: 'project',
     tasks: 'task',
+    deliveries: 'delivery',
     'task-reminders': 'task',
     'follow-ups': 'follow_up',
     'follow-up-reminders': 'follow_up',
@@ -3151,6 +3155,41 @@ app.delete('/api/crazor/projects/:id', (c) => {
   return c.json({ ok: true })
 })
 
+// --- Deliveries ---
+app.get('/api/crazor/deliveries', (c) => {
+  return c.json(listDeliveries({
+    stage: c.req.query('stage') || undefined,
+    acceptance_status: c.req.query('acceptance_status') || undefined,
+    contact_id: c.req.query('contact_id') || undefined,
+    project_id: c.req.query('project_id') || undefined,
+    q: c.req.query('q') || undefined,
+  }))
+})
+
+app.get('/api/crazor/deliveries/:id', (c) => {
+  const delivery = getDelivery(c.req.param('id'))
+  if (!delivery) return c.json({ error: 'not found' }, 404)
+  return c.json(delivery)
+})
+
+app.post('/api/crazor/deliveries', async (c) => {
+  const body = await c.req.json()
+  if (!body.title) return c.json({ error: 'title is required' }, 400)
+  return c.json(createDelivery(body), 201)
+})
+
+app.patch('/api/crazor/deliveries/:id', async (c) => {
+  const body = await c.req.json()
+  const updated = updateDelivery(c.req.param('id'), body)
+  if (!updated) return c.json({ error: 'not found' }, 404)
+  return c.json(updated)
+})
+
+app.delete('/api/crazor/deliveries/:id', (c) => {
+  deleteDelivery(c.req.param('id'))
+  return c.json({ ok: true })
+})
+
 // --- Tasks ---
 app.get('/api/crazor/tasks', (c) => {
   const project = c.req.query('project')
@@ -3271,6 +3310,7 @@ app.get('/api/crazor/analytics/overview', (c) => {
     contacts: getContactStats(),
     finance: getFinanceStats(),
     projects: getProjectStats(),
+    deliveries: getDeliveryStats(),
     hermes: getHermesSessionStats(),
     channels: getChannelStats(),
     followUpReminders: getFollowUpReminders(),

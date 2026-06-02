@@ -46,6 +46,7 @@ function businessEntrypointResponse(pathname, init = {}) {
   if (pathname === "/api/crazor/contacts") return jsonResponse([])
   if (pathname === "/api/crazor/projects") return jsonResponse([])
   if (pathname === "/api/crazor/tasks") return jsonResponse([])
+  if (pathname === "/api/crazor/deliveries") return jsonResponse([])
   if (pathname === "/api/crazor/docs/knowledge/tree") return jsonResponse({ folders: [], notes: [] })
   if (pathname === "/api/crazor/attachments/policy") return jsonResponse({ max_bytes: 20971520, allowed_extensions: ["md"] })
   return null
@@ -127,7 +128,7 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
   assert.equal(result.interactiveLoginRequired, false)
   assert.deepEqual(
     result.businessEntryChecks.map((item) => item.id),
-    ["contacts", "projects", "tasks", "knowledge-tree", "attachment-policy"],
+    ["contacts", "projects", "tasks", "deliveries", "knowledge-tree", "attachment-policy"],
   )
   assert.equal(result.businessWriteChecked, true)
   assert.equal(result.liveChatChecked, true)
@@ -263,7 +264,7 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
   assert.equal(result.accessCodeLoginChecked, true)
   assert.equal(result.accessActorTokenChecked, true)
   assert.equal(result.interactiveLoginRequired, false)
-  assert.equal(result.businessEntryChecks.length, 5)
+  assert.equal(result.businessEntryChecks.length, 6)
   assert.equal(result.businessWriteChecked, true)
   assert.equal(result.liveChatChecked, true)
   assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
@@ -347,7 +348,7 @@ test("customer desktop smoke explains degraded readiness checks", async () => {
   assert.equal(result.readinessStatus, "degraded")
   assert.equal(result.webEntrypointChecked, true)
   assert.equal(result.webAssetChecks.length, 1)
-  assert.equal(result.businessEntryChecks.length, 5)
+  assert.equal(result.businessEntryChecks.length, 6)
   assert.ok(result.warnings.some((item) => item.includes("交付身份警告")))
   assert.ok(result.warnings.some((item) => item.includes("CRAZOR_DELIVERY_CUSTOMER") || item.includes("后端未声明交付客户")))
   assert.ok(warnings.some((item) => item.includes("交付身份警告")))
@@ -486,7 +487,7 @@ test("customer desktop smoke can skip live chat when only probing entrypoints", 
   assert.equal(result.liveChatChecked, false)
   assert.equal(result.webEntrypointChecked, true)
   assert.equal(result.webAssetChecks.length, 1)
-  assert.equal(result.businessEntryChecks.length, 5)
+  assert.equal(result.businessEntryChecks.length, 6)
   assert.ok(result.warnings.some((item) => item.includes("已跳过真实对话响应检查")))
   assert.ok(!calls.some((url) => new URL(url).pathname === "/api/chat/completions"))
 })

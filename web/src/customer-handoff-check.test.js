@@ -48,6 +48,7 @@ function businessEntrypointResponse(pathname, init = {}) {
   if (pathname === "/api/crazor/contacts") return jsonResponse([])
   if (pathname === "/api/crazor/projects") return jsonResponse([])
   if (pathname === "/api/crazor/tasks") return jsonResponse([])
+  if (pathname === "/api/crazor/deliveries") return jsonResponse([])
   if (pathname === "/api/crazor/docs/knowledge/tree") return jsonResponse({ folders: [], notes: [] })
   if (pathname === "/api/crazor/attachments/policy") return jsonResponse({ max_bytes: 20971520, allowed_extensions: ["md"] })
   return null
@@ -89,7 +90,7 @@ test("customer handoff check verifies package, env, access-code login, and chat"
           checks: [
             { id: "agent-gateway", label: "Agent Gateway", status: "ok", detail: "Agent Gateway 可访问" },
             { id: "model-config", label: "模型配置", status: "ok", detail: "模型 hermes-agent 可用" },
-            { id: "business-data", label: "业务数据 API", status: "ok", detail: "CRM、项目和任务数据库可读" },
+            { id: "business-data", label: "业务数据 API", status: "ok", detail: "CRM、项目、任务和交付记录数据库可读" },
           ],
         })
       }
@@ -153,7 +154,7 @@ test("customer handoff check verifies package, env, access-code login, and chat"
     assert.equal(result.desktopSmoke.accessActorTokenChecked, true)
     assert.equal(result.desktopSmoke.webEntrypointChecked, true)
     assert.deepEqual(result.desktopSmoke.webAssetChecks, [{ path: "/assets/index.js", type: "script", status: "ok" }])
-    assert.equal(result.desktopSmoke.businessEntryChecks.length, 5)
+    assert.equal(result.desktopSmoke.businessEntryChecks.length, 6)
     assert.equal(result.desktopSmoke.businessWriteChecked, true)
     assert.equal(result.desktopSmoke.liveChatChecked, true)
     assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
@@ -170,7 +171,7 @@ test("customer handoff check verifies package, env, access-code login, and chat"
     assert.match(report, /通过 客户 CRM: \/api\/crazor\/contacts/)
     assert.match(report, /## 后端自检项/)
     assert.match(report, /通过 模型配置: 模型 hermes-agent 可用/)
-    assert.match(report, /通过 业务数据 API: CRM、项目和任务数据库可读/)
+    assert.match(report, /通过 业务数据 API: CRM、项目、任务和交付记录数据库可读/)
     assert.ok(!report.includes("handoff-code"))
     assert.ok(!report.includes("sk-live-handoff-secret"))
   } finally {

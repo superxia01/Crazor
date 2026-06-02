@@ -138,6 +138,8 @@
     "finance": "Finance",
     "channels": "Channels",
     "projects": "Projects",
+    "deliveries": "Delivery",
+    "deliveriesDescription": "Track delivery stages, acceptance status, and deliverables",
     "knowledge": "Knowledge Base",
     "analytics": "Analytics",
     "hermesAnalytics": "Analytics",

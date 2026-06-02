@@ -64,6 +64,31 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS deliveries (
+    id TEXT PRIMARY KEY,
+    contact_id TEXT REFERENCES contacts(id) ON DELETE SET NULL,
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    delivery_type TEXT DEFAULT '',
+    stage TEXT DEFAULT '准备中',
+    acceptance_status TEXT DEFAULT '未验收',
+    owner TEXT DEFAULT '',
+    customer_owner TEXT DEFAULT '',
+    start_date TEXT,
+    due_date TEXT,
+    accepted_at TEXT,
+    handover_doc_id TEXT DEFAULT '',
+    deliverables TEXT DEFAULT '[]',
+    risks TEXT DEFAULT '[]',
+    remark TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_deliveries_contact ON deliveries(contact_id, updated_at);
+  CREATE INDEX IF NOT EXISTS idx_deliveries_project ON deliveries(project_id, updated_at);
+  CREATE INDEX IF NOT EXISTS idx_deliveries_stage ON deliveries(stage, due_date);
+
   CREATE TABLE IF NOT EXISTS doc_folders (
     id TEXT PRIMARY KEY,
     scope TEXT NOT NULL,
@@ -320,6 +345,37 @@ function mapContentPiece(row: any) {
   if (!row) return null
   const { custom_data, tags, ...rest } = row
   return { ...rest, tags: JSON.parse(tags || "[]"), ...JSON.parse(custom_data || "{}") }
+}
+
+function mapDelivery(row: any) {
+  if (!row) return null
+  const { deliverables, risks, ...rest } = row
+  return {
+    ...rest,
+    deliverables: parseJsonArray(deliverables),
+    risks: parseJsonArray(risks),
+  }
+}
+
+function parseJsonArray(value: unknown) {
+  if (Array.isArray(value)) return value
+  const text = String(value || "").trim()
+  if (!text) return []
+  try {
+    const parsed = JSON.parse(text)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return text.split(/\r?\n|[,，]/).map((item) => item.trim()).filter(Boolean)
+  }
+}
+
+function serializeTextList(value: unknown) {
+  if (Array.isArray(value)) return JSON.stringify(value.map((item) => String(item || "").trim()).filter(Boolean))
+  const items = String(value || "")
+    .split(/\r?\n|[,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return JSON.stringify(items)
 }
 
 // Known column names per table (used to separate known vs custom fields)
@@ -637,6 +693,104 @@ export function updateProject(id: string, data: Partial<any>) {
 export function deleteProject(id: string) {
   db.prepare("DELETE FROM tasks WHERE project_id = ?").run(id)
   db.prepare("DELETE FROM projects WHERE id = ?").run(id)
+}
+
+// ── Deliveries ──────────────────────────────────────────────
+
+export function listDeliveries(filter?: { stage?: string; acceptance_status?: string; contact_id?: string; project_id?: string; q?: string }) {
+  let sql = `
+    SELECT d.*, c.name as contact_name, p.name as project_name
+    FROM deliveries d
+    LEFT JOIN contacts c ON c.id = d.contact_id
+    LEFT JOIN projects p ON p.id = d.project_id
+    WHERE 1=1`
+  const params: any[] = []
+  if (filter?.stage) { sql += " AND d.stage = ?"; params.push(filter.stage) }
+  if (filter?.acceptance_status) { sql += " AND d.acceptance_status = ?"; params.push(filter.acceptance_status) }
+  if (filter?.contact_id) { sql += " AND d.contact_id = ?"; params.push(filter.contact_id) }
+  if (filter?.project_id) { sql += " AND d.project_id = ?"; params.push(filter.project_id) }
+  if (filter?.q) {
+    sql += " AND (d.title LIKE ? OR d.delivery_type LIKE ? OR d.owner LIKE ? OR d.customer_owner LIKE ? OR d.remark LIKE ? OR c.name LIKE ? OR p.name LIKE ?)"
+    const q = `%${filter.q}%`
+    params.push(q, q, q, q, q, q, q)
+  }
+  sql += " ORDER BY COALESCE(d.due_date, d.updated_at) DESC, d.updated_at DESC"
+  return db.prepare(sql).all(...params).map(mapDelivery)
+}
+
+export function getDelivery(id: string) {
+  return mapDelivery(db.prepare(`
+    SELECT d.*, c.name as contact_name, p.name as project_name
+    FROM deliveries d
+    LEFT JOIN contacts c ON c.id = d.contact_id
+    LEFT JOIN projects p ON p.id = d.project_id
+    WHERE d.id = ?
+  `).get(id))
+}
+
+export function createDelivery(data: Partial<any>) {
+  const d = {
+    id: id(),
+    contact_id: data.contact_id || null,
+    project_id: data.project_id || null,
+    title: data.title || "",
+    delivery_type: data.delivery_type || "",
+    stage: data.stage || "准备中",
+    acceptance_status: data.acceptance_status || "未验收",
+    owner: data.owner || "",
+    customer_owner: data.customer_owner || "",
+    start_date: data.start_date || null,
+    due_date: data.due_date || null,
+    accepted_at: data.accepted_at || null,
+    handover_doc_id: data.handover_doc_id || "",
+    deliverables: serializeTextList(data.deliverables),
+    risks: serializeTextList(data.risks),
+    remark: data.remark || "",
+    created_at: now(),
+    updated_at: now(),
+  }
+  db.prepare(`INSERT INTO deliveries (id,contact_id,project_id,title,delivery_type,stage,acceptance_status,owner,customer_owner,start_date,due_date,accepted_at,handover_doc_id,deliverables,risks,remark,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(d.id, d.contact_id, d.project_id, d.title, d.delivery_type, d.stage, d.acceptance_status, d.owner, d.customer_owner, d.start_date, d.due_date, d.accepted_at, d.handover_doc_id, d.deliverables, d.risks, d.remark, d.created_at, d.updated_at)
+  return getDelivery(d.id)
+}
+
+export function updateDelivery(id: string, data: Partial<any>) {
+  const sets: string[] = []
+  const params: any[] = []
+  const nullableKeys = new Set(["contact_id", "project_id", "start_date", "due_date", "accepted_at"])
+  for (const key of ["contact_id", "project_id", "title", "delivery_type", "stage", "acceptance_status", "owner", "customer_owner", "start_date", "due_date", "accepted_at", "handover_doc_id", "remark"]) {
+    if (data[key] !== undefined) {
+      sets.push(`${key} = ?`)
+      params.push(nullableKeys.has(key) && data[key] === "" ? null : data[key])
+    }
+  }
+  if (data.deliverables !== undefined) { sets.push("deliverables = ?"); params.push(serializeTextList(data.deliverables)) }
+  if (data.risks !== undefined) { sets.push("risks = ?"); params.push(serializeTextList(data.risks)) }
+  if (sets.length === 0) return getDelivery(id)
+  sets.push("updated_at = ?"); params.push(now()); params.push(id)
+  db.prepare(`UPDATE deliveries SET ${sets.join(", ")} WHERE id = ?`).run(...params)
+  return getDelivery(id)
+}
+
+export function deleteDelivery(id: string) {
+  db.prepare("DELETE FROM deliveries WHERE id = ?").run(id)
+}
+
+export function getDeliveryStats() {
+  const today = now().slice(0, 10)
+  const total = (db.prepare("SELECT count(*) as c FROM deliveries").get() as any).c
+  const accepted = (db.prepare("SELECT count(*) as c FROM deliveries WHERE acceptance_status = '已验收'").get() as any).c
+  const overdue = (db.prepare("SELECT count(*) as c FROM deliveries WHERE stage != '已归档' AND acceptance_status != '已验收' AND due_date IS NOT NULL AND due_date != '' AND due_date <= ?").get(today) as any).c
+  const byStage = db.prepare("SELECT stage, count(*) as c FROM deliveries GROUP BY stage").all() as any[]
+  const byAcceptance = db.prepare("SELECT acceptance_status, count(*) as c FROM deliveries GROUP BY acceptance_status").all() as any[]
+  return {
+    total,
+    accepted,
+    overdue,
+    byStage: Object.fromEntries(byStage.map(r => [r.stage, r.c])),
+    byAcceptance: Object.fromEntries(byAcceptance.map(r => [r.acceptance_status, r.c])),
+  }
 }
 
 // ── Tasks ───────────────────────────────────────────────────

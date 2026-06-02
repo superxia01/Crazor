@@ -210,6 +210,7 @@ const ContactsView = lazy(() => import("@/ContactsView"))
 const FinanceView = lazy(() => import("@/FinanceView"))
 const ChannelsView = lazy(() => import("@/ChannelsView"))
 const ProjectsView = lazy(() => import("@/ProjectsView"))
+const DeliveriesView = lazy(() => import("@/DeliveriesView"))
 const KnowledgeBaseView = lazy(() => import("@/KnowledgeBaseView"))
 const DataAnalyticsView = lazy(() => import("@/DataAnalyticsView"))
 const IntegrationsView = lazy(() => import("@/IntegrationsView"))
@@ -303,6 +304,7 @@ const SIDEBAR_GROUPS = [
       { id: "teamops", labelKey: "nav.teamops", descriptionKey: "nav.teamopsDescription", icon: ShieldCheckIcon },
       { id: "finance", labelKey: "nav.finance", descriptionKey: "nav.finance", icon: LandmarkIcon },
       { id: "projects", labelKey: "nav.projects", descriptionKey: "nav.projects", icon: KanbanSquareIcon },
+      { id: "deliveries", labelKey: "nav.deliveries", descriptionKey: "nav.deliveriesDescription", icon: PackageIcon },
       { id: "knowledge", labelKey: "nav.knowledge", descriptionKey: "nav.knowledge", icon: FileTextIcon },
       { id: "notebook", labelKey: "nav.notebook", descriptionKey: "nav.chatDescription", icon: BookIcon, badge: "beta" },
       { id: "files", labelKey: "nav.files", descriptionKey: "nav.filesDescription", icon: FolderOpenIcon },
@@ -3197,6 +3199,7 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
                         {view === "finance" && <FinanceView />}
                         {view === "channels" && <ChannelsView />}
                         {view === "projects" && <ProjectsView />}
+                        {view === "deliveries" && <DeliveriesView />}
                         {view === "knowledge" && (
                           <KnowledgeBaseView
                             selectedNote={knowledge.selectedNote}

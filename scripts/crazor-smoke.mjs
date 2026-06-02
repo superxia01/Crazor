@@ -496,6 +496,7 @@ async function main() {
   let contactDoc
   let project
   let task
+  let delivery
   let channel
   let transaction
   let contentPiece
@@ -667,6 +668,48 @@ async function main() {
     assert(!after.data.some((item) => item.id === task.id), "完成后的任务仍在任务提醒列表", after.data)
   })
 
+  await step("客户交付记录与验收链路", async () => {
+    delivery = (await request("/api/crazor/deliveries", {
+      method: "POST",
+      body: {
+        contact_id: contact.id,
+        project_id: project.id,
+        title: `烟测交付-${marker}`,
+        delivery_type: "企业培训",
+        stage: "交付中",
+        acceptance_status: "待客户确认",
+        owner: "烟测内部负责人",
+        customer_owner: "烟测客户负责人",
+        start_date: todayDate,
+        due_date: todayDate,
+        deliverables: ["培训课件", "交付记录"],
+        risks: ["无"],
+        remark: `烟测交付闭环 ${marker}`,
+      },
+    })).data
+    trackCleanup("烟测交付记录", () => deleteIfExists(`/api/crazor/deliveries/${encodeURIComponent(delivery.id)}`))
+
+    assert(delivery.contact_id === contact.id, "交付记录未关联客户", delivery)
+    assert(delivery.project_id === project.id, "交付记录未关联项目", delivery)
+    assert(Array.isArray(delivery.deliverables) && delivery.deliverables.includes("培训课件"), "交付物清单未结构化读回", delivery)
+
+    const patched = await request(`/api/crazor/deliveries/${encodeURIComponent(delivery.id)}`, {
+      method: "PATCH",
+      body: {
+        stage: "已完成",
+        acceptance_status: "已验收",
+        accepted_at: todayDate,
+      },
+    })
+    assert(patched.data?.stage === "已完成" && patched.data?.acceptance_status === "已验收", "交付验收状态更新失败", patched.data)
+
+    const byContact = await request(query("/api/crazor/deliveries", { contact_id: contact.id }))
+    assert(byContact.data.some((item) => item.id === delivery.id), "按客户未读回交付记录", byContact.data)
+
+    const logs = await request(query("/api/crazor/audit-logs", { entity: "delivery", entity_id: delivery.id, limit: "20" }))
+    assert(logs.data.some((item) => item.action === "create" && item.entity === "delivery"), "审计日志未记录交付创建", logs.data)
+  })
+
   await step("内容发布、指标回收和知识正文链路", async () => {
     contentPiece = (await request("/api/crazor/content-pieces", {
       method: "POST",
@@ -724,6 +767,7 @@ async function main() {
     const overview = await request("/api/crazor/analytics/overview")
     assert(Array.isArray(overview.data?.followUpReminders), "分析概览缺少 followUpReminders", overview.data)
     assert(Array.isArray(overview.data?.taskReminders), "分析概览缺少 taskReminders", overview.data)
+    assert(overview.data?.deliveries && typeof overview.data.deliveries.total === "number", "分析概览缺少 deliveries 统计", overview.data)
 
     const logs = await request(query("/api/crazor/audit-logs", { entity: "contact", entity_id: contact.id, limit: "20" }))
     assert(logs.data.some((item) => item.action === "create" && item.entity === "contact"), "审计日志未记录客户创建", logs.data)
@@ -733,12 +777,13 @@ async function main() {
     const context = await request(query("/api/crazor/context", {
       q: marker,
       contact_id: contact.id,
-      types: "contact,project,task,follow_up,transaction,doc_note,audit_log",
+      types: "contact,project,task,delivery,follow_up,transaction,doc_note,audit_log",
       limit: "50",
     }))
     assert(Array.isArray(context.data?.items), "Unified Context 未返回 items 数组", context.data)
     assert(context.data.items.some((item) => item.type === "contact" && item.id === contact.id), "上下文未包含目标客户", context.data)
     assert(context.data.items.some((item) => item.type === "project" && item.id === project.id), "上下文未包含关联项目", context.data)
+    assert(context.data.items.some((item) => item.type === "delivery" && item.id === delivery.id), "上下文未包含交付记录", context.data)
     assert(context.data.items.some((item) => item.type === "doc_note" && item.id === contactDoc.id), "上下文未包含客户需求文档", context.data)
     assert(context.data.items.some((item) => item.type === "audit_log" && item.relations?.entity_id === contact.id), "上下文未包含客户审计事件", context.data)
   })
