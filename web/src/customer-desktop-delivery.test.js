@@ -398,6 +398,9 @@ test("customer desktop package can be built by CI with configured backend", () =
       customerWorkflowSource.includes("delivery_protocol_version") &&
       customerWorkflowSource.includes("online-entrypoints") &&
       customerWorkflowSource.includes("online-chat") &&
+      customerWorkflowSource.includes("installer_trust_mode") &&
+      customerWorkflowSource.includes("require-trusted") &&
+      customerWorkflowSource.includes("CRAZOR_REQUIRE_INSTALLER_TRUST") &&
       customerWorkflowSource.includes("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24") &&
       customerWorkflowSource.includes("actions/checkout@v6.0.2") &&
       customerWorkflowSource.includes("actions/setup-node@v6.4.0") &&
@@ -409,6 +412,19 @@ test("customer desktop package can be built by CI with configured backend", () =
       customerWorkflowSource.includes("验证客户交付验收入口") &&
       customerWorkflowSource.includes("crazor-handoff-report.md") &&
       customerWorkflowSource.includes("--output desktop/src-tauri/target/release/customer-delivery/crazor-handoff-report.md") &&
+      customerWorkflowSource.includes("准备 macOS 公证密钥") &&
+      customerWorkflowSource.includes("APPLE_CERTIFICATE") &&
+      customerWorkflowSource.includes("APPLE_CERTIFICATE_PASSWORD") &&
+      customerWorkflowSource.includes("APPLE_API_KEY_P8") &&
+      customerWorkflowSource.includes("APPLE_API_KEY_PATH") &&
+      customerWorkflowSource.includes("APPLE_TEAM_ID") &&
+      customerWorkflowSource.includes("导入 Windows 签名证书") &&
+      customerWorkflowSource.includes("WINDOWS_CERTIFICATE") &&
+      customerWorkflowSource.includes("WINDOWS_CERTIFICATE_PASSWORD") &&
+      customerWorkflowSource.includes("配置 Windows 签名参数") &&
+      customerWorkflowSource.includes("WINDOWS_CERTIFICATE_THUMBPRINT") &&
+      customerWorkflowSource.includes("certificateThumbprint") &&
+      customerWorkflowSource.includes("Import-PfxCertificate") &&
       customerWorkflowSource.includes("./scripts/build-customer.sh") &&
       customerWorkflowSource.includes("verify-customer-installer.mjs") &&
       customerWorkflowSource.includes("upload-artifact"),

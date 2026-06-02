@@ -46,6 +46,14 @@ on:
           - offline
           - online-entrypoints
           - online-chat
+      installer_trust_mode:
+        description: 安装器可信模式；正式客户包选择 require-trusted，签名或公证未通过会失败
+        required: true
+        type: choice
+        default: test
+        options:
+          - test
+          - require-trusted
 
 jobs:
   build:
@@ -66,6 +74,7 @@ jobs:
       CRAZOR_CUSTOMER_SERVER_PREFLIGHT: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight_mode || 'warn' }}
       CRAZOR_DELIVERY_PROTOCOL_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_protocol_version || '1' }}
       CUSTOMER_HANDOFF_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.handoff_mode || 'offline' }}
+      CRAZOR_REQUIRE_INSTALLER_TRUST: ${{ github.event_name == 'workflow_dispatch' && inputs.installer_trust_mode == 'require-trusted' && '1' || '' }}
 
     steps:
       - name: 检出代码
@@ -91,7 +100,83 @@ jobs:
         working-directory: desktop
         run: npm ci
 
+      - name: 准备 macOS 公证密钥
+        if: ${{ matrix.platform == 'macos-current' }}
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -n "$APPLE_API_KEY" ] && [ -n "$APPLE_API_KEY_P8" ]; then
+            mkdir -p "$RUNNER_TEMP/crazor-private-keys"
+            APPLE_API_KEY_PATH="$RUNNER_TEMP/crazor-private-keys/AuthKey_${APPLE_API_KEY}.p8"
+            printf '%s' "$APPLE_API_KEY_P8" > "$APPLE_API_KEY_PATH"
+            chmod 600 "$APPLE_API_KEY_PATH"
+            echo "APPLE_API_KEY_PATH=$APPLE_API_KEY_PATH" >> "$GITHUB_ENV"
+            echo "API_PRIVATE_KEYS_DIR=$RUNNER_TEMP/crazor-private-keys" >> "$GITHUB_ENV"
+          else
+            echo "未配置 APPLE_API_KEY/APPLE_API_KEY_P8，跳过 App Store Connect API 密钥文件准备"
+          fi
+
+      - name: 导入 Windows 签名证书
+        if: ${{ matrix.platform == 'windows-current' }}
+        shell: powershell
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE) -or [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            Write-Host "未配置 WINDOWS_CERTIFICATE/WINDOWS_CERTIFICATE_PASSWORD，跳过 Windows 证书导入"
+            exit 0
+          }
+          $certDir = Join-Path $env:RUNNER_TEMP "crazor-codesign"
+          New-Item -ItemType Directory -Force -Path $certDir | Out-Null
+          $certText = Join-Path $certDir "certificate-base64.txt"
+          $certPfx = Join-Path $certDir "certificate.pfx"
+          Set-Content -Path $certText -Value $env:WINDOWS_CERTIFICATE
+          certutil -decode $certText $certPfx
+          $securePassword = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          Import-PfxCertificate -FilePath $certPfx -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword
+          Remove-Item $certText, $certPfx -Force
+
+      - name: 配置 Windows 签名参数
+        if: ${{ matrix.platform == 'windows-current' }}
+        env:
+          WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
+          WINDOWS_DIGEST_ALGORITHM: ${{ vars.WINDOWS_DIGEST_ALGORITHM }}
+          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          if [ -z "$WINDOWS_CERTIFICATE_THUMBPRINT" ]; then
+            echo "未配置 WINDOWS_CERTIFICATE_THUMBPRINT，跳过 Tauri Windows 签名参数写入"
+            exit 0
+          fi
+          node -e '
+            const fs = require("node:fs")
+            const path = "desktop/src-tauri/tauri.conf.json"
+            const config = JSON.parse(fs.readFileSync(path, "utf8"))
+            config.bundle = config.bundle || {}
+            config.bundle.windows = {
+              ...(config.bundle.windows || {}),
+              certificateThumbprint: process.env.WINDOWS_CERTIFICATE_THUMBPRINT,
+              digestAlgorithm: process.env.WINDOWS_DIGEST_ALGORITHM || "sha256",
+            }
+            if (process.env.WINDOWS_TIMESTAMP_URL) {
+              config.bundle.windows.timestampUrl = process.env.WINDOWS_TIMESTAMP_URL
+            }
+            fs.writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`)
+          '
+
       - name: 构建客户安装包
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_PROVIDER_SHORT_NAME: ${{ secrets.APPLE_PROVIDER_SHORT_NAME }}
+          TAURI_WINDOWS_SIGNTOOL_PATH: ${{ vars.TAURI_WINDOWS_SIGNTOOL_PATH }}
         run: ./scripts/build-customer.sh "$CUSTOMER_NAME" "$SERVER_URL" "$PACKAGE_PLATFORM"
 
       - name: 验证客户交付包
