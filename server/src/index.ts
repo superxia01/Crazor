@@ -34,6 +34,7 @@ import { handleSSEConnect, handleSSEMessage, handleStreamableHTTP } from './serv
 import {
   CRAZOR_DELIVERY_CHANNEL,
   CRAZOR_DELIVERY_CUSTOMER,
+  CRAZOR_DELIVERY_MODEL_READINESS,
   CRAZOR_DELIVERY_PROTOCOL_VERSION,
   CRAZOR_HOME,
   CRAZOR_PUBLIC_BASE_URL,
@@ -492,6 +493,16 @@ function deliveryStatus(checks: DeliveryReadinessCheck[]): 'ready' | 'degraded' 
   return 'ready'
 }
 
+function normalizeModelReadinessCheck(check: DeliveryReadinessCheck): DeliveryReadinessCheck {
+  if (check.id !== 'model-config' || check.status !== 'error') return check
+  if (CRAZOR_DELIVERY_MODEL_READINESS !== 'warn') return check
+  return {
+    ...check,
+    status: 'warn',
+    detail: `${check.detail}；当前设置 CRAZOR_DELIVERY_MODEL_READINESS=warn，允许先验收 Web、登录和业务链路，真实对话仍需补齐模型凭证`,
+  }
+}
+
 function readBusinessDataReadiness(): DeliveryReadinessCheck {
   try {
     getContactStats()
@@ -717,7 +728,7 @@ async function buildDeliveryReadiness() {
       gatewayAvailable && supportsChat ? 'ok' : 'error',
       gatewayAvailable && supportsChat ? '对话能力已就绪' : '缺少可用的对话网关或对话能力',
     ),
-    await readModelConfigReadiness(),
+    normalizeModelReadinessCheck(await readModelConfigReadiness()),
     deliveryCheck(
       'sessions-api',
       '会话 API',

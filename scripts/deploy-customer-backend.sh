@@ -318,6 +318,10 @@ if [[ -n "$HERMES_IMAGE" ]]; then
   set_env_value_in_file "$LOCAL_ENV_FILE" HERMES_IMAGE "$HERMES_IMAGE"
 fi
 
+if [[ "$SKIP_LIVE_CHAT" == "1" ]]; then
+  set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_DELIVERY_MODEL_READINESS "warn"
+fi
+
 node "$PROJECT_ROOT/scripts/customer-backend-env.mjs" \
   --check "$LOCAL_ENV_FILE" \
   --customer "$CUSTOMER" \

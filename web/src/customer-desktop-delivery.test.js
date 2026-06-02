@@ -161,6 +161,8 @@ test("customer backend can be deployed to a remote Docker host with preserved da
       customerBackendDeployScript.includes("customer-backend-env.mjs") &&
       customerBackendDeployScript.includes("customer-desktop-smoke.mjs") &&
       customerBackendDeployScript.includes("verify-customer-web.mjs") &&
+      customerBackendDeployScript.includes("CRAZOR_DELIVERY_MODEL_READINESS") &&
+      customerBackendDeployScript.includes('CRAZOR_DELIVERY_MODEL_READINESS "warn"') &&
       customerBackendDeployScript.includes("CRAZOR_DESKTOP_SMOKE_ACCESS_CODE") &&
       customerBackendDeployScript.includes("--diagnose-only") &&
       customerBackendDeployScript.includes("run_remote_diagnostics") &&
@@ -300,6 +302,9 @@ test("backend exposes a public delivery readiness self-check for installed clien
   )
   assert.ok(
     serverIndex.includes("readModelConfigReadiness") &&
+      serverIndex.includes("normalizeModelReadinessCheck") &&
+      serverIndex.includes("CRAZOR_DELIVERY_MODEL_READINESS") &&
+      serverIndex.includes("允许先验收 Web、登录和业务链路") &&
       serverIndex.includes("readGatewayModelListReadiness") &&
       serverIndex.includes("firstGatewayModelId") &&
       serverIndex.includes("gatewayFetch('/v1/models')") &&
@@ -448,6 +453,7 @@ test("docker customer backend receives hosted login and plan configuration", () 
       composeSource.includes("CRAZOR_DELIVERY_CUSTOMER: ${CRAZOR_DELIVERY_CUSTOMER:-}") &&
       composeSource.includes("CRAZOR_PUBLIC_BASE_URL: ${CRAZOR_PUBLIC_BASE_URL:-}") &&
       composeSource.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION: ${CRAZOR_DELIVERY_PROTOCOL_VERSION:-1}") &&
+      composeSource.includes("CRAZOR_DELIVERY_MODEL_READINESS: ${CRAZOR_DELIVERY_MODEL_READINESS:-strict}") &&
       composeSource.includes("HERMES_DASHBOARD_INSECURE: ${HERMES_DASHBOARD_INSECURE:-1}") &&
       composeSource.includes("${HERMES_DASHBOARD_BIND:-127.0.0.1}:9119:9119") &&
       composeSource.includes("HERMES_WORKSPACE_ROOT:-/opt/workspaces") &&
