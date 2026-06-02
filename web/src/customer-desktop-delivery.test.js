@@ -18,6 +18,7 @@ const customerBackendEnvScript = readFileSync(resolve(repoRoot, "scripts/custome
 const webPackage = readFileSync(resolve(repoRoot, "web/package.json"), "utf8")
 const desktopPackage = readFileSync(resolve(repoRoot, "desktop/package.json"), "utf8")
 const appSource = readFileSync(resolve(repoRoot, "web/src/App.jsx"), "utf8")
+const appInnerSource = readFileSync(resolve(repoRoot, "web/src/AppInner.jsx"), "utf8")
 const authFetchSource = readFileSync(resolve(repoRoot, "web/src/api/crazor-auth.js"), "utf8")
 const loginTokenRedirectSource = readFileSync(resolve(repoRoot, "web/src/api/login-token-redirect.js"), "utf8")
 const customerDeliverySource = readFileSync(resolve(repoRoot, "web/src/api/customer-delivery.js"), "utf8")
@@ -345,6 +346,15 @@ test("desktop WeChat login uses backend callback plus client polling", () => {
     loginDialogSource.includes("/api/auth/wechat/session/") &&
       loginDialogSource.includes("localStorage.setItem('crazor_token', data.token)"),
     "desktop client should poll the backend login session and store the returned JWT"
+  )
+  assert.ok(
+    loginDialogSource.includes("/api/auth/access-code") &&
+      loginDialogSource.includes("status.accessCodeConfigured") &&
+      loginDialogSource.includes("使用访问码登录") &&
+      loginDialogSource.includes("请输入客户访问码") &&
+      appInnerSource.includes("客户登录") &&
+      !appInnerSource.includes("微信扫码登录"),
+    "desktop login dialog should also support access-code customer handoff instead of assuming WeChat-only login"
   )
 })
 

@@ -11,8 +11,11 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
   const [qrUrl, setQrUrl] = useState(null)
   const [loginState, setLoginState] = useState("")
   const [loading, setLoading] = useState(true)
+  const [accessLoading, setAccessLoading] = useState(false)
   const [error, setError] = useState(null)
   const [polling, setPolling] = useState(false)
+  const [authStatus, setAuthStatus] = useState(null)
+  const [accessCode, setAccessCode] = useState("")
 
   const fetchLoginUrl = useCallback(async () => {
     try {
@@ -20,12 +23,15 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
       setError(null)
       const resp = await fetch('/api/auth/status')
       const status = await resp.json()
+      setAuthStatus(status)
 
-      if (!status.wechatConfigured) {
-        setError('微信登录未配置，请设置 WECHAT_APP_ID 环境变量')
+      if (!status.wechatConfigured && !status.accessCodeConfigured) {
+        setError('登录方式未配置，请设置 WECHAT_APP_ID / WECHAT_APP_SECRET 或 CRAZOR_CUSTOMER_ACCESS_CODE')
         setLoading(false)
         return
       }
+
+      if (!status.wechatConfigured) return
 
       const urlResp = await fetch('/api/auth/wechat/url')
       const data = await urlResp.json()
@@ -52,6 +58,9 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
       setLoginState("")
       setError(null)
       setPolling(false)
+      setAuthStatus(null)
+      setAccessCode("")
+      setAccessLoading(false)
     }
   }, [open, fetchLoginUrl])
 
@@ -83,6 +92,40 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
     }
   }
 
+  const handleAccessCodeLogin = async (event) => {
+    event.preventDefault()
+    const code = accessCode.trim()
+    if (!code) {
+      setError('请输入客户访问码')
+      return
+    }
+    try {
+      setAccessLoading(true)
+      setError(null)
+      const resp = await fetch('/api/auth/access-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok || !data.token) {
+        setError(data.error || '客户访问码验证失败')
+        return
+      }
+      localStorage.setItem('crazor_token', data.token)
+      setPolling(false)
+      onLogin()
+      onOpenChange(false)
+    } catch {
+      setError('网络错误，请重试')
+    } finally {
+      setAccessLoading(false)
+    }
+  }
+
+  const canUseWechat = Boolean(authStatus?.wechatConfigured && qrUrl)
+  const canUseAccessCode = Boolean(authStatus?.accessCodeConfigured)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -91,9 +134,9 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
             <svg className="h-5 w-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
             </svg>
-            扫码登录
+            登录 Crazor
           </DialogTitle>
-          <DialogDescription>微信扫码即可解锁全部功能</DialogDescription>
+          <DialogDescription>使用微信或客户访问码继续</DialogDescription>
         </DialogHeader>
 
         <div className="py-4">
@@ -112,7 +155,7 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
           )}
 
           {/* WeChat login button */}
-          {!loading && !error && (
+          {!loading && canUseWechat && (
             <button
               onClick={handleWechatLogin}
               className="flex w-full items-center justify-center gap-3 rounded-xl bg-[#07C160] px-6 py-3 text-base font-medium text-white transition-opacity hover:opacity-90"
@@ -122,6 +165,26 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
               </svg>
               微信扫码登录
             </button>
+          )}
+
+          {!loading && canUseAccessCode && (
+            <form className="mt-4 space-y-3" onSubmit={handleAccessCodeLogin}>
+              <input
+                value={accessCode}
+                onChange={(event) => setAccessCode(event.target.value)}
+                type="password"
+                autoComplete="one-time-code"
+                placeholder="输入客户访问码"
+                className="h-11 w-full rounded-xl border border-border bg-background px-4 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+              />
+              <button
+                type="submit"
+                disabled={accessLoading}
+                className="flex w-full items-center justify-center rounded-xl bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {accessLoading ? '正在验证' : '使用访问码登录'}
+              </button>
+            </form>
           )}
 
           {/* Polling indicator */}

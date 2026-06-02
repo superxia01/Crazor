@@ -2814,7 +2814,7 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] font-medium text-sidebar-foreground/70">点击登录</p>
-                    <p className="text-[9px] text-sidebar-foreground/40">微信扫码登录</p>
+                    <p className="text-[9px] text-sidebar-foreground/40">客户登录</p>
                   </div>
                 </button>
               )}
