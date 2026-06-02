@@ -75,6 +75,48 @@ export function validateBusinessEntrypointShape(entrypoint, data) {
   return data !== null && data !== undefined
 }
 
+export function validateWebEntrypointHtml(text) {
+  const html = String(text || "")
+  return /<html[\s>]/i.test(html) &&
+    /<title>[^<]*Crazor/i.test(html) &&
+    /\bid=["']root["']/i.test(html) &&
+    /<script\b/i.test(html)
+}
+
+export async function requestDesktopText(baseUrl, path, {
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  expected = [200],
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  const normalizedBaseUrl = normalizeServerUrl(baseUrl)
+  if (!normalizedBaseUrl) throw new Error("客户桌面烟测需要有效的 http:// 或 https:// 后端地址")
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetchImpl(new URL(path, `${normalizedBaseUrl}/`).toString(), {
+      headers: { Accept: "text/html" },
+      signal: controller.signal,
+    })
+    const text = await response.text()
+    if (!expected.includes(response.status)) {
+      throw new Error(`GET ${path} 返回 ${response.status}${text ? `：${text.slice(0, 200)}` : ""}`)
+    }
+    return { status: response.status, text, contentType: response.headers?.get?.("Content-Type") || "" }
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`GET ${path} 超时`)
+    }
+    if (error instanceof Error && error.message.startsWith(`GET ${path} 返回`)) {
+      throw error
+    }
+    throw new Error(`GET ${path} 网络请求失败：${error?.message || error}`)
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 export async function requestDesktopJson(baseUrl, path, {
   method = "GET",
   body,
@@ -146,6 +188,7 @@ export async function runCustomerDesktopSmoke({
   const summary = []
   const warnings = []
   let chatReply = ""
+  let webEntrypointChecked = false
   let activeLoginToken = String(loginToken || "").trim()
   let accessCodeLoginChecked = false
   const businessEntryChecks = []
@@ -165,6 +208,18 @@ export async function runCustomerDesktopSmoke({
       fetchImpl,
       expected: [200],
     })
+  })
+
+  await step("网页版统一入口检查", async () => {
+    const web = await requestDesktopText(normalizedServerUrl, "/", {
+      timeoutMs,
+      fetchImpl,
+      expected: [200],
+    })
+    if (!validateWebEntrypointHtml(web.text)) {
+      throw new Error("Web 统一入口未返回 Crazor 前端 HTML，请确认 serverUrl 指向 crazor-web 网关而不是裸后端 API")
+    }
+    webEntrypointChecked = true
   })
 
   const readinessResult = await step("客户交付身份预检", async () => {
@@ -332,6 +387,7 @@ export async function runCustomerDesktopSmoke({
     serverUrl: normalizedServerUrl,
     protocolVersion: normalizeText(protocolVersion),
     readinessStatus: readinessResult?.status || "",
+    webEntrypointChecked,
     loginRequired: authStatus.gate.loginRequired,
     interactiveLoginRequired: authStatus.gate.needsInteractiveLogin,
     accessCodeLoginChecked,

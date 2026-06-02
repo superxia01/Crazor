@@ -242,6 +242,7 @@ export function renderCustomerHandoffReport(result) {
     `- 在线验收: ${result.live ? "已执行" : "已跳过"}`,
     `- 后端自检: ${result.server?.status || "未执行"}`,
     `- 后端指纹: ${result.server?.identityFingerprint || "未执行"}`,
+    `- Web 入口: ${result.desktopSmoke?.webEntrypointChecked ? "已验证" : "未验证"}`,
     `- 登录门禁: ${result.desktopSmoke ? (result.desktopSmoke.loginRequired ? "需要登录" : "未要求登录") : "未执行"}`,
     `- 访问码登录: ${result.desktopSmoke?.accessCodeLoginChecked ? "已验证" : "未验证"}`,
     `- 业务入口: ${formatBusinessEntrySummary(result.desktopSmoke?.businessEntryChecks)}`,

@@ -575,7 +575,12 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
   )
   assert.ok(
     customerDesktopSmokeScript.includes("runCustomerDesktopSmoke") &&
+      customerDesktopSmokeScript.includes("requestDesktopText") &&
+      customerDesktopSmokeScript.includes("validateWebEntrypointHtml") &&
       customerDesktopSmokeScript.includes("/api/delivery/readiness") &&
+      customerDesktopSmokeScript.includes("网页版统一入口检查") &&
+      customerDesktopSmokeScript.includes("webEntrypointChecked") &&
+      customerDesktopSmokeScript.includes("Web 统一入口未返回 Crazor 前端 HTML") &&
       customerDesktopSmokeScript.includes("/api/auth/status") &&
       customerDesktopSmokeScript.includes("/api/auth/me") &&
       customerDesktopSmokeScript.includes("/api/crazor/context?limit=1") &&
@@ -607,6 +612,7 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
       customerHandoffCheckScript.includes("CRAZOR_CUSTOMER_ACCESS_CODE") &&
       customerHandoffCheckScript.includes("listModelProviderConnections") &&
       customerHandoffCheckScript.includes("模型连接凭据") &&
+      customerHandoffCheckScript.includes("Web 入口") &&
       customerHandoffCheckScript.includes("isLocalModelBaseUrl") &&
       customerHandoffCheckScript.includes("renderCustomerHandoffReport") &&
       customerHandoffCheckScript.includes("## 业务入口自检") &&

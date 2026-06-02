@@ -9,12 +9,20 @@ import {
   runCustomerDesktopSmoke,
   summarizeReadinessIssues,
   validateBusinessEntrypointShape,
+  validateWebEntrypointHtml,
 } from "../../scripts/customer-desktop-smoke.mjs"
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "Content-Type": "application/json" },
+  })
+}
+
+function htmlResponse(text = "<!doctype html><html><head><title>Crazor数字员工系统</title></head><body><div id=\"root\"></div><script type=\"module\" src=\"/assets/index.js\"></script></body></html>") {
+  return new Response(text, {
+    status: 200,
+    headers: { "Content-Type": "text/html" },
   })
 }
 
@@ -35,6 +43,7 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
     if (pathname === "/api/health") {
       return jsonResponse({ status: "ok" })
     }
+    if (pathname === "/") return htmlResponse()
     if (pathname === "/api/delivery/readiness") {
       return jsonResponse({
         status: "ready",
@@ -95,6 +104,7 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
 
   assert.equal(result.ok, true)
   assert.equal(result.serverUrl, "https://client.example.com")
+  assert.equal(result.webEntrypointChecked, true)
   assert.equal(result.loginRequired, true)
   assert.equal(result.interactiveLoginRequired, false)
   assert.deepEqual(
@@ -104,6 +114,7 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
   assert.equal(result.liveChatChecked, true)
   assert.equal(result.chatReplyPreview, "OK")
   assert.ok(calls.some((call) => call.url === "https://client.example.com/api/crazor/context?limit=1"))
+  assert.ok(calls.some((call) => call.url === "https://client.example.com/"))
   assert.ok(calls.some((call) => call.url === "https://client.example.com/api/models"))
   assert.ok(calls.some((call) => call.url === "https://client.example.com/api/chat/completions"))
 })
@@ -114,6 +125,7 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
     calls.push({ url, init })
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
+    if (pathname === "/") return htmlResponse()
     if (pathname === "/api/delivery/readiness") {
       return jsonResponse({
         status: "ready",
@@ -169,6 +181,7 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
   })
 
   assert.equal(result.ok, true)
+  assert.equal(result.webEntrypointChecked, true)
   assert.equal(result.accessCodeLoginChecked, true)
   assert.equal(result.interactiveLoginRequired, false)
   assert.equal(result.businessEntryChecks.length, 5)
@@ -182,6 +195,7 @@ test("customer desktop smoke treats missing login token as an expected login gat
     calls.push(url)
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
+    if (pathname === "/") return htmlResponse()
     if (pathname === "/api/delivery/readiness") {
       return jsonResponse({ status: "ready", delivery: {}, checks: [] })
     }
@@ -202,6 +216,7 @@ test("customer desktop smoke treats missing login token as an expected login gat
 
   assert.equal(result.ok, true)
   assert.equal(result.loginRequired, true)
+  assert.equal(result.webEntrypointChecked, true)
   assert.equal(result.interactiveLoginRequired, true)
   assert.equal(result.liveChatChecked, false)
   assert.ok(result.warnings.some((item) => item.includes("要求登录")))
@@ -213,6 +228,7 @@ test("customer desktop smoke explains degraded readiness checks", async () => {
   const fetchImpl = async (url) => {
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
+    if (pathname === "/") return htmlResponse()
     if (pathname === "/api/delivery/readiness") {
       return jsonResponse({
         status: "degraded",
@@ -246,6 +262,7 @@ test("customer desktop smoke explains degraded readiness checks", async () => {
 
   assert.equal(result.ok, true)
   assert.equal(result.readinessStatus, "degraded")
+  assert.equal(result.webEntrypointChecked, true)
   assert.equal(result.businessEntryChecks.length, 5)
   assert.ok(result.warnings.some((item) => item.includes("交付身份警告")))
   assert.ok(result.warnings.some((item) => item.includes("CRAZOR_DELIVERY_CUSTOMER") || item.includes("后端未声明交付客户")))
@@ -287,6 +304,26 @@ test("customer desktop smoke helper exposes desktop request auth semantics", () 
   assert.equal(validateBusinessEntrypointShape({ shape: "array" }, {}), false)
   assert.equal(validateBusinessEntrypointShape({ shape: "object" }, { ok: true }), true)
   assert.equal(validateBusinessEntrypointShape({ shape: "object" }, []), false)
+  assert.equal(validateWebEntrypointHtml("<!doctype html><html><head><title>Crazor数字员工系统</title></head><body><div id=\"root\"></div><script src=\"/assets/app.js\"></script></body></html>"), true)
+  assert.equal(validateWebEntrypointHtml("{\"status\":\"ok\"}"), false)
+})
+
+test("customer desktop smoke rejects server URLs that do not serve the web shell", async () => {
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname
+    if (pathname === "/api/health") return jsonResponse({ status: "ok" })
+    if (pathname === "/") return jsonResponse({ status: "api-only" })
+    throw new Error(`unexpected ${url}`)
+  }
+
+  await assert.rejects(
+    runCustomerDesktopSmoke({
+      serverUrl: "http://127.0.0.1:3001",
+      fetchImpl,
+      logger: { log() {}, warn() {} },
+    }),
+    /Web 统一入口未返回 Crazor 前端 HTML/,
+  )
 })
 
 test("customer desktop smoke can skip live chat when only probing entrypoints", async () => {
@@ -295,6 +332,7 @@ test("customer desktop smoke can skip live chat when only probing entrypoints", 
     calls.push(url)
     const pathname = new URL(url).pathname
     if (pathname === "/api/health") return jsonResponse({ status: "ok" })
+    if (pathname === "/") return htmlResponse()
     if (pathname === "/api/delivery/readiness") {
       return jsonResponse({ status: "ready", delivery: {}, checks: [] })
     }
@@ -316,6 +354,7 @@ test("customer desktop smoke can skip live chat when only probing entrypoints", 
   })
 
   assert.equal(result.liveChatChecked, false)
+  assert.equal(result.webEntrypointChecked, true)
   assert.equal(result.businessEntryChecks.length, 5)
   assert.ok(result.warnings.some((item) => item.includes("已跳过真实对话响应检查")))
   assert.ok(!calls.some((url) => new URL(url).pathname === "/api/chat/completions"))
