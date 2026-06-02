@@ -244,7 +244,12 @@ export function renderCustomerHandoffReport(result) {
     `- 后端指纹: ${result.server?.identityFingerprint || "未执行"}`,
     `- 登录门禁: ${result.desktopSmoke ? (result.desktopSmoke.loginRequired ? "需要登录" : "未要求登录") : "未执行"}`,
     `- 访问码登录: ${result.desktopSmoke?.accessCodeLoginChecked ? "已验证" : "未验证"}`,
+    `- 业务入口: ${formatBusinessEntrySummary(result.desktopSmoke?.businessEntryChecks)}`,
     `- 真实对话: ${result.desktopSmoke?.liveChatChecked ? "已验证" : "未验证"}`,
+    "",
+    "## 业务入口自检",
+    "",
+    ...renderBusinessEntryChecks(result.desktopSmoke?.businessEntryChecks),
     "",
     "## 后端自检项",
     "",
@@ -345,6 +350,20 @@ function renderReadinessChecks(checks = []) {
     const status = formatReadinessStatus(check?.status)
     const detail = normalizeText(check?.detail || "无详情")
     return `- ${status} ${label}: ${detail}`
+  })
+}
+
+function formatBusinessEntrySummary(checks = []) {
+  if (!Array.isArray(checks) || checks.length === 0) return "未执行"
+  return `${checks.length} 项已验证`
+}
+
+function renderBusinessEntryChecks(checks = []) {
+  if (!Array.isArray(checks) || checks.length === 0) return ["- 未执行或登录门禁阻止自动进入业务数据"]
+  return checks.map((check) => {
+    const label = normalizeText(check?.label || check?.id || "业务入口")
+    const path = normalizeText(check?.path || "")
+    return `- 通过 ${label}${path ? `: ${path}` : ""}`
   })
 }
 

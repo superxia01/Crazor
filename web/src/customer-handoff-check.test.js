@@ -24,6 +24,15 @@ function jsonResponse(data, status = 200) {
   })
 }
 
+function businessEntrypointResponse(pathname) {
+  if (pathname === "/api/crazor/contacts") return jsonResponse([])
+  if (pathname === "/api/crazor/projects") return jsonResponse([])
+  if (pathname === "/api/crazor/tasks") return jsonResponse([])
+  if (pathname === "/api/crazor/docs/knowledge/tree") return jsonResponse({ folders: [], notes: [] })
+  if (pathname === "/api/crazor/attachments/policy") return jsonResponse({ max_bytes: 20971520, allowed_extensions: ["md"] })
+  return null
+}
+
 test("customer handoff check verifies package, env, access-code login, and chat", async () => {
   const dir = createDeliveryFixture({
     customer: "CRAZYAIGC 客户",
@@ -81,6 +90,11 @@ test("customer handoff check verifies package, env, access-code login, and chat"
         assert.equal(init.headers.Authorization, "Bearer access.jwt")
         return jsonResponse({ items: [] })
       }
+      const businessResponse = businessEntrypointResponse(pathname)
+      if (businessResponse) {
+        assert.equal(init.headers.Authorization, "Bearer access.jwt")
+        return businessResponse
+      }
       if (pathname === "/api/agent/provider") {
         return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
       }
@@ -111,10 +125,13 @@ test("customer handoff check verifies package, env, access-code login, and chat"
     assert.equal(result.server.identityFingerprint, result.delivery.identityFingerprint)
     assert.equal(result.server.readinessChecks.length, 3)
     assert.equal(result.desktopSmoke.accessCodeLoginChecked, true)
+    assert.equal(result.desktopSmoke.businessEntryChecks.length, 5)
     assert.equal(result.desktopSmoke.liveChatChecked, true)
     assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
     const report = renderCustomerHandoffReport(result)
     assert.match(report, /模型连接凭据: ANTHROPIC_API_KEY/)
+    assert.match(report, /## 业务入口自检/)
+    assert.match(report, /通过 客户 CRM: \/api\/crazor\/contacts/)
     assert.match(report, /## 后端自检项/)
     assert.match(report, /通过 模型配置: 模型 hermes-agent 可用/)
     assert.match(report, /通过 业务数据 API: CRM、项目和任务数据库可读/)

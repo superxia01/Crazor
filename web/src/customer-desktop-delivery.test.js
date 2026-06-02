@@ -579,6 +579,13 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
       customerDesktopSmokeScript.includes("/api/auth/status") &&
       customerDesktopSmokeScript.includes("/api/auth/me") &&
       customerDesktopSmokeScript.includes("/api/crazor/context?limit=1") &&
+      customerDesktopSmokeScript.includes("/api/crazor/contacts") &&
+      customerDesktopSmokeScript.includes("/api/crazor/projects") &&
+      customerDesktopSmokeScript.includes("/api/crazor/tasks") &&
+      customerDesktopSmokeScript.includes("/api/crazor/docs/knowledge/tree") &&
+      customerDesktopSmokeScript.includes("/api/crazor/attachments/policy") &&
+      customerDesktopSmokeScript.includes("businessEntryChecks") &&
+      customerDesktopSmokeScript.includes("validateBusinessEntrypointShape") &&
       customerDesktopSmokeScript.includes("/api/agent/provider") &&
       customerDesktopSmokeScript.includes("/api/models") &&
       customerDesktopSmokeScript.includes("/api/chat/completions") &&
@@ -602,6 +609,7 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
       customerHandoffCheckScript.includes("模型连接凭据") &&
       customerHandoffCheckScript.includes("isLocalModelBaseUrl") &&
       customerHandoffCheckScript.includes("renderCustomerHandoffReport") &&
+      customerHandoffCheckScript.includes("## 业务入口自检") &&
       customerHandoffCheckScript.includes("## 后端自检项") &&
       customerHandoffCheckScript.includes("后端要求登录，但未提供可自动验证的客户访问码或登录 token"),
     "handoff check should compose artifact, backend env, hosted server, login, and desktop chat verification"

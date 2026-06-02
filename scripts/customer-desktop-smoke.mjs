@@ -10,6 +10,13 @@ import {
 const DEFAULT_TIMEOUT_MS = 8000
 const DEFAULT_CHAT_TIMEOUT_MS = 60000
 const DEFAULT_PROTOCOL_VERSION = "1"
+const BUSINESS_ENTRYPOINTS = [
+  { id: "contacts", label: "客户 CRM", path: "/api/crazor/contacts", shape: "array" },
+  { id: "projects", label: "项目机会", path: "/api/crazor/projects", shape: "array" },
+  { id: "tasks", label: "任务协作", path: "/api/crazor/tasks", shape: "array" },
+  { id: "knowledge-tree", label: "知识库树", path: "/api/crazor/docs/knowledge/tree", shape: "any" },
+  { id: "attachment-policy", label: "附件策略", path: "/api/crazor/attachments/policy", shape: "object" },
+]
 
 export function truthy(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase())
@@ -60,6 +67,12 @@ export function summarizeReadinessIssues(readiness = {}) {
       const status = normalizeText(check?.status)
       return `${label}${status === "error" ? "失败" : "警告"}: ${detail}`
     })
+}
+
+export function validateBusinessEntrypointShape(entrypoint, data) {
+  if (entrypoint.shape === "array") return Array.isArray(data)
+  if (entrypoint.shape === "object") return Boolean(data && typeof data === "object" && !Array.isArray(data))
+  return data !== null && data !== undefined
 }
 
 export async function requestDesktopJson(baseUrl, path, {
@@ -135,6 +148,7 @@ export async function runCustomerDesktopSmoke({
   let chatReply = ""
   let activeLoginToken = String(loginToken || "").trim()
   let accessCodeLoginChecked = false
+  const businessEntryChecks = []
 
   async function step(name, fn) {
     logger.log(`- ${name}...`)
@@ -242,6 +256,25 @@ export async function runCustomerDesktopSmoke({
       fetchImpl,
       expected: [200],
     })
+
+    for (const entrypoint of BUSINESS_ENTRYPOINTS) {
+      const response = await requestDesktopJson(normalizedServerUrl, entrypoint.path, {
+        loginToken: activeLoginToken,
+        actorToken,
+        timeoutMs,
+        fetchImpl,
+        expected: [200],
+      })
+      if (!validateBusinessEntrypointShape(entrypoint, response.data)) {
+        throw new Error(`${entrypoint.label} 返回结构不符合预期`)
+      }
+      businessEntryChecks.push({
+        id: entrypoint.id,
+        label: entrypoint.label,
+        path: entrypoint.path,
+        status: "ok",
+      })
+    }
   })
 
   await step("对话能力入口检查", async () => {
@@ -302,6 +335,7 @@ export async function runCustomerDesktopSmoke({
     loginRequired: authStatus.gate.loginRequired,
     interactiveLoginRequired: authStatus.gate.needsInteractiveLogin,
     accessCodeLoginChecked,
+    businessEntryChecks,
     liveChatChecked: Boolean(chatReply),
     chatReplyPreview: chatReply.slice(0, 80),
     warnings,

@@ -8,6 +8,7 @@ import {
   evaluateDesktopLoginGate,
   runCustomerDesktopSmoke,
   summarizeReadinessIssues,
+  validateBusinessEntrypointShape,
 } from "../../scripts/customer-desktop-smoke.mjs"
 
 function jsonResponse(data, status = 200) {
@@ -15,6 +16,15 @@ function jsonResponse(data, status = 200) {
     status,
     headers: { "Content-Type": "application/json" },
   })
+}
+
+function businessEntrypointResponse(pathname) {
+  if (pathname === "/api/crazor/contacts") return jsonResponse([])
+  if (pathname === "/api/crazor/projects") return jsonResponse([])
+  if (pathname === "/api/crazor/tasks") return jsonResponse([])
+  if (pathname === "/api/crazor/docs/knowledge/tree") return jsonResponse({ folders: [], notes: [] })
+  if (pathname === "/api/crazor/attachments/policy") return jsonResponse({ max_bytes: 20971520, allowed_extensions: ["md"] })
+  return null
 }
 
 test("customer desktop smoke attaches login and actor tokens to hosted backend probes", async () => {
@@ -47,6 +57,12 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
       assert.equal(init.headers.Authorization, "Bearer login.jwt")
       assert.equal(init.headers["X-Crazor-Token"], "czr_actor")
       return jsonResponse({ items: [] })
+    }
+    const businessResponse = businessEntrypointResponse(pathname)
+    if (businessResponse) {
+      assert.equal(init.headers.Authorization, "Bearer login.jwt")
+      assert.equal(init.headers["X-Crazor-Token"], "czr_actor")
+      return businessResponse
     }
     if (pathname === "/api/agent/provider") {
       return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
@@ -81,6 +97,10 @@ test("customer desktop smoke attaches login and actor tokens to hosted backend p
   assert.equal(result.serverUrl, "https://client.example.com")
   assert.equal(result.loginRequired, true)
   assert.equal(result.interactiveLoginRequired, false)
+  assert.deepEqual(
+    result.businessEntryChecks.map((item) => item.id),
+    ["contacts", "projects", "tasks", "knowledge-tree", "attachment-policy"],
+  )
   assert.equal(result.liveChatChecked, true)
   assert.equal(result.chatReplyPreview, "OK")
   assert.ok(calls.some((call) => call.url === "https://client.example.com/api/crazor/context?limit=1"))
@@ -121,6 +141,11 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
       assert.equal(init.headers.Authorization, "Bearer access.jwt")
       return jsonResponse({ items: [] })
     }
+    const businessResponse = businessEntrypointResponse(pathname)
+    if (businessResponse) {
+      assert.equal(init.headers.Authorization, "Bearer access.jwt")
+      return businessResponse
+    }
     if (pathname === "/api/agent/provider") {
       return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
     }
@@ -146,6 +171,7 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
   assert.equal(result.ok, true)
   assert.equal(result.accessCodeLoginChecked, true)
   assert.equal(result.interactiveLoginRequired, false)
+  assert.equal(result.businessEntryChecks.length, 5)
   assert.equal(result.liveChatChecked, true)
   assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
 })
@@ -204,6 +230,8 @@ test("customer desktop smoke explains degraded readiness checks", async () => {
     if (pathname === "/api/auth/status") return jsonResponse({ loginRequired: false })
     if (pathname === "/api/auth/me") return jsonResponse({ loggedIn: false })
     if (pathname === "/api/crazor/context") return jsonResponse({ items: [] })
+    const businessResponse = businessEntrypointResponse(pathname)
+    if (businessResponse) return businessResponse
     if (pathname === "/api/agent/provider") return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
     if (pathname === "/api/models") return jsonResponse({ data: [{ id: "hermes-agent" }] })
     throw new Error(`unexpected ${url}`)
@@ -218,6 +246,7 @@ test("customer desktop smoke explains degraded readiness checks", async () => {
 
   assert.equal(result.ok, true)
   assert.equal(result.readinessStatus, "degraded")
+  assert.equal(result.businessEntryChecks.length, 5)
   assert.ok(result.warnings.some((item) => item.includes("交付身份警告")))
   assert.ok(result.warnings.some((item) => item.includes("CRAZOR_DELIVERY_CUSTOMER") || item.includes("后端未声明交付客户")))
   assert.ok(warnings.some((item) => item.includes("交付身份警告")))
@@ -254,6 +283,10 @@ test("customer desktop smoke helper exposes desktop request auth semantics", () 
     "交付身份警告: 缺少客户",
     "模型配置失败: 缺少 API Key",
   ])
+  assert.equal(validateBusinessEntrypointShape({ shape: "array" }, []), true)
+  assert.equal(validateBusinessEntrypointShape({ shape: "array" }, {}), false)
+  assert.equal(validateBusinessEntrypointShape({ shape: "object" }, { ok: true }), true)
+  assert.equal(validateBusinessEntrypointShape({ shape: "object" }, []), false)
 })
 
 test("customer desktop smoke can skip live chat when only probing entrypoints", async () => {
@@ -268,6 +301,8 @@ test("customer desktop smoke can skip live chat when only probing entrypoints", 
     if (pathname === "/api/auth/status") return jsonResponse({ loginRequired: false })
     if (pathname === "/api/auth/me") return jsonResponse({ loggedIn: false })
     if (pathname === "/api/crazor/context") return jsonResponse({ items: [] })
+    const businessResponse = businessEntrypointResponse(pathname)
+    if (businessResponse) return businessResponse
     if (pathname === "/api/agent/provider") return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
     if (pathname === "/api/models") return jsonResponse({ data: [{ id: "hermes-agent" }] })
     throw new Error(`unexpected ${url}`)
@@ -281,6 +316,7 @@ test("customer desktop smoke can skip live chat when only probing entrypoints", 
   })
 
   assert.equal(result.liveChatChecked, false)
+  assert.equal(result.businessEntryChecks.length, 5)
   assert.ok(result.warnings.some((item) => item.includes("已跳过真实对话响应检查")))
   assert.ok(!calls.some((url) => new URL(url).pathname === "/api/chat/completions"))
 })
