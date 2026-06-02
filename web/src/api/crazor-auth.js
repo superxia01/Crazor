@@ -20,6 +20,12 @@ export function clearCrazorAuthToken() {
   setCrazorAuthToken("")
 }
 
+export function clearCustomerLoginCredentials() {
+  if (typeof window === "undefined") return
+  window.localStorage.removeItem(LOGIN_TOKEN_STORAGE_KEY)
+  clearCrazorAuthToken()
+}
+
 export function storeCustomerLoginCredentials(data = {}) {
   if (typeof window === "undefined") return false
   const token = String(data?.token || "").trim()

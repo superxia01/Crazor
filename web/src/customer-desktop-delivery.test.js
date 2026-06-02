@@ -20,6 +20,7 @@ const desktopPackage = readFileSync(resolve(repoRoot, "desktop/package.json"), "
 const appSource = readFileSync(resolve(repoRoot, "web/src/App.jsx"), "utf8")
 const appInnerSource = readFileSync(resolve(repoRoot, "web/src/AppInner.jsx"), "utf8")
 const authFetchSource = readFileSync(resolve(repoRoot, "web/src/api/crazor-auth.js"), "utf8")
+const apiClientSource = readFileSync(resolve(repoRoot, "web/src/api/client.ts"), "utf8")
 const loginTokenRedirectSource = readFileSync(resolve(repoRoot, "web/src/api/login-token-redirect.js"), "utf8")
 const customerDeliverySource = readFileSync(resolve(repoRoot, "web/src/api/customer-delivery.js"), "utf8")
 const deliveryIdentitySource = readFileSync(resolve(repoRoot, "web/src/api/delivery-identity.js"), "utf8")
@@ -357,7 +358,12 @@ test("desktop WeChat login uses backend callback plus client polling", () => {
       authFetchSource.includes("storeCustomerLoginCredentials") &&
       authFetchSource.includes("window.localStorage.setItem(LOGIN_TOKEN_STORAGE_KEY, token)") &&
       authFetchSource.includes("setCrazorAuthToken(data?.actor_token || data?.actorToken || \"\")") &&
-      appSource.includes("clearCrazorAuthToken") &&
+      authFetchSource.includes("clearCustomerLoginCredentials") &&
+      authFetchSource.includes("window.localStorage.removeItem(LOGIN_TOKEN_STORAGE_KEY)") &&
+      apiClientSource.includes("clearCustomerLoginCredentials()") &&
+      apiClientSource.includes("data.needLogin") &&
+      appSource.includes("clearCustomerLoginCredentials()") &&
+      appSource.includes("crazor:auth-expired") &&
       serverIndex.includes("issueCustomerLoginActorToken") &&
       serverIndex.includes("actor_token") &&
       appInnerSource.includes("客户登录") &&

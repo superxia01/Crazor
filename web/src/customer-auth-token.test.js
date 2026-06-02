@@ -4,6 +4,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {
+  clearCustomerLoginCredentials,
   getCrazorAuthToken,
   storeCustomerLoginCredentials,
 } from "./api/crazor-auth.js"
@@ -66,6 +67,12 @@ test("customer login credentials replace stale actor tokens", () => {
     assert.equal(storeCustomerLoginCredentials({ actor_token: "czr_without_jwt" }), false)
     assert.equal(stub.storage.get("crazor_token"), "next.jwt")
     assert.equal(getCrazorAuthToken(), "")
+
+    assert.equal(storeCustomerLoginCredentials({ token: "fresh.jwt", actorToken: "czr_again" }), true)
+    clearCustomerLoginCredentials()
+    assert.equal(stub.storage.get("crazor_token"), undefined)
+    assert.equal(getCrazorAuthToken(), "")
+    assert.equal(stub.events.at(-1)?.detail?.hasToken, false)
   } finally {
     stub.restore()
   }

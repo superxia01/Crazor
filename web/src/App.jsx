@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { AppInner } from "./AppInner"
 import { CustomerDeliveryGate } from "./CustomerDeliveryGate"
 import { LoginPage } from "./pages/LoginPage"
-import { clearCrazorAuthToken } from "./api/crazor-auth"
+import { clearCustomerLoginCredentials } from "./api/crazor-auth"
 import { consumeLoginTokenFromLocation } from "./api/login-token-redirect"
 
 class ErrorBoundary extends React.Component {
@@ -90,7 +90,10 @@ export default function App() {
     void refreshAuth()
 
     // Listen for auth expiry
-    const handleExpired = () => setUserInfo(null)
+    const handleExpired = () => {
+      clearCustomerLoginCredentials()
+      setUserInfo(null)
+    }
     window.addEventListener('crazor:auth-expired', handleExpired)
     return () => window.removeEventListener('crazor:auth-expired', handleExpired)
   }, [refreshAuth])
@@ -100,8 +103,7 @@ export default function App() {
   }, [refreshAuth])
 
   const handleLogout = useCallback(() => {
-    localStorage.removeItem('crazor_token')
-    clearCrazorAuthToken()
+    clearCustomerLoginCredentials()
     setUserInfo(null)
     fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
   }, [])

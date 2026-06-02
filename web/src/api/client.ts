@@ -1,4 +1,5 @@
 // Unified HTTP client for Crazor
+import { clearCustomerLoginCredentials } from './crazor-auth.js'
 
 const API_BASE = ''
 
@@ -33,7 +34,7 @@ class ApiClient {
       try {
         const data = await response.json()
         if (data.needLogin) {
-          try { localStorage.removeItem('crazor_token') } catch {}
+          clearCustomerLoginCredentials()
           window.dispatchEvent(new CustomEvent('crazor:auth-expired'))
         }
       } catch {}
