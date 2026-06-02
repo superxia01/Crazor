@@ -160,6 +160,8 @@ test("customer backend can be deployed to a remote Docker host with preserved da
       customerBackendDeployScript.includes("run_remote_diagnostics") &&
       customerBackendDeployScript.includes("wait_for_delivery_readiness") &&
       customerBackendDeployScript.includes("/api/delivery/readiness") &&
+      customerBackendDeployScript.includes("summarizeIssues") &&
+      customerBackendDeployScript.includes("check.status === \"error\"") &&
       customerBackendDeployScript.includes("[\"ready\", \"degraded\"].includes(status)") &&
       customerBackendDeployScript.includes("crazor-server -> hermes:8642") &&
       customerBackendDeployScript.includes("--secrets-env-file") &&
@@ -397,6 +399,8 @@ test("docker customer backend receives hosted login and plan configuration", () 
       composeSource.includes("CRAZOR_DELIVERY_CUSTOMER: ${CRAZOR_DELIVERY_CUSTOMER:-}") &&
       composeSource.includes("CRAZOR_PUBLIC_BASE_URL: ${CRAZOR_PUBLIC_BASE_URL:-}") &&
       composeSource.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION: ${CRAZOR_DELIVERY_PROTOCOL_VERSION:-1}") &&
+      composeSource.includes("HERMES_DASHBOARD_INSECURE: ${HERMES_DASHBOARD_INSECURE:-1}") &&
+      composeSource.includes("${HERMES_DASHBOARD_BIND:-127.0.0.1}:9119:9119") &&
       composeSource.includes("HERMES_WORKSPACE_ROOT:-/opt/workspaces") &&
       composeSource.includes("HERMES_USER_WORKDIR:-/opt/workspaces/users/default") &&
       composeSource.includes("./data/hermes/workspaces:/opt/workspaces") &&

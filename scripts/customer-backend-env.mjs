@@ -58,6 +58,8 @@ export function buildCustomerBackendEnv({
     HERMES_API_SERVER_KEY: generatedAgentGatewayApiKey,
     HERMES_GATEWAY_BIND: "127.0.0.1",
     HERMES_DASHBOARD_BIND: "127.0.0.1",
+    HERMES_DASHBOARD_HOST: "0.0.0.0",
+    HERMES_DASHBOARD_INSECURE: "1",
     HERMES_WORKSPACE_ROOT: "/opt/workspaces",
     HERMES_USER_WORKDIR: "/opt/workspaces/users/default",
     TZ: "Asia/Shanghai",
@@ -130,6 +132,15 @@ export function validateCustomerBackendEnv(env = {}, {
   }
   if (env.HERMES_USER_WORKDIR !== "/opt/workspaces/users/default") {
     errors.push("HERMES_USER_WORKDIR 必须为 /opt/workspaces/users/default")
+  }
+  if (env.HERMES_DASHBOARD_BIND !== "127.0.0.1") {
+    errors.push("HERMES_DASHBOARD_BIND 必须为 127.0.0.1，避免客户环境暴露 Hermes Dashboard 管理面")
+  }
+  if (env.HERMES_DASHBOARD_HOST !== "0.0.0.0") {
+    errors.push("HERMES_DASHBOARD_HOST 必须为 0.0.0.0，确保 Crazor 后端可通过 Compose 内网访问 Dashboard")
+  }
+  if (env.HERMES_DASHBOARD_INSECURE !== "1") {
+    errors.push("HERMES_DASHBOARD_INSECURE 必须为 1，显式允许受控内网 Dashboard 绑定")
   }
   if (env.CRAZOR_REQUIRE_WRITE_TOKEN !== "true") {
     errors.push("CRAZOR_REQUIRE_WRITE_TOKEN 必须为 true")

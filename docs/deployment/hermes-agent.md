@@ -42,6 +42,8 @@ AGENT_DASHBOARD_URL=http://hermes:9119
 
 `HERMES_GATEWAY_URL`、`HERMES_DASHBOARD_URL` 和 `HERMES_API_SERVER_KEY` 仍保留为兼容旧配置。
 
+Hermes 新版要求非 loopback Dashboard 绑定必须显式 opt-in。Compose 默认设置 `HERMES_DASHBOARD_INSECURE=1`，但宿主机端口仍绑定 `127.0.0.1`；不要把 `HERMES_DASHBOARD_BIND` 改成 `0.0.0.0`，除非前面有可信认证层。
+
 宿主机默认也可以本机访问：
 
 ```text

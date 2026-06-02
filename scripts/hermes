@@ -143,6 +143,8 @@ init() {
   ensure_env_value HERMES_DASHBOARD_URL http://hermes:9119
   ensure_env_value HERMES_GATEWAY_BIND 127.0.0.1
   ensure_env_value HERMES_DASHBOARD_BIND 127.0.0.1
+  ensure_env_value HERMES_DASHBOARD_HOST 0.0.0.0
+  ensure_env_value HERMES_DASHBOARD_INSECURE 1
   ensure_env_value HERMES_WORKSPACE_ROOT /opt/workspaces
   ensure_env_value HERMES_USER_WORKDIR /opt/workspaces/users/default
   if [[ "$(read_env_value HERMES_WORKSPACE_ROOT || true)" == "/opt/data/workspaces" ]]; then

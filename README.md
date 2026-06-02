@@ -331,6 +331,7 @@ Crazor 支持四种部署方式，同一套代码通过环境变量切换：
 | `CRAZOR_HOME` | 数据目录 | `~/.crazor` |
 | `HERMES_GATEWAY_URL` | Hermes Gateway 地址 | `http://127.0.0.1:8642` |
 | `HERMES_DASHBOARD_URL` | Hermes Dashboard 地址 | `http://127.0.0.1:9119` |
+| `HERMES_DASHBOARD_INSECURE` | 允许容器内 Dashboard 绑定 `0.0.0.0`；宿主机端口仍必须只绑定 `127.0.0.1` | `1` |
 | `WECHAT_APP_ID` | 微信开放平台 APP_ID；需与 `WECHAT_APP_SECRET` 同时配置才启用扫码登录 | 空 |
 | `WECHAT_APP_SECRET` | 微信开放平台 APP_SECRET；需与 `WECHAT_APP_ID` 同时配置才启用扫码登录 | 空 |
 | `JWT_SECRET` | JWT 签名密钥；Docker 默认留空不强制登录，客户交付环境建议设置强密钥 | 空 |

@@ -279,7 +279,25 @@ run_remote_diagnostics() {
 wait_for_delivery_readiness() {
   printf '等待客户交付自检进入可交付状态：%s/api/delivery/readiness\n' "$SERVER_URL"
   for _ in $(seq 1 60); do
-    if node -e 'const url = process.argv[1]; fetch(url, { headers: { Accept: "application/json" } }).then(async (resp) => { const data = await resp.json().catch(() => ({})); const status = String(data.status || ""); console.log(`客户交付自检状态：${status || "unknown"}`); process.exit(resp.ok && ["ready", "degraded"].includes(status) ? 0 : 1); }).catch((error) => { console.log(`客户交付自检暂不可用：${error.message || error}`); process.exit(1); });' "$SERVER_URL/api/delivery/readiness"; then
+    if node -e '
+      const url = process.argv[1]
+      const summarizeIssues = (data) => {
+        const checks = Array.isArray(data?.checks) ? data.checks : []
+        return checks
+          .filter((check) => check?.status === "error" || check?.status === "warn")
+          .map((check) => `${check.label || check.id || "检查项"}${check.status === "error" ? "失败" : "警告"}: ${check.detail || "无详情"}`)
+      }
+      fetch(url, { headers: { Accept: "application/json" } }).then(async (resp) => {
+        const data = await resp.json().catch(() => ({}))
+        const status = String(data.status || "")
+        const issues = summarizeIssues(data)
+        console.log(`客户交付自检状态：${status || "unknown"}${issues.length ? `；${issues.join("；")}` : ""}`)
+        process.exit(resp.ok && ["ready", "degraded"].includes(status) ? 0 : 1)
+      }).catch((error) => {
+        console.log(`客户交付自检暂不可用：${error.message || error}`)
+        process.exit(1)
+      })
+    ' "$SERVER_URL/api/delivery/readiness"; then
       return 0
     fi
     sleep 2

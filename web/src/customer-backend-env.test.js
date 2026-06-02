@@ -36,6 +36,9 @@ test("customer backend env generator prepares strict hosted delivery settings", 
   assert.equal(env.AGENT_GATEWAY_URL, "http://hermes:8642")
   assert.ok(env.AGENT_GATEWAY_API_KEY.length >= 32)
   assert.equal(env.HERMES_API_SERVER_KEY, env.AGENT_GATEWAY_API_KEY)
+  assert.equal(env.HERMES_DASHBOARD_BIND, "127.0.0.1")
+  assert.equal(env.HERMES_DASHBOARD_HOST, "0.0.0.0")
+  assert.equal(env.HERMES_DASHBOARD_INSECURE, "1")
   assert.equal(env.HERMES_WORKSPACE_ROOT, "/opt/workspaces")
   assert.equal(env.HERMES_USER_WORKDIR, "/opt/workspaces/users/default")
   assert.match(env.COMPOSE_PROJECT_NAME, /^crazor-/)
@@ -55,6 +58,9 @@ test("customer backend env validator rejects unsafe customer handoff config", ()
     AGENT_GATEWAY_URL: "http://127.0.0.1:8642",
     AGENT_GATEWAY_API_KEY: "change-me-run-scripts-hermes-init",
     HERMES_API_SERVER_KEY: "different-key",
+    HERMES_DASHBOARD_BIND: "0.0.0.0",
+    HERMES_DASHBOARD_HOST: "127.0.0.1",
+    HERMES_DASHBOARD_INSECURE: "",
     HERMES_WORKSPACE_ROOT: "/opt/data/workspaces",
     HERMES_USER_WORKDIR: "/opt/data/workspaces/users/default",
     CRAZOR_REQUIRE_WRITE_TOKEN: "false",
@@ -72,6 +78,9 @@ test("customer backend env validator rejects unsafe customer handoff config", ()
   assert.match(result.errors.join("\n"), /CRAZOR_CUSTOMER_ACCESS_CODE/)
   assert.match(result.errors.join("\n"), /AGENT_GATEWAY_API_KEY/)
   assert.match(result.errors.join("\n"), /HERMES_API_SERVER_KEY/)
+  assert.match(result.errors.join("\n"), /HERMES_DASHBOARD_BIND/)
+  assert.match(result.errors.join("\n"), /HERMES_DASHBOARD_HOST/)
+  assert.match(result.errors.join("\n"), /HERMES_DASHBOARD_INSECURE/)
   assert.match(result.errors.join("\n"), /HERMES_WORKSPACE_ROOT/)
   assert.match(result.errors.join("\n"), /HERMES_USER_WORKDIR/)
   assert.match(result.errors.join("\n"), /演示数据/)
