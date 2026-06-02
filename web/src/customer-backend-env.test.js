@@ -34,6 +34,10 @@ test("customer backend env generator prepares strict hosted delivery settings", 
   assert.equal(env.CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN, "true")
   assert.ok(env.CRAZOR_CUSTOMER_ACCESS_CODE.length >= 8)
   assert.equal(env.AGENT_GATEWAY_URL, "http://hermes:8642")
+  assert.ok(env.AGENT_GATEWAY_API_KEY.length >= 32)
+  assert.equal(env.HERMES_API_SERVER_KEY, env.AGENT_GATEWAY_API_KEY)
+  assert.equal(env.HERMES_WORKSPACE_ROOT, "/opt/workspaces")
+  assert.equal(env.HERMES_USER_WORKDIR, "/opt/workspaces/users/default")
   assert.match(env.COMPOSE_PROJECT_NAME, /^crazor-/)
   assert.ok(env.CORS_ORIGINS.includes("https://client.example.com/crazor"))
   assert.ok(env.CORS_ORIGINS.includes("tauri://localhost"))
@@ -49,6 +53,10 @@ test("customer backend env validator rejects unsafe customer handoff config", ()
     CRAZOR_SEED_DEMO_DATA: "true",
     COMPOSE_PROFILES: "",
     AGENT_GATEWAY_URL: "http://127.0.0.1:8642",
+    AGENT_GATEWAY_API_KEY: "change-me-run-scripts-hermes-init",
+    HERMES_API_SERVER_KEY: "different-key",
+    HERMES_WORKSPACE_ROOT: "/opt/data/workspaces",
+    HERMES_USER_WORKDIR: "/opt/data/workspaces/users/default",
     CRAZOR_REQUIRE_WRITE_TOKEN: "false",
     CRAZOR_REQUIRE_BUSINESS_READ_TOKEN: "false",
     CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN: "false",
@@ -62,6 +70,10 @@ test("customer backend env validator rejects unsafe customer handoff config", ()
   assert.match(result.errors.join("\n"), /CRAZOR_DELIVERY_CUSTOMER/)
   assert.match(result.errors.join("\n"), /CRAZOR_CUSTOMER_SERVER_PREFLIGHT/)
   assert.match(result.errors.join("\n"), /CRAZOR_CUSTOMER_ACCESS_CODE/)
+  assert.match(result.errors.join("\n"), /AGENT_GATEWAY_API_KEY/)
+  assert.match(result.errors.join("\n"), /HERMES_API_SERVER_KEY/)
+  assert.match(result.errors.join("\n"), /HERMES_WORKSPACE_ROOT/)
+  assert.match(result.errors.join("\n"), /HERMES_USER_WORKDIR/)
   assert.match(result.errors.join("\n"), /演示数据/)
   assert.match(result.errors.join("\n"), /Tauri 来源/)
 })
@@ -77,6 +89,20 @@ test("customer backend env validator accepts access code login without WeChat", 
   assert.equal(result.ok, true)
   assert.match(result.warnings.join("\n"), /本机地址/)
   assert.equal(validateCustomerBackendEnv(env, { strict: true }).ok, false)
+})
+
+test("customer backend env treats shared address space as private delivery network", () => {
+  const env = buildCustomerBackendEnv({
+    customer: "Tailscale 客户",
+    serverUrl: "http://100.87.117.18:5173",
+    jwtSecret: "0123456789abcdef0123456789abcdef",
+    accessCode: "handoff-code",
+    agentGatewayApiKey: "abcdef0123456789abcdef0123456789",
+  })
+  const result = validateCustomerBackendEnv(env, { strict: true })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.warnings.join("\n").includes("公网客户交付建议使用 HTTPS"), false)
 })
 
 test("customer backend env renderer round-trips quoted customer values", () => {

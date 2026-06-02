@@ -25,6 +25,7 @@ usage() {
   ./scripts/hermes smoke                运行 Crazor Docker MVP 烟测
   ./scripts/hermes desktop-smoke        模拟客户桌面端连接托管后端烟测
   ./scripts/hermes customer-env         生成客户后端 Docker 环境文件
+  ./scripts/hermes customer-deploy      部署客户后端到远端 Docker 主机
   ./scripts/hermes customer-build       按客户后端环境文件构建客户桌面安装包
   ./scripts/hermes handoff-check        校验客户安装包、后端配置和桌面链路
   ./scripts/hermes smoke-strict         临时开启严格认证后运行烟测，结束后恢复
@@ -142,8 +143,14 @@ init() {
   ensure_env_value HERMES_DASHBOARD_URL http://hermes:9119
   ensure_env_value HERMES_GATEWAY_BIND 127.0.0.1
   ensure_env_value HERMES_DASHBOARD_BIND 127.0.0.1
-  ensure_env_value HERMES_WORKSPACE_ROOT /opt/data/workspaces
-  ensure_env_value HERMES_USER_WORKDIR /opt/data/workspaces/users/default
+  ensure_env_value HERMES_WORKSPACE_ROOT /opt/workspaces
+  ensure_env_value HERMES_USER_WORKDIR /opt/workspaces/users/default
+  if [[ "$(read_env_value HERMES_WORKSPACE_ROOT || true)" == "/opt/data/workspaces" ]]; then
+    set_env_value HERMES_WORKSPACE_ROOT /opt/workspaces
+  fi
+  if [[ "$(read_env_value HERMES_USER_WORKDIR || true)" == "/opt/data/workspaces/users/default" ]]; then
+    set_env_value HERMES_USER_WORKDIR /opt/workspaces/users/default
+  fi
   ensure_env_value HERMES_UID "$(id -u)"
   ensure_env_value HERMES_GID "$(id -g)"
   ensure_env_value TZ Asia/Shanghai
@@ -176,7 +183,7 @@ setup() {
   init
   compose run --rm --no-deps \
     -e HOME=/opt/data \
-    -w "${HERMES_USER_WORKDIR:-/opt/data/workspaces/users/default}" \
+    -w "${HERMES_USER_WORKDIR:-/opt/workspaces/users/default}" \
     hermes setup "$@"
 }
 
@@ -270,6 +277,9 @@ case "$cmd" in
   customer-env)
     need node
     node "$PROJECT_ROOT/scripts/customer-backend-env.mjs" "$@"
+    ;;
+  customer-deploy)
+    bash "$PROJECT_ROOT/scripts/deploy-customer-backend.sh" "$@"
     ;;
   customer-build)
     need node

@@ -7,7 +7,7 @@ services:
     image: ${HERMES_IMAGE:-nousresearch/hermes-agent:latest}
     restart: unless-stopped
     command: gateway run
-    working_dir: ${HERMES_USER_WORKDIR:-/opt/data/workspaces/users/default}
+    working_dir: ${HERMES_USER_WORKDIR:-/opt/workspaces/users/default}
     ports:
       - "${HERMES_GATEWAY_BIND:-127.0.0.1}:8642:8642"
       - "${HERMES_DASHBOARD_BIND:-127.0.0.1}:9119:9119"
@@ -15,11 +15,11 @@ services:
       HOME: /opt/data
       TZ: ${TZ:-Asia/Shanghai}
       CRON_TZ: ${CRON_TZ:-Asia/Shanghai}
-      HERMES_WORKSPACE_ROOT: ${HERMES_WORKSPACE_ROOT:-/opt/data/workspaces}
-      HERMES_USER_WORKDIR: ${HERMES_USER_WORKDIR:-/opt/data/workspaces/users/default}
-      WORKSPACE_ROOT: ${HERMES_WORKSPACE_ROOT:-/opt/data/workspaces}
-      USER_WORKDIR: ${HERMES_USER_WORKDIR:-/opt/data/workspaces/users/default}
-      AGENT_WORKDIR: ${HERMES_USER_WORKDIR:-/opt/data/workspaces/users/default}
+      HERMES_WORKSPACE_ROOT: ${HERMES_WORKSPACE_ROOT:-/opt/workspaces}
+      HERMES_USER_WORKDIR: ${HERMES_USER_WORKDIR:-/opt/workspaces/users/default}
+      WORKSPACE_ROOT: ${HERMES_WORKSPACE_ROOT:-/opt/workspaces}
+      USER_WORKDIR: ${HERMES_USER_WORKDIR:-/opt/workspaces/users/default}
+      AGENT_WORKDIR: ${HERMES_USER_WORKDIR:-/opt/workspaces/users/default}
       HERMES_UID: ${HERMES_UID:-1000}
       HERMES_GID: ${HERMES_GID:-1000}
       HERMES_DASHBOARD: ${HERMES_DASHBOARD:-1}
@@ -56,7 +56,7 @@ services:
     shm_size: ${HERMES_SHM_SIZE:-1gb}
     volumes:
       - ./data/hermes/state:/opt/data
-      - ./data/hermes/workspaces:/opt/data/workspaces
+      - ./data/hermes/workspaces:/opt/workspaces
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8642/health || exit 1"]
       interval: 30s

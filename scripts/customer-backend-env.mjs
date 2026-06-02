@@ -20,6 +20,7 @@ export function buildCustomerBackendEnv({
   protocolVersion = DEFAULT_PROTOCOL_VERSION,
   jwtSecret = "",
   accessCode = "",
+  agentGatewayApiKey = "",
   wechatAppId = "",
   wechatAppSecret = "",
   composeProjectName = "",
@@ -30,6 +31,7 @@ export function buildCustomerBackendEnv({
   const normalizedServerUrl = normalizeServerUrl(serverUrl)
   const generatedJwtSecret = jwtSecret || randomBytes(32).toString("hex")
   const generatedAccessCode = accessCode || randomBytes(9).toString("base64url")
+  const generatedAgentGatewayApiKey = agentGatewayApiKey || randomBytes(32).toString("hex")
   const corsOrigins = unique([
     normalizedServerUrl,
     "http://localhost:5173",
@@ -49,13 +51,15 @@ export function buildCustomerBackendEnv({
     AGENT_PROVIDER: "hermes",
     AGENT_GATEWAY_URL: "http://hermes:8642",
     AGENT_DASHBOARD_URL: "http://hermes:9119",
+    AGENT_GATEWAY_API_KEY: generatedAgentGatewayApiKey,
     HERMES_IMAGE: "nousresearch/hermes-agent:main",
     HERMES_GATEWAY_URL: "http://hermes:8642",
     HERMES_DASHBOARD_URL: "http://hermes:9119",
+    HERMES_API_SERVER_KEY: generatedAgentGatewayApiKey,
     HERMES_GATEWAY_BIND: "127.0.0.1",
     HERMES_DASHBOARD_BIND: "127.0.0.1",
-    HERMES_WORKSPACE_ROOT: "/opt/data/workspaces",
-    HERMES_USER_WORKDIR: "/opt/data/workspaces/users/default",
+    HERMES_WORKSPACE_ROOT: "/opt/workspaces",
+    HERMES_USER_WORKDIR: "/opt/workspaces/users/default",
     TZ: "Asia/Shanghai",
     CRON_TZ: "Asia/Shanghai",
     CRAZOR_SEED_DEMO_DATA: "false",
@@ -114,6 +118,18 @@ export function validateCustomerBackendEnv(env = {}, {
   }
   if (env.AGENT_GATEWAY_URL !== "http://hermes:8642") {
     errors.push("AGENT_GATEWAY_URL 必须指向 Compose 内部 Hermes Gateway")
+  }
+  if (!isUsableAgentGatewayKey(env.AGENT_GATEWAY_API_KEY)) {
+    errors.push("AGENT_GATEWAY_API_KEY 必须是至少 32 字符的正式密钥")
+  }
+  if (env.HERMES_API_SERVER_KEY !== env.AGENT_GATEWAY_API_KEY) {
+    errors.push("HERMES_API_SERVER_KEY 必须与 AGENT_GATEWAY_API_KEY 保持一致")
+  }
+  if (env.HERMES_WORKSPACE_ROOT !== "/opt/workspaces") {
+    errors.push("HERMES_WORKSPACE_ROOT 必须为 /opt/workspaces，避免工作区嵌套到 /opt/data 初始化目录")
+  }
+  if (env.HERMES_USER_WORKDIR !== "/opt/workspaces/users/default") {
+    errors.push("HERMES_USER_WORKDIR 必须为 /opt/workspaces/users/default")
   }
   if (env.CRAZOR_REQUIRE_WRITE_TOKEN !== "true") {
     errors.push("CRAZOR_REQUIRE_WRITE_TOKEN 必须为 true")
@@ -214,6 +230,12 @@ function isStrongAccessCode(value) {
   return !["change-me", "please-change", "12345678", "password"].some((bad) => text.toLowerCase().includes(bad))
 }
 
+function isUsableAgentGatewayKey(value) {
+  const text = String(value || "").trim()
+  if (text.length < 32) return false
+  return !["change-me", "please-change", "change-me-run-scripts-hermes-init"].some((bad) => text.includes(bad))
+}
+
 function unique(items) {
   return Array.from(new Set(items.filter(Boolean)))
 }
@@ -257,6 +279,11 @@ function isPrivateNetworkUrl(value) {
   const host = new URL(value).hostname.toLowerCase()
   if (host === "localhost" || host.endsWith(".local")) return true
   if (/^10\./.test(host)) return true
+  const sharedAddressMatch = host.match(/^100\.(\d+)\./)
+  if (sharedAddressMatch) {
+    const secondOctet = Number(sharedAddressMatch[1])
+    if (secondOctet >= 64 && secondOctet <= 127) return true
+  }
   if (/^192\.168\./.test(host)) return true
   const match = host.match(/^172\.(\d+)\./)
   return Boolean(match && Number(match[1]) >= 16 && Number(match[1]) <= 31)
@@ -272,6 +299,7 @@ function parseArgs(argv) {
     else if (arg === "--protocol-version") options.protocolVersion = argv[++index] || ""
     else if (arg === "--jwt-secret") options.jwtSecret = argv[++index] || ""
     else if (arg === "--access-code") options.accessCode = argv[++index] || ""
+    else if (arg === "--agent-gateway-api-key") options.agentGatewayApiKey = argv[++index] || ""
     else if (arg === "--wechat-app-id") options.wechatAppId = argv[++index] || ""
     else if (arg === "--wechat-app-secret") options.wechatAppSecret = argv[++index] || ""
     else if (arg === "--output" || arg === "-o") options.output = argv[++index] || ""
@@ -291,12 +319,12 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`用法:
   node scripts/customer-backend-env.mjs "客户名称" "http://局域网IP:5173" [输出文件]
-  node scripts/customer-backend-env.mjs --customer "客户名称" --server-url "https://crazor.example.com" --access-code "客户访问码" --output .env.customer --force
+  node scripts/customer-backend-env.mjs --customer "客户名称" --server-url "https://crazor.example.com" --access-code "客户访问码" --agent-gateway-api-key "Agent网关密钥" --output .env.customer --force
   node scripts/customer-backend-env.mjs --check .env.customer --customer "客户名称" --server-url "https://crazor.example.com" --strict
 
 说明:
   生成客户后端 Docker Compose 环境文件，默认输出到 .env.customer。
-  默认会生成 CRAZOR_CUSTOMER_ACCESS_CODE 访问码；正式交付也可同时传入 --wechat-app-id 和 --wechat-app-secret。`)
+  默认会生成 CRAZOR_CUSTOMER_ACCESS_CODE 访问码和 AGENT_GATEWAY_API_KEY；正式交付也可同时传入 --wechat-app-id 和 --wechat-app-secret。`)
 }
 
 async function main() {

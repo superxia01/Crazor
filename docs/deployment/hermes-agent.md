@@ -66,13 +66,13 @@ data/hermes/
 
 ```text
 /opt/data
-/opt/data/workspaces
+/opt/workspaces
 ```
 
 默认用户工作目录：
 
 ```text
-/opt/data/workspaces/users/default
+/opt/workspaces/users/default
 ```
 
 `data/` 已加入 `.gitignore`，不会提交到仓库。

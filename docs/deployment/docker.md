@@ -97,7 +97,21 @@ docker compose --env-file .env.customer up -d --build
 CRAZOR_CUSTOMER_SERVER_PREFLIGHT=strict ./scripts/build-customer.sh "客户名称" "http://局域网IP:5173" current
 ```
 
-`customer-env` 会生成客户后端专用环境文件，默认开启 `CRAZOR_REQUIRE_WRITE_TOKEN`、`CRAZOR_REQUIRE_BUSINESS_READ_TOKEN`、`CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN`、`CRAZOR_CUSTOMER_SERVER_PREFLIGHT=strict`，生成 `CRAZOR_CUSTOMER_ACCESS_CODE` 客户访问码，并写入 Tauri 客户端需要的 CORS 来源。若要在客户现场启用扫码登录，生成时同时传入 `--wechat-app-id` 和 `--wechat-app-secret`；未接微信时，客户可先用访问码登录 Tauri 客户端。
+远端 Docker 主机使用统一部署入口，避免手工复制代码和环境文件：
+
+```bash
+./scripts/hermes customer-deploy \
+  --host wings@100.87.117.18 \
+  --ssh-key /Users/hazeapple/codex/.secrets/crazor_backend_deploy_ed25519 \
+  --remote-dir /home/wings/docker/crazor \
+  --customer CRAZYAIGC \
+  --server-url http://100.87.117.18:5173 \
+  --skip-live-chat
+```
+
+脚本会在远端维护 `releases/`、`current` 和 `shared/data`：代码按 release 发布，`shared/data` 作为 Compose 相对数据目录长期保留，避免部署覆盖客户数据。模型 provider 密钥不会默认上传；需要真实对话验收时显式传入 `--secrets-env-file .env`，脚本只追加白名单内的模型相关变量。
+
+`customer-env` 会生成客户后端专用环境文件，默认开启 `CRAZOR_REQUIRE_WRITE_TOKEN`、`CRAZOR_REQUIRE_BUSINESS_READ_TOKEN`、`CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN`、`CRAZOR_CUSTOMER_SERVER_PREFLIGHT=strict`，生成 `CRAZOR_CUSTOMER_ACCESS_CODE` 客户访问码，生成并同步 `AGENT_GATEWAY_API_KEY` / `HERMES_API_SERVER_KEY`，并写入 Tauri 客户端需要的 CORS 来源。若要在客户现场启用扫码登录，生成时同时传入 `--wechat-app-id` 和 `--wechat-app-secret`；未接微信时，客户可先用访问码登录 Tauri 客户端。
 
 安装包 manifest、客户端设置页和后端交付自检都会展示同一组交付指纹；现场验收时先对照指纹，确认安装包绑定的客户、服务地址和交付协议与后端一致。安装包交付前再用统一验收命令，把安装包 manifest、checksum、客户后端环境、访问码登录、业务上下文和真实对话链路一次性跑通，并生成可归档报告：
 

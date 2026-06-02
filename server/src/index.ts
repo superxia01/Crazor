@@ -561,6 +561,41 @@ function isLocalModelBaseUrl(baseUrl: string): boolean {
   }
 }
 
+function firstGatewayModelId(payload: unknown): string {
+  const record = asRecord(payload)
+  const models = Array.isArray(record.data) ? record.data : []
+  for (const model of models) {
+    const id = cleanString(asRecord(model).id)
+    if (id) return id
+  }
+  return cleanString(record.id) || cleanString(record.model)
+}
+
+async function readGatewayModelListReadiness(reason = ''): Promise<DeliveryReadinessCheck> {
+  try {
+    const resp = await gatewayFetch('/v1/models')
+    if (!resp.ok) {
+      return deliveryCheck('model-config', '模型配置', 'error', `Gateway 模型列表返回 HTTP ${resp.status}`)
+    }
+
+    const payload = await parseResponsePayload(resp)
+    const model = firstGatewayModelId(payload)
+    if (!model) {
+      return deliveryCheck('model-config', '模型配置', 'error', 'Gateway 模型列表为空，客户首次对话会失败')
+    }
+
+    return deliveryCheck(
+      'model-config',
+      '模型配置',
+      'ok',
+      reason ? `Gateway 模型 ${model} 可用；${reason}` : `Gateway 模型 ${model} 可用`,
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Gateway 模型列表检查失败'
+    return deliveryCheck('model-config', '模型配置', 'error', message)
+  }
+}
+
 async function readModelConfigReadiness(): Promise<DeliveryReadinessCheck> {
   if (!agentProviderSupports('dashboard.model_config')) {
     return deliveryCheck('model-config', '模型配置', 'ok', '当前 Agent Provider 由外部网关托管模型配置')
@@ -569,7 +604,7 @@ async function readModelConfigReadiness(): Promise<DeliveryReadinessCheck> {
   try {
     const resp = await dashboardFetch('/api/model/info')
     if (!resp.ok) {
-      return deliveryCheck('model-config', '模型配置', 'error', `模型配置接口返回 HTTP ${resp.status}`)
+      return readGatewayModelListReadiness(`Dashboard 模型配置接口返回 HTTP ${resp.status}`)
     }
 
     const info = asRecord(await parseResponsePayload(resp))
@@ -614,7 +649,7 @@ async function readModelConfigReadiness(): Promise<DeliveryReadinessCheck> {
     return deliveryCheck('model-config', '模型配置', 'ok', detailParts.join('，'))
   } catch (error) {
     const message = error instanceof Error ? error.message : '模型配置检查失败'
-    return deliveryCheck('model-config', '模型配置', 'error', message)
+    return readGatewayModelListReadiness(`Dashboard 模型配置不可用：${message}`)
   }
 }
 

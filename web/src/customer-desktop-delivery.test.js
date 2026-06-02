@@ -10,6 +10,7 @@ const buildCustomerScript = readFileSync(resolve(repoRoot, "scripts/build-custom
 const hermesScript = readFileSync(resolve(repoRoot, "scripts/hermes"), "utf8")
 const customerDesktopSmokeScript = readFileSync(resolve(repoRoot, "scripts/customer-desktop-smoke.mjs"), "utf8")
 const customerHandoffCheckScript = readFileSync(resolve(repoRoot, "scripts/customer-handoff-check.mjs"), "utf8")
+const customerBackendDeployScript = readFileSync(resolve(repoRoot, "scripts/deploy-customer-backend.sh"), "utf8")
 const verifyCustomerServerScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-server.mjs"), "utf8")
 const verifyCustomerDeliveryScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-delivery.mjs"), "utf8")
 const verifyCustomerInstallerScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-installer.mjs"), "utf8")
@@ -128,12 +129,54 @@ test("customer package build can strictly preflight the hosted backend before ha
       customerBackendEnvScript.includes("buildCustomerBackendEnv") &&
       customerBackendEnvScript.includes("CRAZOR_CUSTOMER_SERVER_PREFLIGHT") &&
       customerBackendEnvScript.includes("CRAZOR_CUSTOMER_ACCESS_CODE") &&
+      customerBackendEnvScript.includes("AGENT_GATEWAY_API_KEY") &&
+      customerBackendEnvScript.includes("HERMES_API_SERVER_KEY") &&
       customerBackendEnvScript.includes("CRAZOR_REQUIRE_BUSINESS_READ_TOKEN") &&
       customerBackendEnvScript.includes("WECHAT_APP_ID") &&
       customerBackendEnvScript.includes("CORS_ORIGINS") &&
       customerBackendEnvScript.includes("--check") &&
       customerBackendEnvScript.includes("docker compose --env-file <环境文件> up -d --build"),
     "operators should have a scripted way to generate a customer backend env file before building the desktop package"
+  )
+})
+
+test("customer backend can be deployed to a remote Docker host with preserved data", () => {
+  assert.ok(
+    hermesScript.includes("customer-deploy") &&
+      hermesScript.includes("deploy-customer-backend.sh"),
+    "Hermes helper should expose a fixed customer backend deployment entrypoint"
+  )
+  assert.ok(
+    customerBackendDeployScript.includes("--remote-dir") &&
+      customerBackendDeployScript.includes("/home/wings/docker/crazor") &&
+      customerBackendDeployScript.includes("releases") &&
+      customerBackendDeployScript.includes("current") &&
+      customerBackendDeployScript.includes("shared/data") &&
+      customerBackendDeployScript.includes("docker compose --env-file .env.customer up -d --build") &&
+      customerBackendDeployScript.includes("customer-backend-env.mjs") &&
+      customerBackendDeployScript.includes("customer-desktop-smoke.mjs") &&
+      customerBackendDeployScript.includes("CRAZOR_DESKTOP_SMOKE_ACCESS_CODE") &&
+      customerBackendDeployScript.includes("--diagnose-only") &&
+      customerBackendDeployScript.includes("run_remote_diagnostics") &&
+      customerBackendDeployScript.includes("wait_for_delivery_readiness") &&
+      customerBackendDeployScript.includes("/api/delivery/readiness") &&
+      customerBackendDeployScript.includes("[\"ready\", \"degraded\"].includes(status)") &&
+      customerBackendDeployScript.includes("crazor-server -> hermes:8642") &&
+      customerBackendDeployScript.includes("--secrets-env-file") &&
+      customerBackendDeployScript.includes("OPENROUTER_API_KEY"),
+    "Remote deployment should upload code, preserve relative data, start Compose, run desktop smoke, and expose remote diagnostics"
+  )
+  assert.ok(
+    customerBackendDeployScript.includes("ARCHIVE_ENTRIES") &&
+      customerBackendDeployScript.includes("docker-compose.yml") &&
+      customerBackendDeployScript.includes("docker") &&
+      customerBackendDeployScript.includes("server") &&
+      customerBackendDeployScript.includes("web") &&
+      customerBackendDeployScript.includes("scripts") &&
+      customerBackendDeployScript.includes("web/src/components/office/data/officeLayout.js") &&
+      !customerBackendDeployScript.includes("--exclude='./data'") &&
+      !customerBackendDeployScript.includes(" -C \"$PROJECT_ROOT\" . |"),
+    "Remote deployment archive should use a curated source list so runtime data is not uploaded and source data folders are preserved"
   )
 })
 
@@ -238,10 +281,13 @@ test("backend exposes a public delivery readiness self-check for installed clien
   )
   assert.ok(
     serverIndex.includes("readModelConfigReadiness") &&
+      serverIndex.includes("readGatewayModelListReadiness") &&
+      serverIndex.includes("firstGatewayModelId") &&
+      serverIndex.includes("gatewayFetch('/v1/models')") &&
       serverIndex.includes("isLocalModelBaseUrl") &&
       serverIndex.includes("apiKeySet") &&
       serverIndex.includes("Base URL"),
-    "delivery readiness should fail before customer handoff when model configuration is incomplete"
+    "delivery readiness should validate model configuration through Dashboard or fall back to Gateway models before customer handoff"
   )
   assert.ok(
     serverIndex.includes("CRAZOR_DELIVERY_CUSTOMER") &&
@@ -350,7 +396,11 @@ test("docker customer backend receives hosted login and plan configuration", () 
       composeSource.includes("DEPLOYMENT_TIER: ${DEPLOYMENT_TIER:-free}") &&
       composeSource.includes("CRAZOR_DELIVERY_CUSTOMER: ${CRAZOR_DELIVERY_CUSTOMER:-}") &&
       composeSource.includes("CRAZOR_PUBLIC_BASE_URL: ${CRAZOR_PUBLIC_BASE_URL:-}") &&
-      composeSource.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION: ${CRAZOR_DELIVERY_PROTOCOL_VERSION:-1}"),
+      composeSource.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION: ${CRAZOR_DELIVERY_PROTOCOL_VERSION:-1}") &&
+      composeSource.includes("HERMES_WORKSPACE_ROOT:-/opt/workspaces") &&
+      composeSource.includes("HERMES_USER_WORKDIR:-/opt/workspaces/users/default") &&
+      composeSource.includes("./data/hermes/workspaces:/opt/workspaces") &&
+      !composeSource.includes("./data/hermes/workspaces:/opt/data/workspaces"),
     "Compose backend should receive customer login, plan, and delivery identity env vars instead of silently running without them"
   )
 })
