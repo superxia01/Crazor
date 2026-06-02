@@ -171,6 +171,30 @@ async function proxyJsonResponse(c: any, resp: Response) {
   return c.json(await parseResponsePayload(resp), resp.status as 200)
 }
 
+function upstreamConnectionFailedResponse(c: any, upstream: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || 'connection failed')
+  return c.json({
+    error: `${upstream} connection failed`,
+    detail: { message },
+  }, 502)
+}
+
+async function proxyGatewayJsonResponse(c: any, path: string, options: RequestInit = {}) {
+  try {
+    return proxyJsonResponse(c, await gatewayFetch(path, options))
+  } catch (error) {
+    return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)
+  }
+}
+
+async function proxyDashboardJsonResponse(c: any, path: string, options: RequestInit = {}) {
+  try {
+    return proxyJsonResponse(c, await dashboardFetch(path, options))
+  } catch (error) {
+    return upstreamConnectionFailedResponse(c, 'Agent Dashboard', error)
+  }
+}
+
 function formatSseEvent(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 }
@@ -1555,13 +1579,15 @@ app.delete('/mcp', async (c) => {
 // Chat completions with SSE streaming
 app.post('/api/chat/completions', async (c) => {
   const body = await c.req.json()
-  const upstreamUrl = `${AGENT_GATEWAY_URL}/v1/chat/completions`
-
-  const resp = await fetch(upstreamUrl, {
-    method: 'POST',
-    headers: agentGatewayHeaders(),
-    body: JSON.stringify(body),
-  })
+  let resp: Response
+  try {
+    resp = await gatewayFetch('/v1/chat/completions', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  } catch (error) {
+    return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)
+  }
 
   if (!resp.ok) {
     const text = await resp.text()
@@ -1598,7 +1624,6 @@ app.post('/api/chat/completions', async (c) => {
 // Responses API (alternative chat endpoint)
 app.post('/api/responses', async (c) => {
   const body = await c.req.json()
-  const upstreamUrl = `${AGENT_GATEWAY_URL}/v1/responses`
 
   if (body.stream) {
     c.header('Content-Type', 'text/event-stream')
@@ -1611,9 +1636,8 @@ app.post('/api/responses', async (c) => {
 
       let resp: Response
       try {
-        resp = await fetch(upstreamUrl, {
+        resp = await gatewayFetch('/v1/responses', {
           method: 'POST',
-          headers: agentGatewayHeaders(),
           body: JSON.stringify(body),
         })
       } catch (error) {
@@ -1651,11 +1675,15 @@ app.post('/api/responses', async (c) => {
     })
   }
 
-  const resp = await fetch(upstreamUrl, {
-    method: 'POST',
-    headers: agentGatewayHeaders(),
-    body: JSON.stringify(body),
-  })
+  let resp: Response
+  try {
+    resp = await gatewayFetch('/v1/responses', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  } catch (error) {
+    return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)
+  }
 
   if (!resp.ok) {
     const text = await resp.text()
@@ -1671,9 +1699,7 @@ app.post('/api/responses', async (c) => {
 
 // Models
 app.get('/api/models', async (c) => {
-  const resp = await fetch(`${AGENT_GATEWAY_URL}/v1/models`, { headers: agentGatewayHeaders() })
-  const data = await resp.json()
-  return c.json(data)
+  return proxyGatewayJsonResponse(c, '/v1/models')
 })
 
 // Cron jobs (Agent Gateway provider)
@@ -1883,8 +1909,15 @@ app.get('/api/tools/toolsets', async (c) => {
 
 // Models
 app.get('/api/model/info', async (c) => {
-  const resp = await dashboardFetch(`/api/model/info`)
-  const data = asRecord(await resp.json())
+  let resp: Response
+  try {
+    resp = await dashboardFetch(`/api/model/info`)
+  } catch (error) {
+    return upstreamConnectionFailedResponse(c, 'Agent Dashboard', error)
+  }
+  if (!resp.ok) return proxyJsonResponse(c, resp)
+
+  const data = asRecord(await parseResponsePayload(resp))
   const modelBlock = await loadDashboardModelBlock()
   const baseUrl = cleanString(modelBlock.base_url)
   const apiKey = cleanString(modelBlock.api_key)
@@ -1897,20 +1930,17 @@ app.get('/api/model/info', async (c) => {
 })
 
 app.get('/api/model/options', async (c) => {
-  const resp = await dashboardFetch(`/api/model/options`)
-  const data = await resp.json()
-  return c.json(data)
+  return proxyDashboardJsonResponse(c, `/api/model/options`)
 })
 
 app.post('/api/model/set', async (c) => {
   const body = asRecord(await c.req.json())
   if (!cleanString(body.scope)) body.scope = 'main'
-  const resp = await dashboardFetch(`/api/model/set`, {
+  return proxyDashboardJsonResponse(c, `/api/model/set`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return proxyJsonResponse(c, resp)
 })
 
 // Env vars

@@ -51,3 +51,35 @@ test("Agent Provider Adapter exposes runtime descriptor and capabilities", () =>
     "delivery smoke test should verify the provider adapter endpoint"
   )
 })
+
+test("Agent Provider Adapter returns stable JSON errors for customer model and chat probes", () => {
+  assert.ok(
+    serverIndex.includes("upstreamConnectionFailedResponse") &&
+      serverIndex.includes("proxyGatewayJsonResponse") &&
+      serverIndex.includes("proxyDashboardJsonResponse"),
+    "server should centralize upstream proxy failures into stable JSON responses"
+  )
+  assert.ok(
+    serverIndex.includes("app.get('/api/models'") &&
+      serverIndex.includes("return proxyGatewayJsonResponse(c, '/v1/models')"),
+    "customer model probes should preserve Agent Gateway HTTP status and error payloads"
+  )
+  assert.ok(
+    serverIndex.includes("app.post('/api/chat/completions'") &&
+      serverIndex.includes("resp = await gatewayFetch('/v1/chat/completions'") &&
+      serverIndex.includes("return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)"),
+    "non-streaming customer chat probes should return a diagnosable 502 JSON response when the Gateway is unreachable"
+  )
+  assert.ok(
+    serverIndex.includes("app.post('/api/responses'") &&
+      serverIndex.includes("resp = await gatewayFetch('/v1/responses'"),
+    "Responses API proxies should use the same Gateway wrapper and authentication headers"
+  )
+  assert.ok(
+    serverIndex.includes("app.get('/api/model/info'") &&
+      serverIndex.includes("if (!resp.ok) return proxyJsonResponse(c, resp)") &&
+      serverIndex.includes("return proxyDashboardJsonResponse(c, `/api/model/options`)") &&
+      serverIndex.includes("return proxyDashboardJsonResponse(c, `/api/model/set`,"),
+    "customer model configuration endpoints should avoid unhandled Dashboard parse failures"
+  )
+})
