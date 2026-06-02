@@ -4,6 +4,55 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
+MODEL_PROVIDER_SECRET_KEYS=(
+  OPENROUTER_API_KEY
+  OPENAI_API_KEY
+  OPENAI_BASE_URL
+  ANTHROPIC_API_KEY
+  ANTHROPIC_BASE_URL
+  GOOGLE_API_KEY
+  GEMINI_API_KEY
+  GEMINI_BASE_URL
+  DASHSCOPE_API_KEY
+  DASHSCOPE_BASE_URL
+  HERMES_QWEN_API_KEY
+  HERMES_QWEN_BASE_URL
+  DEEPSEEK_API_KEY
+  DEEPSEEK_BASE_URL
+  NOUS_API_KEY
+  NOUS_BASE_URL
+  GLM_API_KEY
+  GLM_BASE_URL
+  ZAI_API_KEY
+  ZAI_BASE_URL
+  Z_AI_API_KEY
+  Z_AI_BASE_URL
+  KIMI_API_KEY
+  KIMI_BASE_URL
+  MINIMAX_API_KEY
+  MINIMAX_BASE_URL
+  MINIMAX_CN_API_KEY
+  MINIMAX_CN_BASE_URL
+  HF_TOKEN
+  HF_BASE_URL
+  NVIDIA_API_KEY
+  NVIDIA_BASE_URL
+  XIAOMI_API_KEY
+  XIAOMI_BASE_URL
+  XAI_API_KEY
+  XAI_BASE_URL
+  STEPFUN_API_KEY
+  STEPFUN_BASE_URL
+  ARCEEAI_API_KEY
+  ARCEEAI_BASE_URL
+  OLLAMA_API_KEY
+  OLLAMA_BASE_URL
+  LM_API_KEY
+  LM_BASE_URL
+  KILOCODE_API_KEY
+  KILOCODE_BASE_URL
+)
+
 usage() {
   cat <<'EOF'
 用法：
@@ -66,32 +115,8 @@ append_selected_secret_env() {
   local target_file="$2"
   [[ -f "$source_file" ]] || die "密钥环境文件不存在：$source_file"
 
-  local allowed_keys=(
-    OPENROUTER_API_KEY
-    OPENAI_API_KEY
-    OPENAI_BASE_URL
-    ANTHROPIC_API_KEY
-    GOOGLE_API_KEY
-    GEMINI_API_KEY
-    GEMINI_BASE_URL
-    NOUS_API_KEY
-    GLM_API_KEY
-    KIMI_API_KEY
-    MINIMAX_API_KEY
-    MINIMAX_CN_API_KEY
-    HF_TOKEN
-    NVIDIA_API_KEY
-    XIAOMI_API_KEY
-    ARCEEAI_API_KEY
-    OLLAMA_API_KEY
-    OLLAMA_BASE_URL
-    LM_API_KEY
-    LM_BASE_URL
-    KILOCODE_API_KEY
-  )
-
   local key
-  for key in "${allowed_keys[@]}"; do
+  for key in "${MODEL_PROVIDER_SECRET_KEYS[@]}"; do
     local line
     line="$(grep -E "^${key}=" "$source_file" | tail -n 1 || true)"
     [[ -n "$line" ]] || continue
@@ -104,6 +129,57 @@ append_selected_secret_env() {
     grep -q "^${key}=" "$target_file" && continue
     printf '%s\n' "$line" >> "$target_file"
   done
+}
+
+is_placeholder_secret_value() {
+  local value="$1"
+  [[ -z "$value" ]] && return 0
+  [[ "$value" == 请替换* || "$value" == change-me* || "$value" == please-change* ]] && return 0
+  return 1
+}
+
+is_model_api_key_name() {
+  local key="$1"
+  [[ "$key" == *_API_KEY || "$key" == "HF_TOKEN" ]]
+}
+
+is_local_model_base_url() {
+  local value="$1"
+  local lower
+  lower="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  [[ "$lower" =~ ^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal|\[::1\]|::1)(:|/|$) ]] && return 0
+  [[ "$lower" =~ ^https?://10\. ]] && return 0
+  [[ "$lower" =~ ^https?://192\.168\. ]] && return 0
+  [[ "$lower" =~ ^https?://172\.(1[6-9]|2[0-9]|3[0-1])\. ]] && return 0
+  return 1
+}
+
+list_model_provider_connections() {
+  local env_file="$1"
+  local key
+  for key in "${MODEL_PROVIDER_SECRET_KEYS[@]}"; do
+    local value
+    value="$(extract_env_value "$env_file" "$key" || true)"
+    is_placeholder_secret_value "$value" && continue
+    if is_model_api_key_name "$key"; then
+      printf '%s\n' "$key"
+    elif [[ "$key" == *_BASE_URL ]] && is_local_model_base_url "$value"; then
+      printf '%s(local)\n' "$key"
+    fi
+  done
+}
+
+require_live_chat_model_connection() {
+  local env_file="$1"
+  local connections
+  connections="$(list_model_provider_connections "$env_file" | awk 'BEGIN { sep = "" } { printf "%s%s", sep, $0; sep = ", " }')"
+
+  if [[ -n "$connections" ]]; then
+    printf '真实对话模型连接预检通过：%s\n' "$connections"
+    return 0
+  fi
+
+  die "真实对话烟测需要模型 Provider API Key/token，或本地/内网模型 Base URL。请通过 --secrets-env-file .env 传入白名单模型变量，或仅做入口验收时加 --skip-live-chat"
 }
 
 set_env_value_in_file() {
@@ -246,6 +322,10 @@ node "$PROJECT_ROOT/scripts/customer-backend-env.mjs" \
   --check "$LOCAL_ENV_FILE" \
   --customer "$CUSTOMER" \
   --server-url "$SERVER_URL"
+
+if [[ "$RUN_SMOKE" == "1" && "$SKIP_LIVE_CHAT" != "1" ]]; then
+  require_live_chat_model_connection "$LOCAL_ENV_FILE"
+fi
 
 ACCESS_CODE="$(extract_env_value "$LOCAL_ENV_FILE" CRAZOR_CUSTOMER_ACCESS_CODE)"
 RELEASE_ID="$(date +%Y%m%d%H%M%S)-$(git -C "$PROJECT_ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo manual)"

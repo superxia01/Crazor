@@ -159,14 +159,25 @@ test("customer backend can be deployed to a remote Docker host with preserved da
       customerBackendDeployScript.includes("--diagnose-only") &&
       customerBackendDeployScript.includes("run_remote_diagnostics") &&
       customerBackendDeployScript.includes("wait_for_delivery_readiness") &&
+      customerBackendDeployScript.includes("require_live_chat_model_connection") &&
+      customerBackendDeployScript.includes("is_model_api_key_name") &&
+      customerBackendDeployScript.includes("is_local_model_base_url") &&
+      customerBackendDeployScript.includes('SKIP_LIVE_CHAT" != "1"') &&
+      customerBackendDeployScript.includes("真实对话模型连接预检通过") &&
+      customerBackendDeployScript.includes("Provider API Key/token") &&
       customerBackendDeployScript.includes("/api/delivery/readiness") &&
       customerBackendDeployScript.includes("summarizeIssues") &&
       customerBackendDeployScript.includes("check.status === \"error\"") &&
       customerBackendDeployScript.includes("[\"ready\", \"degraded\"].includes(status)") &&
       customerBackendDeployScript.includes("crazor-server -> hermes:8642") &&
       customerBackendDeployScript.includes("--secrets-env-file") &&
-      customerBackendDeployScript.includes("OPENROUTER_API_KEY"),
-    "Remote deployment should upload code, preserve relative data, start Compose, run desktop smoke, and expose remote diagnostics"
+      customerBackendDeployScript.includes("OPENROUTER_API_KEY") &&
+      customerBackendDeployScript.includes("ANTHROPIC_API_KEY") &&
+      customerBackendDeployScript.includes("DASHSCOPE_API_KEY") &&
+      customerBackendDeployScript.includes("DEEPSEEK_API_KEY") &&
+      customerBackendDeployScript.includes("XAI_API_KEY") &&
+      customerBackendDeployScript.includes("STEPFUN_API_KEY"),
+    "Remote deployment should upload code, preserve relative data, preflight live-chat model secrets, start Compose, run desktop smoke, and expose remote diagnostics"
   )
   assert.ok(
     customerBackendDeployScript.includes("ARCHIVE_ENTRIES") &&

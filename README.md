@@ -538,7 +538,7 @@ docker compose --env-file .env.customer up -d --build
   --skip-live-chat
 ```
 
-模型 provider 密钥不会默认上传；正式需要真实对话验收时，显式传入 `--secrets-env-file .env`，脚本只会追加白名单内的模型相关变量。
+模型 provider 密钥不会默认上传；正式需要真实对话验收时，必须显式传入 `--secrets-env-file .env`，脚本只会追加白名单内的模型相关变量，并在部署前确认至少存在一个可用 Provider API Key/token，或本地/内网模型 Base URL。只做入口验收时才使用 `--skip-live-chat`。
 如果客户环境需要扫码登录，应在生成环境文件时加入 `--wechat-app-id` 和 `--wechat-app-secret`；生成文件已被 `.gitignore` 和 `.dockerignore` 忽略，不能提交到仓库。
 未接微信时，生成文件中的 `CRAZOR_CUSTOMER_ACCESS_CODE` 可作为客户访问码，客户打开 Tauri 客户端后可用该访问码换取登录 JWT。
 
