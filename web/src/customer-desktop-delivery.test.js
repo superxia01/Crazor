@@ -12,6 +12,7 @@ const customerDesktopSmokeScript = readFileSync(resolve(repoRoot, "scripts/custo
 const customerHandoffCheckScript = readFileSync(resolve(repoRoot, "scripts/customer-handoff-check.mjs"), "utf8")
 const customerBackendDeployScript = readFileSync(resolve(repoRoot, "scripts/deploy-customer-backend.sh"), "utf8")
 const verifyCustomerServerScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-server.mjs"), "utf8")
+const verifyCustomerWebScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-web.mjs"), "utf8")
 const verifyCustomerDeliveryScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-delivery.mjs"), "utf8")
 const verifyCustomerInstallerScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-installer.mjs"), "utf8")
 const customerBackendEnvScript = readFileSync(resolve(repoRoot, "scripts/customer-backend-env.mjs"), "utf8")
@@ -159,6 +160,7 @@ test("customer backend can be deployed to a remote Docker host with preserved da
       customerBackendDeployScript.includes("docker compose --env-file .env.customer up -d --build") &&
       customerBackendDeployScript.includes("customer-backend-env.mjs") &&
       customerBackendDeployScript.includes("customer-desktop-smoke.mjs") &&
+      customerBackendDeployScript.includes("verify-customer-web.mjs") &&
       customerBackendDeployScript.includes("CRAZOR_DESKTOP_SMOKE_ACCESS_CODE") &&
       customerBackendDeployScript.includes("--diagnose-only") &&
       customerBackendDeployScript.includes("run_remote_diagnostics") &&
@@ -610,6 +612,10 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
   )
   assert.ok(
     customerDesktopSmokeScript.includes("runCustomerDesktopSmoke") &&
+      verifyCustomerWebScript.includes("verifyCustomerWebEntrypoint") &&
+      verifyCustomerWebScript.includes("validateWebEntrypointHtml") &&
+      verifyCustomerWebScript.includes("extractWebEntrypointAssetPaths") &&
+      verifyCustomerWebScript.includes("validateWebAssetResponse") &&
       customerDesktopSmokeScript.includes("requestDesktopText") &&
       customerDesktopSmokeScript.includes("buildCustomerServerUrl") &&
       customerDesktopSmokeScript.includes("validateWebEntrypointHtml") &&

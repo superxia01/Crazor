@@ -460,8 +460,7 @@ done
 curl -fsS "$SERVER_URL/api/health" >/dev/null
 
 printf '验证 Web 前端入口：%s/\n' "$SERVER_URL"
-curl -fsS "$SERVER_URL/" >/dev/null
-printf 'Web 前端入口通过\n'
+node "$PROJECT_ROOT/scripts/verify-customer-web.mjs" "$SERVER_URL"
 wait_for_delivery_readiness
 
 if [[ "$RUN_SMOKE" == "1" ]]; then
