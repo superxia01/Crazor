@@ -225,7 +225,7 @@ async function revealDashboardEnvValue(key: string): Promise<string> {
   if (!resp.ok) return ''
 
   const payload = asRecord(await parseResponsePayload(resp))
-  return readFirstString(payload, ['value', 'redacted_value', 'redactedValue'])
+  return readFirstNonEmptyString(payload, ['value', 'redacted_value', 'redactedValue'])
 }
 
 async function saveDashboardEnvValue(key: string, value: string) {
@@ -532,6 +532,14 @@ function cleanString(value: unknown): string {
 function readFirstString(record: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
     if (hasOwn(record, key)) return cleanString(record[key])
+  }
+  return ''
+}
+
+function readFirstNonEmptyString(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = cleanString(record[key])
+    if (value) return value
   }
   return ''
 }
