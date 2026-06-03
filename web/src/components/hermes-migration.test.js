@@ -8,6 +8,7 @@ const submenuSource = readFileSync(new URL("./layout/HermesSubmenu.jsx", import.
 const appSource = readFileSync(new URL("../AppInner.jsx", import.meta.url), "utf8")
 const cronSource = readFileSync(new URL("../CronView.jsx", import.meta.url), "utf8")
 const cronListSource = readFileSync(new URL("./layout/CronList.jsx", import.meta.url), "utf8")
+const zhLocaleSource = readFileSync(new URL("../locales/zh.json", import.meta.url), "utf8")
 
 test("hermes submenu keeps config entries but no longer owns skills", () => {
   for (const id of [
@@ -27,6 +28,33 @@ test("hermes submenu keeps config entries but no longer owns skills", () => {
   assert.ok(
     !submenuSource.includes('id: "skills"') && !submenuSource.includes("id: 'skills'"),
     "skills should move out of the Hermes submenu"
+  )
+})
+
+test("hermes primary navigation label does not masquerade as app settings", () => {
+  assert.ok(
+    zhLocaleSource.includes('"hermes": "Agent中枢"'),
+    "Hermes primary nav should describe the Agent hub instead of app settings"
+  )
+  assert.ok(
+    !zhLocaleSource.includes('"hermes": "系统设置"'),
+    "Hermes primary nav must not look like the app settings entry"
+  )
+})
+
+test("prompt market remains the active primary AI digital workers entry", () => {
+  const hermesViewsStart = appSource.indexOf("const HERMES_SIDEBAR_VIEWS = [")
+  const hermesViewsEnd = appSource.indexOf("]\n\nfunction resolveHermesSubmenuTargetView", hermesViewsStart)
+  const hermesViewsBlock = appSource.slice(hermesViewsStart, hermesViewsEnd)
+
+  assert.ok(hermesViewsStart >= 0 && hermesViewsEnd > hermesViewsStart, "Hermes sidebar view block should exist")
+  assert.ok(
+    !hermesViewsBlock.includes('"prompt-market"'),
+    "direct AI digital workers navigation should not light up the Hermes/settings primary item"
+  )
+  assert.ok(
+    appSource.includes('if (id === "prompt-market") return "prompt-market"'),
+    "Hermes submenu can still route to the prompt market when selected from the Hermes middle panel"
   )
 })
 

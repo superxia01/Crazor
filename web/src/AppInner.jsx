@@ -344,7 +344,6 @@ const HERMES_SIDEBAR_VIEWS = [
   "hermes-channels",
   "hermes-memory",
   "hermes-agents",
-  "prompt-market",
   "terminal",
 ]
 
