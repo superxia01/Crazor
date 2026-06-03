@@ -32,17 +32,9 @@ import {
   EyeOffIcon,
   CheckSquareIcon,
 } from "lucide-react"
+import { Card, Chip, Modal, ModalBackdrop, ModalBody, ModalCloseTrigger, ModalContainer, ModalDialog, ModalFooter, ModalHeader, ModalHeading } from "@heroui/react"
 import { ViewFrame } from "@/components/view-frame"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { getEnvVars, setEnvVar, deleteEnvVar, revealEnvVar } from "@/api/dashboard"
 import { cn } from "@/lib/utils"
@@ -261,9 +253,9 @@ function getConnectorStatus(connector, envMap) {
 }
 
 const STATUS_CONFIG = {
-  connected: { label: "已连接", dot: "bg-emerald-500", badge: "bg-emerald-100 text-emerald-700" },
-  partial: { label: "部分配置", dot: "bg-amber-500", badge: "bg-amber-100 text-amber-700" },
-  disconnected: { label: "未配置", dot: "bg-zinc-300", badge: "bg-zinc-100 text-zinc-500" },
+  connected: { label: "已连接", dot: "bg-emerald-500", badgeWrapper: "bg-emerald-100", badgeLabel: "text-emerald-700" },
+  partial: { label: "部分配置", dot: "bg-amber-500", badgeWrapper: "bg-amber-100", badgeLabel: "text-amber-700" },
+  disconnected: { label: "未配置", dot: "bg-zinc-300", badgeWrapper: "bg-zinc-100", badgeLabel: "text-zinc-500" },
 }
 
 // ── Connector Config Dialog ────────────────────────────────
@@ -317,73 +309,79 @@ function ConnectorDialog({ connector, open, onClose, envMap, onRefresh }) {
   const Icon = connector.icon
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
-            <div className={cn("flex size-10 items-center justify-center rounded-lg", connector.color)}>
-              <Icon className="size-5" />
-            </div>
-            <div>
-              <div>{connector.name}</div>
-              <DialogDescription className="text-[12px]">{connector.description}</DialogDescription>
-            </div>
-          </DialogTitle>
-        </DialogHeader>
+    <Modal isOpen={open} onOpenChange={onClose}>
+      <ModalBackdrop>
+        <ModalContainer size="sm">
+          <ModalDialog>
+            <ModalHeader>
+              <ModalHeading className="flex items-center gap-3">
+                <div className={cn("flex size-10 items-center justify-center rounded-lg", connector.color)}>
+                  <Icon className="size-5" />
+                </div>
+                <div>
+                  <div>{connector.name}</div>
+                </div>
+              </ModalHeading>
+            </ModalHeader>
 
-        <div className="flex flex-col gap-3 py-2">
-          {connector.fields.map((key) => (
-            <div key={key} className="space-y-1">
-              <label className="text-[12px] font-medium text-muted-foreground">{key}</label>
-              <div className="flex gap-1.5">
-                <Input
-                  type={revealed[key] ? "text" : "password"}
-                  value={values[key] || ""}
-                  onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
-                  placeholder={`输入 ${key}...`}
-                  className="text-[12px] h-8"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 shrink-0"
-                  onClick={() => setRevealed((r) => ({ ...r, [key]: !r[key] }))}
-                >
-                  {revealed[key] ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
-                </Button>
-              </div>
+          <ModalBody>
+            <p className="text-[12px] text-muted-foreground">{connector.description}</p>
+            <div className="flex flex-col gap-3 py-2">
+              {connector.fields.map((key) => (
+                <div key={key} className="space-y-1">
+                  <label className="text-[12px] font-medium text-muted-foreground">{key}</label>
+                  <div className="flex gap-1.5">
+                    <Input
+                      type={revealed[key] ? "text" : "password"}
+                      value={values[key] || ""}
+                      onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
+                      placeholder={`输入 ${key}...`}
+                      className="text-[12px] h-8"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0"
+                      onClick={() => setRevealed((r) => ({ ...r, [key]: !r[key] }))}
+                    >
+                      {revealed[key] ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </ModalBody>
 
-        <div className="flex justify-end gap-2 pt-2 border-t">
-          {envMap && connector.fields.some((k) => envMap[k]) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={async () => {
-                for (const key of connector.fields) {
-                  if (envMap[key]) await deleteEnvVar(key).catch(() => {})
-                }
-                await onRefresh()
-                onClose()
-              }}
-            >
-              <TrashIcon className="size-3.5 mr-1" />
-              清除配置
+          <ModalFooter>
+            {envMap && connector.fields.some((k) => envMap[k]) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={async () => {
+                  for (const key of connector.fields) {
+                    if (envMap[key]) await deleteEnvVar(key).catch(() => {})
+                  }
+                  await onRefresh()
+                  onClose()
+                }}
+              >
+                <TrashIcon className="size-3.5 mr-1" />
+                清除配置
+              </Button>
+            )}
+            <ModalCloseTrigger>
+              <Button variant="outline" size="sm">取消</Button>
+            </ModalCloseTrigger>
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              <SaveIcon className="size-3.5 mr-1" />
+              {saving ? "保存中..." : "保存"}
             </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={onClose}>
-            取消
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={saving}>
-            <SaveIcon className="size-3.5 mr-1" />
-            {saving ? "保存中..." : "保存"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+          </ModalFooter>
+        </ModalDialog>
+      </ModalContainer>
+      </ModalBackdrop>
+    </Modal>
   )
 }
 
@@ -421,90 +419,96 @@ function CustomConnectorDialog({ open, onClose, onRefresh }) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <PlusCircleIcon className="size-5" />
-            </div>
-            <div>
-              <div>自定义连接器</div>
-              <DialogDescription className="text-[12px]">添加一个新的外部服务连接</DialogDescription>
-            </div>
-          </DialogTitle>
-        </DialogHeader>
+    <Modal isOpen={open} onOpenChange={onClose}>
+      <ModalBackdrop>
+        <ModalContainer size="sm">
+          <ModalDialog>
+            <ModalHeader>
+              <ModalHeading className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <PlusCircleIcon className="size-5" />
+                </div>
+                <div>
+                  <div>自定义连接器</div>
+                </div>
+              </ModalHeading>
+            </ModalHeader>
 
-        <div className="flex flex-col gap-3 py-2">
-          <div className="space-y-1">
-            <label className="text-[12px] font-medium text-muted-foreground">连接器名称</label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="例如：Shopify"
-              className="text-[12px] h-8"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[12px] font-medium text-muted-foreground">配置字段</label>
-            {fields.map((f, i) => (
-              <div key={i} className="flex gap-1.5">
+          <ModalBody>
+            <p className="text-[12px] text-muted-foreground">添加一个新的外部服务连接</p>
+            <div className="flex flex-col gap-3 py-2">
+              <div className="space-y-1">
+                <label className="text-[12px] font-medium text-muted-foreground">连接器名称</label>
                 <Input
-                  value={f.key}
-                  onChange={(e) => {
-                    const next = [...fields]
-                    next[i] = { ...next[i], key: e.target.value }
-                    setFields(next)
-                  }}
-                  placeholder="ENV_KEY"
-                  className="text-[12px] h-8 font-mono"
-                />
-                <Input
-                  value={f.value}
-                  onChange={(e) => {
-                    const next = [...fields]
-                    next[i] = { ...next[i], value: e.target.value }
-                    setFields(next)
-                  }}
-                  placeholder="Value"
-                  type="password"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="例如：Shopify"
                   className="text-[12px] h-8"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[12px] font-medium text-muted-foreground">配置字段</label>
+                {fields.map((f, i) => (
+                  <div key={i} className="flex gap-1.5">
+                    <Input
+                      value={f.key}
+                      onChange={(e) => {
+                        const next = [...fields]
+                        next[i] = { ...next[i], key: e.target.value }
+                        setFields(next)
+                      }}
+                      placeholder="ENV_KEY"
+                      className="text-[12px] h-8 font-mono"
+                    />
+                    <Input
+                      value={f.value}
+                      onChange={(e) => {
+                        const next = [...fields]
+                        next[i] = { ...next[i], value: e.target.value }
+                        setFields(next)
+                      }}
+                      placeholder="Value"
+                      type="password"
+                      className="text-[12px] h-8"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0 text-muted-foreground"
+                      onClick={() => setFields((f) => f.filter((_, j) => j !== i))}
+                      disabled={fields.length <= 1}
+                    >
+                      <TrashIcon className="size-3.5" />
+                    </Button>
+                  </div>
+                ))}
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="size-8 shrink-0 text-muted-foreground"
-                  onClick={() => setFields((f) => f.filter((_, j) => j !== i))}
-                  disabled={fields.length <= 1}
+                  size="sm"
+                  className="text-[12px] w-full"
+                  onClick={() => setFields((f) => [...f, { key: "", value: "" }])}
                 >
-                  <TrashIcon className="size-3.5" />
+                  <PlusCircleIcon className="size-3.5 mr-1" />
+                  添加字段
                 </Button>
               </div>
-            ))}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-[12px] w-full"
-              onClick={() => setFields((f) => [...f, { key: "", value: "" }])}
-            >
-              <PlusCircleIcon className="size-3.5 mr-1" />
-              添加字段
-            </Button>
-          </div>
-        </div>
+            </div>
+          </ModalBody>
 
-        <div className="flex justify-end gap-2 pt-2 border-t">
-          <Button variant="outline" size="sm" onClick={onClose}>
-            取消
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={saving || !name.trim()}>
-            <SaveIcon className="size-3.5 mr-1" />
-            {saving ? "保存中..." : "保存"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+          <ModalFooter>
+            <ModalCloseTrigger>
+              <Button variant="outline" size="sm">取消</Button>
+            </ModalCloseTrigger>
+            <Button size="sm" onClick={handleSave} disabled={saving || !name.trim()}>
+              <SaveIcon className="size-3.5 mr-1" />
+              {saving ? "保存中..." : "保存"}
+            </Button>
+          </ModalFooter>
+        </ModalDialog>
+      </ModalContainer>
+      </ModalBackdrop>
+    </Modal>
   )
 }
 
@@ -583,10 +587,11 @@ export default function IntegrationsView() {
                   return (
                     <Card
                       key={conn.id}
-                      className="cursor-pointer py-3 gap-3 hover:border-primary/40 transition-colors"
+                      variant="default"
+                      className="cursor-pointer py-3 gap-3 transition-all duration-200 hover:shadow-md"
                       onClick={() => setSelected(conn)}
                     >
-                      <CardContent className="px-4 py-0">
+                      <Card.Content className="px-4 py-0">
                         <div className="flex items-start justify-between">
                           <div className={cn("flex size-9 items-center justify-center rounded-lg", conn.color)}>
                             <Icon className="size-4.5" />
@@ -597,10 +602,12 @@ export default function IntegrationsView() {
                           <div className="text-[13px] font-medium leading-tight">{conn.name}</div>
                           <div className="text-[11px] text-muted-foreground mt-0.5">{conn.description}</div>
                         </div>
-                        <Badge variant="outline" className={cn("text-[10px] h-5 mt-2", cfg.badge)}>
-                          {cfg.label}
-                        </Badge>
-                      </CardContent>
+                        <Chip variant="tertiary" className={cn("h-5 mt-2", cfg.badgeWrapper)}>
+                          <Chip.Label className={cn("text-[10px]", cfg.badgeLabel)}>
+                            {cfg.label}
+                          </Chip.Label>
+                        </Chip>
+                      </Card.Content>
                     </Card>
                   )
                 })}
@@ -621,10 +628,11 @@ export default function IntegrationsView() {
                 return (
                   <Card
                     key={conn.id}
-                    className="cursor-pointer py-3 gap-3 hover:border-primary/40 transition-colors"
+                    variant="default"
+                    className="cursor-pointer py-3 gap-3 transition-all duration-200 hover:shadow-md"
                     onClick={() => setSelected(conn)}
                   >
-                    <CardContent className="px-4 py-0">
+                    <Card.Content className="px-4 py-0">
                       <div className="flex items-start justify-between">
                         <div className={cn("flex size-9 items-center justify-center rounded-lg", conn.color)}>
                           <Icon className="size-4.5" />
@@ -635,10 +643,12 @@ export default function IntegrationsView() {
                         <div className="text-[13px] font-medium leading-tight">{conn.name}</div>
                         <div className="text-[11px] text-muted-foreground mt-0.5">{conn.description}</div>
                       </div>
-                      <Badge variant="outline" className={cn("text-[10px] h-5 mt-2", cfg.badge)}>
-                        {cfg.label}
-                      </Badge>
-                    </CardContent>
+                      <Chip variant="tertiary" className={cn("h-5 mt-2", cfg.badgeWrapper)}>
+                        <Chip.Label className={cn("text-[10px]", cfg.badgeLabel)}>
+                          {cfg.label}
+                        </Chip.Label>
+                      </Chip>
+                    </Card.Content>
                   </Card>
                 )
               })}
@@ -650,13 +660,14 @@ export default function IntegrationsView() {
         <div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             <Card
+              variant="outlined"
               className="cursor-pointer py-3 gap-3 border-dashed hover:border-primary/40 transition-colors"
               onClick={() => setCustomOpen(true)}
             >
-              <CardContent className="px-4 py-0 flex flex-col items-center justify-center min-h-[120px]">
+              <Card.Content className="px-4 py-0 flex flex-col items-center justify-center min-h-[120px]">
                 <PlusCircleIcon className="size-8 text-muted-foreground/50" />
                 <div className="text-[12px] text-muted-foreground mt-2">自定义连接器</div>
-              </CardContent>
+              </Card.Content>
             </Card>
           </div>
         </div>

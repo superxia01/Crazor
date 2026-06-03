@@ -5,18 +5,18 @@
  import { PanelLeftIcon } from "lucide-react"
  import * as SlotPrimitive from "@radix-ui/react-slot"
 
+import {
+  Drawer as DrawerRoot,
+  DrawerBackdrop,
+  DrawerContent,
+  DrawerDialog,
+  DrawerHeading,
+} from "@heroui/react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
@@ -156,25 +156,21 @@ function Sidebar({
 
   if (isMobile) {
     return (
-      <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
-        <SheetContent
+      <DrawerRoot isOpen={openMobile} onOpenChange={setOpenMobile} {...props}>
+        <DrawerBackdrop />
+        <DrawerContent
+          placement={side === "right" ? "right" : "left"}
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
-          style={
-            {
-              "--sidebar-width": SIDEBAR_WIDTH_MOBILE
-            }
-          }
-          side={side}>
-          <SheetHeader className="sr-only">
-            <SheetTitle>Sidebar</SheetTitle>
-            <SheetDescription>Displays the mobile sidebar.</SheetDescription>
-          </SheetHeader>
-          <div className="flex h-full w-full flex-col">{children}</div>
-        </SheetContent>
-      </Sheet>
+          className="bg-sidebar p-0 text-sidebar-foreground"
+          style={{ "--sidebar-width": SIDEBAR_WIDTH_MOBILE }}>
+          <DrawerDialog className="w-(--sidebar-width)">
+            <DrawerHeading className="sr-only">Sidebar</DrawerHeading>
+            <div className="flex h-full w-full flex-col">{children}</div>
+          </DrawerDialog>
+        </DrawerContent>
+      </DrawerRoot>
     );
   }
 

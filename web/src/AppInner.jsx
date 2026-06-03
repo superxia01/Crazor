@@ -11,6 +11,29 @@ import React, {
   useState,
 } from "react"
 import { motion as Motion } from "framer-motion"
+import {
+  AlertDialog,
+  AlertDialogBackdrop,
+  AlertDialogBody,
+  AlertDialogCloseTrigger,
+  AlertDialogContainer,
+  AlertDialogDialog,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogHeading,
+  AlertDialogIcon,
+  Avatar,
+  Chip,
+  Modal,
+  ModalBackdrop,
+  ModalBody,
+  ModalCloseTrigger,
+  ModalContainer,
+  ModalDialog,
+  ModalFooter,
+  ModalHeader,
+  ModalHeading,
+} from "@heroui/react"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 import {
@@ -98,25 +121,10 @@ import {
 import { LoginDialog } from "@/components/LoginDialog"
 import { Toaster } from "@/components/ui/sonner"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -127,17 +135,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogMedia,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import {
   Sidebar,
   SidebarContent,
@@ -266,6 +263,12 @@ const SIDEBAR_GROUPS = [
       { id: "contacts", labelKey: "nav.contacts", descriptionKey: "nav.contacts", icon: UsersIcon },
       { id: "finance", labelKey: "nav.finance", descriptionKey: "nav.finance", icon: LandmarkIcon },
       { id: "projects", labelKey: "nav.projects", descriptionKey: "nav.projects", icon: KanbanSquareIcon },
+    ],
+  },
+  {
+    group: "knowledge",
+    labelKey: "nav.sidebar.group.knowledge",
+    items: [
       { id: "knowledge", labelKey: "nav.knowledge", descriptionKey: "nav.knowledge", icon: FileTextIcon },
       { id: "notebook", labelKey: "nav.notebook", descriptionKey: "nav.chatDescription", icon: BookIcon, badge: "beta" },
       { id: "files", labelKey: "nav.files", descriptionKey: "nav.filesDescription", icon: FolderOpenIcon },
@@ -313,9 +316,11 @@ class ErrorBoundary extends React.Component {
       return (
         <div className="flex min-h-screen items-center justify-center px-4">
           <div className="app-panel-strong max-w-2xl rounded-[2rem] p-8">
-            <Badge variant="destructive" className="mb-4 rounded-full px-3 py-1 text-[11px]">
-              {this.props.labels.badge}
-            </Badge>
+            <Chip color="danger" className="mb-4 rounded-full px-3 py-1">
+              <Chip.Label className="text-[11px]">
+                {this.props.labels.badge}
+              </Chip.Label>
+            </Chip>
             <h2 className="text-2xl font-semibold text-foreground">{this.props.labels.title}</h2>
             <p className="mt-3 text-sm leading-7 text-muted-foreground">
               {this.state.error.message}
@@ -2450,62 +2455,58 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
             />
           )}
 
-          <SidebarHeader className="gap-0 px-0 pb-3 pt-0">
-            <WorkspaceSwitcher
-              collapsed={!sidebarOpen}
-              compact
-              showPath={false}
-              currentWorkspace={currentWorkspace}
-              workspaces={workspaces}
-              onSwitch={handleWorkspaceSwitch}
-              onManage={handleWorkspaceManage}
-            />
-          </SidebarHeader>
+          <SidebarContent className="px-0 pb-2 pt-3">
+            {/* 3D Office — top position */}
+            <div className="px-3 mb-2 group-data-[collapsible=icon]:hidden">
+              <OfficeToggle onNavigate={() => setView("office")} onLeave={() => setView("home")} isActive={view === "office"} />
+            </div>
 
-          <SidebarContent className="px-0 pb-2">
             <SidebarGroup className="gap-1 px-0 pb-1 pt-0">
-              <div className="px-1.5 pb-1 pt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                MENU
-              </div>
               {SIDEBAR_GROUPS.map((group, gi) => (
-                <div key={group.group} className={cn("space-y-0.5", gi > 0 && "pt-1.5")}>
-                  <div className="group-data-[collapsible=icon]:hidden mb-0.5 flex h-5 items-center px-3">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+                <div key={group.group} className={cn("space-y-0.5", gi > 0 && "pt-2")}>
+                  <div className="group-data-[collapsible=icon]:hidden mb-1 flex items-center gap-2 px-3">
+                    <span className="h-px flex-1 bg-sidebar-border/60" />
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/45">
                       {t(group.labelKey)}
                     </span>
+                    <span className="h-px flex-1 bg-sidebar-border/60" />
                   </div>
                   <SidebarMenu className="gap-0.5">
                     {group.items.map((item) => {
                       const resolved = viewItems.find((v) => v.id === item.id)
                       if (!resolved) return null
+                      const isActive = activeSidebarItemId === item.id
                       return (
                         <SidebarMenuItem key={item.id}>
                           <SidebarMenuButton
                             tooltip={resolved.label}
-                            isActive={activeSidebarItemId === item.id}
+                            isActive={isActive}
                             onClick={() => handleNavigateView(item.id)}
                             className={cn(
-                              "group/navitem relative h-8 rounded-[11px] px-3 py-[7px] text-[12px] font-medium transition-all duration-150",
-                              "text-sidebar-foreground hover:bg-accent hover:text-sidebar-foreground",
-                              "data-[active=true]:border-transparent data-[active=true]:bg-sidebar-accent/88 data-[active=true]:font-semibold data-[active=true]:text-sidebar-foreground",
-                              "data-[active=true]:shadow-none",
+                              "group/navitem relative h-8 overflow-hidden rounded-[10px] px-3 py-[7px] text-[12px] font-medium transition-all duration-200",
+                              "text-sidebar-foreground/85 hover:text-sidebar-foreground",
+                              "hover:bg-sidebar-accent/60",
+                              // Active state: soft tinted background + left accent bar via ::before
+                              "before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-r-full before:bg-primary before:opacity-0 before:transition-opacity",
+                              "data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-semibold",
+                              "data-[active=true]:before:opacity-100",
                               "group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:px-0"
                             )}>
                             <span
                               className={cn(
-                                "flex size-[18px] shrink-0 items-center justify-center transition-colors",
-                                activeSidebarItemId === item.id
-                                  ? "text-sidebar-foreground"
-                                  : "text-sidebar-foreground group-hover/navitem:text-sidebar-foreground"
+                                "flex size-[18px] shrink-0 items-center justify-center transition-all duration-200",
+                                isActive
+                                  ? "text-primary"
+                                  : "text-sidebar-foreground/65 group-hover/navitem:text-sidebar-foreground"
                               )}>
                               <item.icon className="size-[17px]" />
                             </span>
                             <span className="flex min-w-0 flex-1 items-center gap-1.5">
                               <span className="truncate">{resolved.label}</span>
                               {item.badge ? (
-                                <span className="shrink-0 rounded-[5px] border border-red-500 bg-white px-1.5 py-[1px] text-[9px] font-semibold leading-none text-red-600">
-                                  {item.badge}
-                                </span>
+                                <Chip variant="soft" color="danger" size="sm">
+                                  <Chip.Label className="text-[9px] leading-none font-semibold px-0.5">{item.badge}</Chip.Label>
+                                </Chip>
                               ) : null}
                             </span>
                           </SidebarMenuButton>
@@ -2527,87 +2528,21 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
 
           <SidebarFooter className="px-2 pb-2 pt-1 group-data-[collapsible=icon]:hidden">
             <div className="space-y-1.5 px-1">
-              <OfficeToggle onNavigate={() => setView("office")} onLeave={() => setView("home")} isActive={view === "office"} />
-<div
-                data-sidebar-model-switcher="true"
-                className="rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 p-1.5">
-                <div className="mb-1 flex items-center gap-1.5 px-0.5 text-[10px] font-medium text-sidebar-foreground/80">
-                  <CpuIcon className="size-3 shrink-0" />
-                  <span className="truncate">{t("app.sidebarModelLabel")}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        title={sidebarModelLabel}
-                        aria-label={t("app.sidebarModelLabel")}
-                        disabled={sidebarModelLoading}
-                        className="h-7 min-w-0 flex-1 justify-start gap-1.5 rounded-md border-sidebar-border bg-sidebar px-2 text-[10px] text-sidebar-foreground shadow-none hover:bg-accent">
-                        <span className="min-w-0 flex-1 truncate text-left">
-                          {sidebarModelLoading ? t("common.loading") : sidebarModelLabel}
-                        </span>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      side="top"
-                      align="start"
-                      className="max-h-80 w-72 overflow-y-auto rounded-[12px] border-border/70 bg-popover/95 p-2 backdrop-blur-xl">
-                      <DropdownMenuLabel className="px-2 pb-1 text-xs text-muted-foreground">
-                        {t("app.sidebarModelLabel")}
-                      </DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      {sidebarModelChoices.length > 0 ? (
-                        <DropdownMenuRadioGroup
-                          value={sidebarModelDraftKey}
-                          onValueChange={handleSidebarModelDraftChange}>
-                          {sidebarModelChoices.map((choice) => (
-                            <DropdownMenuRadioItem
-                              key={choice.key}
-                              value={choice.key}
-                              className="rounded-md py-2">
-                              <span className="truncate text-sm">{choice.label}</span>
-                            </DropdownMenuRadioItem>
-                          ))}
-                        </DropdownMenuRadioGroup>
-                      ) : (
-                        <DropdownMenuItem disabled className="rounded-md py-2 text-xs text-muted-foreground">
-                          {t("app.sidebarModelEmpty")}
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    onClick={() => void handleSaveSidebarModel()}
-                    disabled={!sidebarModelCanSave || !sidebarModelDirty || sidebarModelSaving}
-                    className="h-7 shrink-0 rounded-md border-sidebar-border bg-sidebar px-2 text-[10px] text-sidebar-foreground shadow-none hover:bg-accent">
-                    {sidebarModelSaving ? (
-                      <RefreshCwIcon className="size-3 animate-spin" />
-                    ) : (
-                      t("common.save")
-                    )}
-                  </Button>
-                </div>
-              </div>
-
-              <div
-                aria-hidden="true"
-                data-sidebar-footer-model-separator="true"
-                className="-ml-5 h-px w-[var(--sidebar-width)] bg-sidebar-border/75"
-              />
-
-              <div className="flex items-center justify-center gap-2 text-[11px] text-sidebar-foreground">
-                <span className="mono truncate text-[8px] tracking-[0.04em] text-sidebar-foreground">
-                  {installedHermesLabel}
+              {/* Model name (read-only) + connection status */}
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(true)}
+                title={t("app.openSettings")}
+                className="flex w-full items-center gap-2 rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 px-2.5 py-1.5 text-left transition-colors hover:bg-sidebar-accent/60">
+                <CpuIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+                <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-sidebar-foreground/80">
+                  {sidebarModelLoading ? t("common.loading") : sidebarModelLabel}
                 </span>
                 <span
                   aria-label={gatewayStatusLabel}
                   title={gatewayStatusLabel}
                   className={cn(
-                    "inline-block size-2.5 shrink-0 rounded-full",
+                    "inline-block size-2 shrink-0 rounded-full",
                     gatewayStatus === "connected"
                       ? "bg-emerald-500"
                       : gatewayStatus === "checking"
@@ -2615,7 +2550,7 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
                       : "bg-rose-500"
                   )}
                 />
-              </div>
+              </button>
 
               {hasHermesUpgrade ? (
                 <div className="flex justify-center">
@@ -2639,6 +2574,7 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
                 </div>
               ) : null}
 
+              {/* Language / Theme / Settings */}
               <div className="grid grid-cols-3 gap-1.5">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -2702,13 +2638,15 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
               {/* User / Login area */}
               {userInfo ? (
                 <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 px-2.5 py-2">
-                  {userInfo.avatarUrl ? (
-                    <img src={userInfo.avatarUrl} alt="" className="size-7 rounded-full object-cover" />
-                  ) : (
-                    <div className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary">
-                      <UserIcon className="size-3.5" />
-                    </div>
-                  )}
+                  <Avatar size="sm" variant="soft">
+                    {userInfo.avatarUrl ? (
+                      <Avatar.Image src={userInfo.avatarUrl} alt="" />
+                    ) : (
+                      <Avatar.Fallback>
+                        <UserIcon className="size-3.5" />
+                      </Avatar.Fallback>
+                    )}
+                  </Avatar>
                   <div className="flex-1 min-w-0">
                     <p className="truncate text-[11px] font-medium text-sidebar-foreground">{userInfo.nickname || '用户'}</p>
                     <p className="text-[9px] text-sidebar-foreground/50">已认证</p>
@@ -2727,9 +2665,11 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
                 <button
                   onClick={() => setLoginDialogOpen(true)}
                   className="flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 px-2.5 py-2 text-left transition-colors hover:bg-sidebar-accent/60">
-                  <div className="flex size-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                    <UserIcon className="size-3.5" />
-                  </div>
+                  <Avatar size="sm" variant="soft">
+                    <Avatar.Fallback>
+                      <UserIcon className="size-3.5" />
+                    </Avatar.Fallback>
+                  </Avatar>
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] font-medium text-sidebar-foreground/70">点击登录</p>
                     <p className="text-[9px] text-sidebar-foreground/40">微信扫码登录</p>
@@ -3136,7 +3076,12 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
                         {view === "hermes-analytics" && <HermesAnalyticsPage />}
                         {view === "hermes-channels" && <HermesChannelsPage />}
                         {view === "hermes-skills" && <HermesSkillsPage />}
-                        {view === "prompt-market" && <PromptTemplatesPage />}
+                        {view === "prompt-market" && <PromptTemplatesPage onStartChat={(agentId) => {
+                          setAgent(agentId)
+                          newConversation()
+                          setActiveMiddleView(null)
+                          setHermesSubmenuView(null)
+                        }} />}
                         {view === "hermes-memory" && <HermesMemoryPage />}
                         {view === "hermes-agents" && <HermesAgentsPage />}
                         {view === "notebook" && (
@@ -3233,164 +3178,171 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
         />
       </Suspense>
 
-      <Dialog
-        open={Boolean(sessionPendingRename)}
+      <Modal
+        isOpen={Boolean(sessionPendingRename)}
         onOpenChange={(open) => {
           if (open) return
           setSessionPendingRename(null)
           setRenameSessionDraft("")
         }}>
-        <DialogContent className="rounded-[12px] border-border/70 bg-background/95 sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t("app.renameSessionTitle")}</DialogTitle>
-          </DialogHeader>
-          <Input
-            value={renameSessionDraft}
-            onChange={(event) => setRenameSessionDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter") return
-              event.preventDefault()
-              void handleRenameSession()
-            }}
-            placeholder={t("app.renameSessionPlaceholder")}
-            className="h-9 rounded-md border-border/70 bg-background"
-            autoFocus
-          />
-          <DialogFooter className="gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-md"
-              onClick={() => {
-                setSessionPendingRename(null)
-                setRenameSessionDraft("")
-              }}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              className="rounded-md"
-              onClick={() => void handleRenameSession()}>
-              {t("common.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <ModalBackdrop />
+        <ModalContainer size="sm">
+          <ModalDialog className="rounded-[12px] border-border/70 bg-background/95">
+            <ModalHeader>
+              <ModalHeading>{t("app.renameSessionTitle")}</ModalHeading>
+            </ModalHeader>
+            <ModalBody>
+              <Input
+                value={renameSessionDraft}
+                onChange={(event) => setRenameSessionDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return
+                  event.preventDefault()
+                  void handleRenameSession()
+                }}
+                placeholder={t("app.renameSessionPlaceholder")}
+                className="h-9 rounded-md border-border/70 bg-background"
+                autoFocus
+              />
+            </ModalBody>
+            <ModalFooter className="gap-2">
+              <ModalCloseTrigger
+                className="rounded-md"
+                onClick={() => {
+                  setSessionPendingRename(null)
+                  setRenameSessionDraft("")
+                }}>
+                {t("common.cancel")}
+              </ModalCloseTrigger>
+              <Button
+                type="button"
+                size="sm"
+                className="rounded-md"
+                onClick={() => void handleRenameSession()}>
+                {t("common.save")}
+              </Button>
+            </ModalFooter>
+          </ModalDialog>
+        </ModalContainer>
+      </Modal>
 
-      <Dialog
-        open={fileManager.createDialog.open}
+      <Modal
+        isOpen={fileManager.createDialog.open}
         onOpenChange={(open) => {
           if (open) return
           fileManager.setCreateDialog((current) => ({ ...current, open: false }))
           fileManager.setCreateName("")
-        }}
-      >
-        <DialogContent className="rounded-[12px] border-border/70 bg-background/95 sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {fileManager.createDialog.type === "file"
-                ? t("files.createFileTitle")
-                : t("files.createFolderTitle")}
-            </DialogTitle>
-          </DialogHeader>
-          <Input
-            value={fileManager.createName}
-            onChange={(event) => fileManager.setCreateName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter") return
-              event.preventDefault()
-              void fileManager.handleCreate()
-            }}
-            placeholder={
-              fileManager.createDialog.type === "file"
-                ? t("files.createFilePlaceholder")
-                : t("files.createFolderPlaceholder")
-            }
-            className="h-9 rounded-md border-border/70 bg-background"
-            autoFocus
-          />
-          <DialogFooter className="gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-md"
-              onClick={() => {
-                fileManager.setCreateDialog((current) => ({ ...current, open: false }))
-                fileManager.setCreateName("")
-              }}
-            >
-              {t("common.cancel")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              className="rounded-md"
-              onClick={() => void fileManager.handleCreate()}
-            >
-              {t("files.createAction")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        }}>
+        <ModalBackdrop />
+        <ModalContainer size="sm">
+          <ModalDialog className="rounded-[12px] border-border/70 bg-background/95">
+            <ModalHeader>
+              <ModalHeading>
+                {fileManager.createDialog.type === "file"
+                  ? t("files.createFileTitle")
+                  : t("files.createFolderTitle")}
+              </ModalHeading>
+            </ModalHeader>
+            <ModalBody>
+              <Input
+                value={fileManager.createName}
+                onChange={(event) => fileManager.setCreateName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return
+                  event.preventDefault()
+                  void fileManager.handleCreate()
+                }}
+                placeholder={
+                  fileManager.createDialog.type === "file"
+                    ? t("files.createFilePlaceholder")
+                    : t("files.createFolderPlaceholder")
+                }
+                className="h-9 rounded-md border-border/70 bg-background"
+                autoFocus
+              />
+            </ModalBody>
+            <ModalFooter className="gap-2">
+              <ModalCloseTrigger
+                className="rounded-md"
+                onClick={() => {
+                  fileManager.setCreateDialog((current) => ({ ...current, open: false }))
+                  fileManager.setCreateName("")
+                }}>
+                {t("common.cancel")}
+              </ModalCloseTrigger>
+              <Button
+                type="button"
+                size="sm"
+                className="rounded-md"
+                onClick={() => void fileManager.handleCreate()}>
+                {t("files.createAction")}
+              </Button>
+            </ModalFooter>
+          </ModalDialog>
+        </ModalContainer>
+      </Modal>
 
       <AlertDialog
-        open={Boolean(sessionPendingDelete)}
+        isOpen={Boolean(sessionPendingDelete)}
         onOpenChange={(open) => !open && setSessionPendingDelete(null)}>
-        <AlertDialogContent size="sm" className="rounded-[12px] border-border/70 bg-background/95">
-          <AlertDialogHeader>
-            <AlertDialogMedia className="bg-destructive/10 text-destructive">
-              <Trash2Icon />
-            </AlertDialogMedia>
-            <AlertDialogTitle>{t("app.deleteSessionTitle")}</AlertDialogTitle>
-            <AlertDialogDescription className="leading-7">
-              {t("app.deleteSessionDescription")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-md">{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              className="rounded-md"
-              onClick={handleDeleteConversation}>
-              {t("app.deleteSessionAction")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+        <AlertDialogBackdrop />
+        <AlertDialogContainer>
+          <AlertDialogDialog size="sm" className="rounded-[12px] border-border/70 bg-background/95">
+            <AlertDialogHeader>
+              <AlertDialogIcon status="danger"><Trash2Icon className="size-5" /></AlertDialogIcon>
+              <AlertDialogHeading>{t("app.deleteSessionTitle")}</AlertDialogHeading>
+            </AlertDialogHeader>
+            <AlertDialogBody>
+              <p className="leading-7">
+                {t("app.deleteSessionDescription")}
+              </p>
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <AlertDialogCloseTrigger className="rounded-md">{t("common.cancel")}</AlertDialogCloseTrigger>
+              <Button
+                color="danger"
+                className="rounded-md"
+                onClick={handleDeleteConversation}>
+                {t("app.deleteSessionAction")}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogDialog>
+        </AlertDialogContainer>
       </AlertDialog>
 
       <AlertDialog
-        open={Boolean(connectionPrompt)}
+        isOpen={Boolean(connectionPrompt)}
         onOpenChange={(open) => !open && setConnectionPrompt(null)}>
-        <AlertDialogContent size="sm" className="rounded-[12px] border-border/70 bg-background/95">
-          <AlertDialogHeader>
-            <AlertDialogMedia className="bg-primary/10 text-primary">
-              <WrenchIcon />
-            </AlertDialogMedia>
-            <AlertDialogTitle>{connectionPrompt?.title}</AlertDialogTitle>
-            <AlertDialogDescription className="leading-7">
-              {connectionPrompt?.description}
-            </AlertDialogDescription>
-            {connectionPrompt?.details && (
-              <div className="mono rounded-md border border-border/70 bg-background/70 px-3 py-2 text-[11px] text-muted-foreground">
-                {connectionPrompt.details}
-              </div>
-            )}
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-md">{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="rounded-md"
-              onClick={() => {
-                setConnectionPrompt(null)
-                openConnectionSettings()
-              }}>
-              {t("app.openConnectionSettings")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+        <AlertDialogBackdrop />
+        <AlertDialogContainer>
+          <AlertDialogDialog size="sm" className="rounded-[12px] border-border/70 bg-background/95">
+            <AlertDialogHeader>
+              <AlertDialogIcon status="accent"><WrenchIcon className="size-5" /></AlertDialogIcon>
+              <AlertDialogHeading>{connectionPrompt?.title}</AlertDialogHeading>
+            </AlertDialogHeader>
+            <AlertDialogBody>
+              <p className="leading-7">
+                {connectionPrompt?.description}
+              </p>
+              {connectionPrompt?.details && (
+                <div className="mono mt-3 rounded-md border border-border/70 bg-background/70 px-3 py-2 text-[11px] text-muted-foreground">
+                  {connectionPrompt.details}
+                </div>
+              )}
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <AlertDialogCloseTrigger className="rounded-md">{t("common.cancel")}</AlertDialogCloseTrigger>
+              <Button
+                className="rounded-md"
+                onClick={() => {
+                  setConnectionPrompt(null)
+                  openConnectionSettings()
+                }}>
+                {t("app.openConnectionSettings")}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogDialog>
+        </AlertDialogContainer>
       </AlertDialog>
     </div>
   )
@@ -3677,9 +3629,11 @@ function AppTerminalDock({
             {t("common.close")}
           </Button>
         ) : (
-          <Badge variant="outline" className="rounded-full px-2 py-0.5 text-[10px]">
-            {t("nav.terminal")}
-          </Badge>
+          <Chip variant="tertiary" className="rounded-full px-2 py-0.5">
+            <Chip.Label className="text-[10px]">
+              {t("nav.terminal")}
+            </Chip.Label>
+          </Chip>
         )}
       </div>
       <div className="min-h-0 flex-1 overflow-hidden bg-[#0f1115]">

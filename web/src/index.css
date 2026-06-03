@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@heroui/styles";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -154,6 +155,12 @@
 }
 
 @layer base {
+  /* HeroUI Card.Description uses var(--muted) which is a bg color, not text.
+     Override to use muted-foreground so descriptions are readable. */
+  .card__description {
+    color: var(--muted-foreground) !important;
+  }
+
   * {
     border-color: var(--border);
   }

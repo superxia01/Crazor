@@ -14,7 +14,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card } from "@heroui/react"
 import { cn } from "@/lib/utils"
 
 export default function DataKanban({ items, lanes, laneKey, renderCard, onMove }) {
@@ -115,10 +115,10 @@ function KanbanCard({ item, renderCard }) {
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
       {renderCard ? renderCard(item) : (
-        <Card className="cursor-grab shadow-none hover:shadow-sm transition-shadow">
-          <CardContent className="p-2.5">
+        <Card variant="outlined" className="cursor-grab shadow-none hover:shadow-sm transition-shadow">
+          <Card.Content className="p-2.5">
             <div className="text-[12px] font-medium">{item.name || item.description || `#${item.id}`}</div>
-          </CardContent>
+          </Card.Content>
         </Card>
       )}
     </div>

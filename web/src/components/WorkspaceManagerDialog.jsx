@@ -3,15 +3,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { FolderOpenIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react"
 
+import { Modal, ModalBackdrop, ModalBody, ModalCloseTrigger, ModalContainer, ModalDialog, ModalFooter, ModalHeader, ModalHeading } from "@heroui/react"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
@@ -131,13 +124,16 @@ export default function WorkspaceManagerDialog({
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-hidden rounded-[12px] border-border/70 bg-background/95 p-0 sm:max-w-5xl">
-        <DialogHeader className="border-b border-border/70 px-5 py-5">
-          <DialogTitle>{t("workspace.manageTitle")}</DialogTitle>
-          <DialogDescription>{t("workspace.manageDescription")}</DialogDescription>
-        </DialogHeader>
+    <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
+      <ModalBackdrop>
+        <ModalContainer size="cover" scroll="inside">
+        <ModalDialog>
+          <ModalHeader className="border-b border-border/70 px-5 py-5">
+            <ModalHeading>{t("workspace.manageTitle")}</ModalHeading>
+          </ModalHeader>
 
+          <ModalBody>
+            <p className="text-muted-foreground">{t("workspace.manageDescription")}</p>
         <div className="grid min-h-0 flex-1 gap-0 md:grid-cols-[280px_minmax(0,1fr)]">
           <div className="border-r border-border/70 p-4">
             <Button size="sm" className="mb-3 w-full rounded-md" onClick={startCreate}>
@@ -240,17 +236,22 @@ export default function WorkspaceManagerDialog({
             </div>
           </div>
         </div>
+          </ModalBody>
 
-        <DialogFooter className="border-t border-border/70 px-5 py-4">
-          <Button variant="outline" size="sm" className="rounded-md" onClick={() => onOpenChange(false)}>
-            {t("common.cancel")}
-          </Button>
-          <Button size="sm" className="rounded-md" onClick={handleSave} disabled={saving || !path.trim()}>
-            <PencilIcon className="size-4" />
-            {mode === "create" ? t("workspace.createAction") : t("workspace.saveAction")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <ModalFooter className="border-t border-border/70 px-5 py-4">
+            <ModalCloseTrigger>
+              <Button variant="outline" size="sm" className="rounded-md" onClick={() => onOpenChange(false)}>
+                {t("common.cancel")}
+              </Button>
+            </ModalCloseTrigger>
+            <Button size="sm" className="rounded-md" onClick={handleSave} disabled={saving || !path.trim()}>
+              <PencilIcon className="size-4" />
+              {mode === "create" ? t("workspace.createAction") : t("workspace.saveAction")}
+            </Button>
+          </ModalFooter>
+        </ModalDialog>
+      </ModalContainer>
+      </ModalBackdrop>
+    </Modal>
   )
 }

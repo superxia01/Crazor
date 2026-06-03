@@ -6,7 +6,7 @@ import { toast } from "sonner"
 
 import { getLogs } from "@/api"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@heroui/react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -206,14 +206,14 @@ export default function MemoryView() {
       }>
       <div className="flex h-full min-h-0 flex-col gap-3 p-3 md:p-4">
         <div className="flex min-h-0 flex-1">
-          <Card className="app-panel flex h-full min-h-0 flex-1 gap-0 rounded-[12px] border-border/74 py-0">
-            <CardHeader className="border-b border-border/74 px-4 py-4">
-              <CardTitle className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
+          <Card variant="outlined" className="app-panel flex h-full min-h-0 flex-1 gap-0 rounded-[12px] border-border/74 py-0">
+            <Card.Header className="border-b border-border/74 px-4 py-4">
+              <Card.Title className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
                 <FileTextIcon className="size-4 text-primary" />
                 {file}.log
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+              </Card.Title>
+            </Card.Header>
+            <Card.Content className="flex min-h-0 flex-1 flex-col p-0">
               {error ? (
                 <div className="border-b border-rose-500/16 bg-rose-500/7 px-4 py-3 text-[12px] text-rose-700 dark:text-rose-300">
                   {error}
@@ -249,7 +249,7 @@ export default function MemoryView() {
                   })
                 )}
               </div>
-            </CardContent>
+            </Card.Content>
           </Card>
         </div>
       </div>

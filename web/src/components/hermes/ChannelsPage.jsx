@@ -24,15 +24,20 @@ import {
   writeChannelsConfig,
 } from "@/api"
 import { HermesEmptyState, HermesMetricCard } from "@/components/hermes/hermes-ui"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+  Card,
+  Chip,
+  Modal,
+  ModalBackdrop,
+  ModalBody,
+  ModalCloseTrigger,
+  ModalContainer,
+  ModalDialog,
+  ModalFooter,
+  ModalHeader,
+  ModalHeading,
+} from "@heroui/react"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
@@ -536,9 +541,11 @@ export default function ChannelsPage() {
       description="管理各个平台的接入配置，保存到本机 Hermes 配置文件。"
       actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="rounded-full px-2.5 py-0.5 text-[11px]">
-              已配置 {configuredCount} / {CHANNEL_TYPES.length}
-            </Badge>
+            <Chip variant="tertiary" className="rounded-full px-2.5 py-0.5">
+              <Chip.Label className="text-[11px]">
+                已配置 {configuredCount} / {CHANNEL_TYPES.length}
+              </Chip.Label>
+            </Chip>
             <Button
               variant="outline"
               size="sm"
@@ -591,6 +598,7 @@ export default function ChannelsPage() {
 
                 return (
                   <Card
+                    variant="outlined"
                     key={channel.id}
                     className={cn(
                       "overflow-hidden rounded-[14px] border-border/72 bg-background/72 py-0 shadow-none",
@@ -609,16 +617,24 @@ export default function ChannelsPage() {
                             <div className="truncate text-[13px] font-semibold text-foreground">
                               {channel.name}
                             </div>
-                            <Badge
-                              variant="outline"
+                            <Chip
+                              variant="tertiary"
                               className={cn(
-                                "rounded-md px-1.5 py-0 text-[10px]",
+                                "rounded-md px-1.5 py-0",
                                 configured
-                                  ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
-                                  : "border-border/70 bg-background/70 text-muted-foreground"
+                                  ? "border-emerald-500/20 bg-emerald-500/8"
+                                  : "border-border/70 bg-background/70"
                               )}>
-                              {configured ? "已配置" : "未配置"}
-                            </Badge>
+                              <Chip.Label
+                                className={cn(
+                                  "text-[10px]",
+                                  configured
+                                    ? "text-emerald-700 dark:text-emerald-300"
+                                    : "text-muted-foreground"
+                                )}>
+                                {configured ? "已配置" : "未配置"}
+                              </Chip.Label>
+                            </Chip>
                           </div>
                           <div className="mt-0.5 text-[11px] text-muted-foreground">{channel.helper}</div>
                         </div>
@@ -631,7 +647,7 @@ export default function ChannelsPage() {
                     </button>
 
                     {expanded ? (
-                      <CardContent className="space-y-4 border-t border-border/72 px-4 py-4">
+                      <Card.Content className="space-y-4 border-t border-border/72 px-4 py-4">
                         {channel.hasQrCode ? (
                           <div className="rounded-[12px] border border-dashed border-border/72 bg-background/58 px-4 py-3">
                             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -699,7 +715,7 @@ export default function ChannelsPage() {
                             />
                           </div>
                         ))}
-                      </CardContent>
+                      </Card.Content>
                     ) : null}
                   </Card>
                 )
@@ -709,81 +725,97 @@ export default function ChannelsPage() {
         </ScrollArea>
       </ViewFrame>
 
-      <Dialog open={qrDialog.open} onOpenChange={(open) => setQrDialog((current) => ({ ...current, open }))}>
-        <DialogContent className="rounded-[14px] border-border/70 bg-background/96 sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{qrDialog.title}</DialogTitle>
-          </DialogHeader>
-          <div className="rounded-[12px] border border-border/72 bg-background/78 p-4">
-            {qrDialog.loading ? (
-              <div className="text-[13px] text-muted-foreground">正在获取配对信息...</div>
-            ) : qrDialog.error ? (
-              <div className="text-[13px] text-rose-600 dark:text-rose-300">{qrDialog.error}</div>
-            ) : qrDialog.mode === "qqbot" ? (
-              <div className="space-y-4">
-                <div className="flex flex-col items-center gap-3">
-                  {qqbotQrImageSrc ? (
-                    <img
-                      src={qqbotQrImageSrc}
-                      alt="QQBot 扫码授权二维码"
-                      className="size-64 rounded-[10px] border border-border/70 bg-white p-3"
-                    />
-                  ) : (
-                    <div className="flex size-64 items-center justify-center rounded-[10px] border border-border/70 bg-muted/30 text-[12px] text-muted-foreground">
-                      未返回二维码图片
+      <Modal isOpen={qrDialog.open} onOpenChange={(open) => setQrDialog((current) => ({ ...current, open }))}>
+        <ModalBackdrop />
+        <ModalContainer size="lg">
+          <ModalDialog>
+            <ModalHeader>
+              <ModalHeading>{qrDialog.title}</ModalHeading>
+            </ModalHeader>
+            <ModalBody>
+              <div className="rounded-[12px] border border-border/72 bg-background/78 p-4">
+                {qrDialog.loading ? (
+                  <div className="text-[13px] text-muted-foreground">正在获取配对信息...</div>
+                ) : qrDialog.error ? (
+                  <div className="text-[13px] text-rose-600 dark:text-rose-300">{qrDialog.error}</div>
+                ) : qrDialog.mode === "qqbot" ? (
+                  <div className="space-y-4">
+                    <div className="flex flex-col items-center gap-3">
+                      {qqbotQrImageSrc ? (
+                        <img
+                          src={qqbotQrImageSrc}
+                          alt="QQBot 扫码授权二维码"
+                          className="size-64 rounded-[10px] border border-border/70 bg-white p-3"
+                        />
+                      ) : (
+                        <div className="flex size-64 items-center justify-center rounded-[10px] border border-border/70 bg-muted/30 text-[12px] text-muted-foreground">
+                          未返回二维码图片
+                        </div>
+                      )}
+                      <Chip
+                        variant="tertiary"
+                        className={cn(
+                          "rounded-md px-2 py-0.5",
+                          qrDialog.qrStatus === "confirmed"
+                            ? "border-emerald-500/24 bg-emerald-500/8"
+                            : "border-border/70 bg-background/70"
+                        )}>
+                        <Chip.Label
+                          className={cn(
+                            "text-[11px]",
+                            qrDialog.qrStatus === "confirmed"
+                              ? "text-emerald-700 dark:text-emerald-300"
+                              : "text-muted-foreground"
+                          )}>
+                          {qrDialog.qrStatus === "confirmed" ? "已绑定" : qrDialog.qrStatus}
+                        </Chip.Label>
+                      </Chip>
+                      <div className="text-center text-[13px] text-muted-foreground">
+                        {qrDialog.qrMessage || "等待 QQ 扫码授权"}
+                      </div>
                     </div>
-                  )}
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "rounded-md px-2 py-0.5 text-[11px]",
-                      qrDialog.qrStatus === "confirmed"
-                        ? "border-emerald-500/24 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
-                        : "border-border/70 bg-background/70 text-muted-foreground"
-                    )}>
-                    {qrDialog.qrStatus === "confirmed" ? "已绑定" : qrDialog.qrStatus}
-                  </Badge>
-                  <div className="text-center text-[13px] text-muted-foreground">
-                    {qrDialog.qrMessage || "等待 QQ 扫码授权"}
-                  </div>
-                </div>
 
-                {qrDialog.qrInfo?.connectUrl ? (
-                  <div className="rounded-[10px] border border-border/70 bg-muted/20 p-3">
-                    <div className="mb-1 text-[11px] font-medium text-muted-foreground">
-                      QQ 授权链接
-                    </div>
-                    <div className="break-all font-mono text-[11px] leading-5 text-foreground">
-                      {qrDialog.qrInfo.connectUrl}
-                    </div>
-                  </div>
-                ) : null}
+                    {qrDialog.qrInfo?.connectUrl ? (
+                      <div className="rounded-[10px] border border-border/70 bg-muted/20 p-3">
+                        <div className="mb-1 text-[11px] font-medium text-muted-foreground">
+                          QQ 授权链接
+                        </div>
+                        <div className="break-all font-mono text-[11px] leading-5 text-foreground">
+                          {qrDialog.qrInfo.connectUrl}
+                        </div>
+                      </div>
+                    ) : null}
 
-                {qrDialog.credentials ? (
-                  <div className="grid gap-2 rounded-[10px] border border-emerald-500/20 bg-emerald-500/6 p-3 text-[12px]">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-muted-foreground">App ID</span>
-                      <span className="truncate font-mono text-foreground">
-                        {qrDialog.credentials.appId}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-muted-foreground">OpenID</span>
-                      <span className="truncate font-mono text-foreground">
-                        {qrDialog.credentials.userOpenid || "未返回"}
-                      </span>
-                    </div>
+                    {qrDialog.credentials ? (
+                      <div className="grid gap-2 rounded-[10px] border border-emerald-500/20 bg-emerald-500/6 p-3 text-[12px]">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">App ID</span>
+                          <span className="truncate font-mono text-foreground">
+                            {qrDialog.credentials.appId}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">OpenID</span>
+                          <span className="truncate font-mono text-foreground">
+                            {qrDialog.credentials.userOpenid || "未返回"}
+                          </span>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
+                ) : (
+                  <pre className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-6 text-foreground">
+                    {qrDialog.content || "未返回任何内容"}
+                  </pre>
+                )}
               </div>
-            ) : (
-              <pre className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-6 text-foreground">
-                {qrDialog.content || "未返回任何内容"}
-              </pre>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+            </ModalBody>
+            <ModalFooter>
+              <ModalCloseTrigger>关闭</ModalCloseTrigger>
+            </ModalFooter>
+          </ModalDialog>
+        </ModalContainer>
+      </Modal>
     </>
   )
 }

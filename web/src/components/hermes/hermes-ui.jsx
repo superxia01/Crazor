@@ -1,6 +1,6 @@
 // Copyright (c) 2026 MeeJoy
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@heroui/react"
 import { cn } from "@/lib/utils"
 
 const TONE_STYLES = {
@@ -30,8 +30,8 @@ export function HermesMetricCard({ icon: Icon, label, value, hint, tone = "defau
   const style = TONE_STYLES[tone] || TONE_STYLES.default
 
   return (
-    <Card className={cn("app-panel overflow-hidden rounded-[14px] py-0 shadow-none", style.card, className)}>
-      <CardContent className="relative flex items-start justify-between gap-4 px-4 py-4">
+    <Card variant="outlined" className={cn("app-panel overflow-hidden rounded-[14px] py-0 shadow-none", style.card, className)}>
+      <Card.Content className="relative flex items-start justify-between gap-4 px-4 py-4">
         <div className="min-w-0">
           <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
             {label}
@@ -48,7 +48,7 @@ export function HermesMetricCard({ icon: Icon, label, value, hint, tone = "defau
           )}>
           <Icon className="size-4" />
         </div>
-      </CardContent>
+      </Card.Content>
     </Card>
   )
 }
@@ -63,26 +63,26 @@ export function HermesSectionCard({
   contentClassName,
 }) {
   return (
-    <Card className={cn("app-panel overflow-hidden rounded-[14px] border-border/74 py-0 shadow-none", className)}>
-      <CardHeader className="border-b border-border/72 bg-sidebar/28 px-4 py-4">
+    <Card variant="outlined" className={cn("app-panel overflow-hidden rounded-[14px] border-border/74 py-0 shadow-none", className)}>
+      <Card.Header className="border-b border-border/72 bg-sidebar/28 px-4 py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <CardTitle className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
+            <Card.Title className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
               {Icon ? (
                 <span className="flex size-7 items-center justify-center rounded-[10px] border border-border/70 bg-background/88 text-primary">
                   <Icon className="size-3.5" />
                 </span>
               ) : null}
               <span className="truncate">{title}</span>
-            </CardTitle>
+            </Card.Title>
             {description ? (
               <div className="mt-2 text-[12px] leading-5.5 text-muted-foreground">{description}</div>
             ) : null}
           </div>
           {actions ? <div className="shrink-0">{actions}</div> : null}
         </div>
-      </CardHeader>
-      <CardContent className={cn("px-4 py-4", contentClassName)}>{children}</CardContent>
+      </Card.Header>
+      <Card.Content className={cn("px-4 py-4", contentClassName)}>{children}</Card.Content>
     </Card>
   )
 }

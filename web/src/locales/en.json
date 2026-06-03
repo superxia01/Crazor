@@ -170,7 +170,8 @@
     "sidebar": {
       "group": {
         "ai": "AI",
-        "business": "Enterprise Data"
+        "business": "Enterprise Data",
+        "knowledge": "Knowledge"
       }
     }
   },

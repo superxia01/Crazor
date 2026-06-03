@@ -164,7 +164,8 @@
     "sidebar": {
       "group": {
         "ai": "AI",
-        "business": "企業數據"
+        "business": "企業數據",
+        "knowledge": "知識庫"
       }
     }
   },

@@ -23,17 +23,8 @@ import {
   resumeCronJob,
   triggerCronJob,
 } from "@/api"
-import { Badge } from "@/components/ui/badge"
+import { Card, Chip, Modal, ModalBackdrop, ModalBody, ModalCloseTrigger, ModalContainer, ModalDialog, ModalFooter, ModalHeader, ModalHeading } from "@heroui/react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
@@ -108,17 +99,31 @@ function formatCronTime(value, language) {
   })
 }
 
-function statusBadgeClass(state) {
+function statusBadgeWrapperClass(state) {
   switch (state) {
     case "scheduled":
     case "enabled":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+      return "border-emerald-500/20 bg-emerald-500/10"
     case "paused":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+      return "border-amber-500/20 bg-amber-500/10"
     case "error":
-      return "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+      return "border-rose-500/20 bg-rose-500/10"
     default:
-      return "border-border/70 bg-background/70 text-muted-foreground"
+      return "border-border/70 bg-background/70"
+  }
+}
+
+function statusBadgeLabelClass(state) {
+  switch (state) {
+    case "scheduled":
+    case "enabled":
+      return "text-emerald-700 dark:text-emerald-300"
+    case "paused":
+      return "text-amber-700 dark:text-amber-300"
+    case "error":
+      return "text-rose-700 dark:text-rose-300"
+    default:
+      return "text-muted-foreground"
   }
 }
 
@@ -535,19 +540,25 @@ export default function CronView() {
         description={t("cron.description")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="rounded-full px-2.5 py-0.5 text-[11px]">
-              {t("cron.count", { count: stats.total })}
-            </Badge>
-            <Badge
-              variant="outline"
-              className="rounded-full border-emerald-500/20 bg-emerald-500/8 px-2.5 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-300">
-              {t("cron.scheduledCount", { count: stats.scheduled })}
-            </Badge>
-            <Badge
-              variant="outline"
-              className="rounded-full border-amber-500/20 bg-amber-500/8 px-2.5 py-0.5 text-[11px] text-amber-700 dark:text-amber-300">
-              {t("cron.pausedCount", { count: stats.paused })}
-            </Badge>
+            <Chip variant="tertiary" className="rounded-full px-2.5 py-0.5">
+              <Chip.Label className="text-[11px]">
+                {t("cron.count", { count: stats.total })}
+              </Chip.Label>
+            </Chip>
+            <Chip
+              variant="tertiary"
+              className="rounded-full border-emerald-500/20 bg-emerald-500/8 px-2.5 py-0.5">
+              <Chip.Label className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                {t("cron.scheduledCount", { count: stats.scheduled })}
+              </Chip.Label>
+            </Chip>
+            <Chip
+              variant="tertiary"
+              className="rounded-full border-amber-500/20 bg-amber-500/8 px-2.5 py-0.5">
+              <Chip.Label className="text-[11px] text-amber-700 dark:text-amber-300">
+                {t("cron.pausedCount", { count: stats.paused })}
+              </Chip.Label>
+            </Chip>
             <Button
               variant="outline"
               size="sm"
@@ -631,26 +642,31 @@ export default function CronView() {
                         return (
                           <Card
                             key={job.id}
+                            variant="outlined"
                             className="app-panel rounded-[12px] border-border/74 py-0">
-                            <CardContent className="px-4 py-4">
+                            <Card.Content className="px-4 py-4">
                               <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                                 <div className="min-w-0 flex-1">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <div className="truncate text-[14px] font-semibold text-foreground">
                                       {displayTitle}
                                     </div>
-                                    <Badge
-                                      variant="outline"
+                                    <Chip
+                                      variant="tertiary"
                                       className={cn(
-                                        "rounded px-1.5 py-0.5 text-[11px]",
-                                        statusBadgeClass(job.state)
+                                        "rounded px-1.5 py-0.5",
+                                        statusBadgeWrapperClass(job.state)
                                       )}>
-                                      {job.state}
-                                    </Badge>
+                                      <Chip.Label className={cn("text-[11px]", statusBadgeLabelClass(job.state))}>
+                                        {job.state}
+                                      </Chip.Label>
+                                    </Chip>
                                     {job.deliver && job.deliver !== "local" && (
-                                      <Badge variant="outline" className="rounded px-1.5 py-0.5 text-[11px]">
-                                        {t(`cron.delivery.${job.deliver}`)}
-                                      </Badge>
+                                      <Chip variant="tertiary" className="rounded px-1.5 py-0.5">
+                                        <Chip.Label className="text-[11px]">
+                                          {t(`cron.delivery.${job.deliver}`)}
+                                        </Chip.Label>
+                                      </Chip>
                                     )}
                                   </div>
 
@@ -718,7 +734,7 @@ export default function CronView() {
                                   </Button>
                                 </div>
                               </div>
-                            </CardContent>
+                            </Card.Content>
                           </Card>
                         )
                       })
@@ -731,8 +747,8 @@ export default function CronView() {
         </div>
       </ViewFrame>
 
-      <Dialog
-        open={createOpen}
+      <Modal
+        isOpen={createOpen}
         onOpenChange={(nextOpen) => {
           setCreateOpen(nextOpen)
           if (!nextOpen && !creating) {
@@ -740,13 +756,16 @@ export default function CronView() {
             resetDependencyState()
           }
         }}>
-        <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden rounded-[12px] border-border/74 bg-background/97 p-0 sm:max-w-4xl">
-          <DialogHeader className="border-b border-border/74 px-5 py-4">
-            <DialogTitle>{t("cron.newJob")}</DialogTitle>
-            <DialogDescription>{t("cron.builderHint")}</DialogDescription>
-          </DialogHeader>
+        <ModalBackdrop>
+          <ModalContainer size="full" scroll="inside">
+          <ModalDialog>
+            <ModalHeader className="border-b border-border/74 px-5 py-4">
+              <ModalHeading>{t("cron.newJob")}</ModalHeading>
+            </ModalHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
+            <ModalBody>
+              <p className="text-muted-foreground">{t("cron.builderHint")}</p>
+              <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="grid items-start gap-4 p-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
               <div className="space-y-3">
                 <div className="space-y-2">
@@ -970,18 +989,28 @@ export default function CronView() {
                         {t("cron.dependencyDescription")}
                       </p>
                     </div>
-                    <Badge
-                      variant="outline"
+                    <Chip
+                      variant="tertiary"
                       className={cn(
-                        "shrink-0 rounded-full px-2.5 py-0.5 text-[11px]",
+                        "shrink-0 rounded-full px-2.5 py-0.5",
                         dependencyInstalled
-                          ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
+                          ? "border-emerald-500/20 bg-emerald-500/8"
                           : dependencyStatus
-                            ? "border-amber-500/20 bg-amber-500/8 text-amber-700 dark:text-amber-300"
-                            : "border-border/70 bg-background/70 text-muted-foreground"
+                            ? "border-amber-500/20 bg-amber-500/8"
+                            : "border-border/70 bg-background/70"
                       )}>
-                      {dependencyStatusLabel}
-                    </Badge>
+                      <Chip.Label
+                        className={cn(
+                          "text-[11px]",
+                          dependencyInstalled
+                            ? "text-emerald-700 dark:text-emerald-300"
+                            : dependencyStatus
+                              ? "text-amber-700 dark:text-amber-300"
+                              : "text-muted-foreground"
+                        )}>
+                        {dependencyStatusLabel}
+                      </Chip.Label>
+                    </Chip>
                   </div>
 
                   <div className="mt-3 space-y-3">
@@ -1065,24 +1094,24 @@ export default function CronView() {
             </div>
           </div>
 
-          <DialogFooter className="border-t border-border/74 px-5 py-4">
-            <Button
-              variant="outline"
-              size="sm"
+          </ModalBody>
+          <ModalFooter>
+            <ModalCloseTrigger
               onClick={() => {
                 setCreateOpen(false)
                 resetForm()
               }}
-              disabled={creating}
-              className="rounded-md">
+            >
               {t("common.cancel")}
-            </Button>
+            </ModalCloseTrigger>
             <Button size="sm" onClick={handleCreate} disabled={creating} className="rounded-md">
               {creating ? t("cron.creating") : t("cron.createAction")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </ModalFooter>
+        </ModalDialog>
+      </ModalContainer>
+        </ModalBackdrop>
+    </Modal>
     </>
   )
 }

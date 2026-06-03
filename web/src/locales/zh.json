@@ -170,7 +170,8 @@
     "sidebar": {
       "group": {
         "ai": "AI",
-        "business": "企业数据"
+        "business": "企业数据",
+        "knowledge": "知识库"
       }
     }
   },

@@ -2,7 +2,7 @@
 
 import { ChevronRightIcon, FileCode2Icon, FolderOpenDotIcon, SearchIcon, XIcon } from "lucide-react"
 
-import { Card, CardContent } from "@/components/ui/card"
+import { Card } from "@heroui/react"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { buildTreeNodeState } from "@/components/file-tree-state"
@@ -88,13 +88,13 @@ export function FileTreePanel({
 
 function EmptyBlock({ title, description }) {
   return (
-    <Card className="rounded-[10px] border-border/60 border-dashed py-0 shadow-none">
-      <CardContent className="px-4 py-6 text-center">
+    <Card variant="outlined" className="rounded-[10px] border-border/60 border-dashed py-0 shadow-none">
+      <Card.Content className="px-4 py-6 text-center">
         <div className="space-y-1.5">
           <div className="text-[12px] font-medium text-foreground">{title}</div>
           <p className="text-[11px] leading-5 text-muted-foreground">{description}</p>
         </div>
-      </CardContent>
+      </Card.Content>
     </Card>
   )
 }

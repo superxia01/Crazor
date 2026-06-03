@@ -29,11 +29,16 @@ import { HermesEmptyState } from "@/components/hermes/hermes-ui"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+  Modal,
+  ModalBackdrop,
+  ModalBody,
+  ModalCloseTrigger,
+  ModalContainer,
+  ModalDialog,
+  ModalFooter,
+  ModalHeader,
+  ModalHeading,
+} from "@heroui/react"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { ViewFrame } from "@/components/view-frame"
@@ -580,18 +585,26 @@ export default function SkillsPage() {
         </div>
       </ViewFrame>
 
-      <Dialog open={detail.open} onOpenChange={(open) => setDetail((current) => ({ ...current, open }))}>
-        <DialogContent className="rounded-[14px] border-border/70 bg-background/96 sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{detail.title}</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[420px] overflow-auto rounded-[12px] border border-border/72 bg-background/72 p-4">
-            <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-6 text-foreground">
-              {detail.content || "暂无详情"}
-            </pre>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <Modal isOpen={detail.open} onOpenChange={(open) => setDetail((current) => ({ ...current, open }))}>
+        <ModalBackdrop />
+        <ModalContainer size="lg">
+          <ModalDialog>
+            <ModalHeader>
+              <ModalHeading>{detail.title}</ModalHeading>
+            </ModalHeader>
+            <ModalBody>
+              <div className="max-h-[420px] overflow-auto rounded-[12px] border border-border/72 bg-background/72 p-4">
+                <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-6 text-foreground">
+                  {detail.content || "暂无详情"}
+                </pre>
+              </div>
+            </ModalBody>
+            <ModalFooter>
+              <ModalCloseTrigger>关闭</ModalCloseTrigger>
+            </ModalFooter>
+          </ModalDialog>
+        </ModalContainer>
+      </Modal>
     </>
   )
 }
