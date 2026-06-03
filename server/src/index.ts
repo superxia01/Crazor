@@ -979,21 +979,39 @@ async function readFeishuConnectorReadiness(): Promise<DeliveryReadinessCheck | 
     return deliveryCheck('connector-feishu', '飞书连接器', 'warn', `${readiness.detail}，但尚未执行真实连通测试`)
   }
 
+  const binding = asRecord(asRecord(check.details).hermes_binding)
+  const checkHermesConfigured = binding.env_configured === true || binding.hermes_configured === true
+  const checkRuntimeConnected = binding.runtime_connected === true
+  const checkSynchronized = binding.synchronized === true
+  const effectiveReadiness = !readiness.configured && checkHermesConfigured
+    ? {
+        ...readiness,
+        configured: true,
+        hermesConfigured: true,
+        synchronized: checkSynchronized,
+        runtimeConnected: checkRuntimeConnected,
+        runtimeState: cleanString(binding.runtime_state) || readiness.runtimeState,
+        detail: checkRuntimeConnected
+          ? '飞书凭证已写入 Hermes 配置，Hermes 运行时已连接飞书平台'
+          : '飞书凭证已写入 Hermes 配置，Hermes 运行时监听待确认',
+      }
+    : readiness
+
   const rawStatus = cleanString(check.status).toLowerCase()
   const summary = cleanString(check.summary) || '已记录飞书连接器检测结果'
   const checkedAt = cleanString(check.checked_at || check.updated_at)
   const stale = checkedAt ? (Date.now() - parseIsoTimestamp(checkedAt)) > 24 * 60 * 60 * 1000 : false
   const suffix = checkedAt ? `（最近检测 ${checkedAt}${stale ? '，建议重新验证' : ''}）` : ''
 
-  if (!readiness.configured) {
-    return deliveryCheck('connector-feishu', '飞书连接器', 'warn', `${readiness.detail}，但保留了历史检测结果：${summary}${suffix}`)
+  if (!effectiveReadiness.configured) {
+    return deliveryCheck('connector-feishu', '飞书连接器', 'warn', `${effectiveReadiness.detail}，但保留了历史检测结果：${summary}${suffix}`)
   }
 
-  if (rawStatus === 'ok' && !stale && readiness.hermesConfigured && readiness.synchronized && readiness.runtimeConnected) {
-    return deliveryCheck('connector-feishu', '飞书连接器', 'ok', `${summary}；${readiness.detail}${suffix}`)
+  if (rawStatus === 'ok' && !stale && effectiveReadiness.hermesConfigured && effectiveReadiness.synchronized && effectiveReadiness.runtimeConnected) {
+    return deliveryCheck('connector-feishu', '飞书连接器', 'ok', `${summary}；${effectiveReadiness.detail}${suffix}`)
   }
 
-  return deliveryCheck('connector-feishu', '飞书连接器', 'warn', `${summary}；${readiness.detail}${suffix}`)
+  return deliveryCheck('connector-feishu', '飞书连接器', 'warn', `${summary}；${effectiveReadiness.detail}${suffix}`)
 }
 
 function isCustomModelProvider(provider: string): boolean {
