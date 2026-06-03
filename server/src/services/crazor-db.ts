@@ -478,20 +478,6 @@ export function deleteContact(id: string) {
 
 // ── Content Pieces ───────────────────────────────────────────
 
-export function listContentPieces(filter?: { platform?: string; form?: string; status?: string; q?: string }) {
-  let sql = "SELECT * FROM content_pieces WHERE 1=1"
-  const params: any[] = []
-  if (filter?.platform) { sql += " AND platform = ?"; params.push(filter.platform) }
-  if (filter?.form) { sql += " AND form = ?"; params.push(filter.form) }
-  if (filter?.status) { sql += " AND status = ?"; params.push(filter.status) }
-  if (filter?.q) {
-    sql += " AND title LIKE ?"
-    params.push(`%${filter.q}%`)
-  }
-  sql += " ORDER BY updated_at DESC"
-  return db.prepare(sql).all(...params).map(mapContentPiece)
-}
-
 export function getContentPiece(id: string) {
   return mapContentPiece(db.prepare("SELECT * FROM content_pieces WHERE id = ?").get(id))
 }
@@ -549,6 +535,54 @@ function shouldSeedDemoData() {
   )
 }
 
+// Deprecated platforms: removed from UI but may still exist in legacy DB rows.
+// We hide them from listings and clean them up on startup.
+const DEPRECATED_PLATFORMS = ["Shopify", "Amazon", "朋友圈", "知识星球"]
+
+export function cleanupDeprecatedPlatforms() {
+  const placeholders = DEPRECATED_PLATFORMS.map(() => "?").join(",")
+  db.prepare(`DELETE FROM content_pieces WHERE platform IN (${placeholders})`).run(...DEPRECATED_PLATFORMS)
+}
+
+export function listContentPieces(filter?: { platform?: string; form?: string; status?: string; q?: string }) {
+  let sql = "SELECT * FROM content_pieces WHERE 1=1"
+  const params: any[] = []
+  // Hide deprecated platforms from all listings
+  const placeholders = DEPRECATED_PLATFORMS.map(() => "?").join(",")
+  sql += ` AND platform NOT IN (${placeholders})`
+  params.push(...DEPRECATED_PLATFORMS)
+  if (filter?.platform) { sql += " AND platform = ?"; params.push(filter.platform) }
+  if (filter?.form) { sql += " AND form = ?"; params.push(filter.form) }
+  if (filter?.status) { sql += " AND status = ?"; params.push(filter.status) }
+  if (filter?.q) {
+    sql += " AND title LIKE ?"
+    params.push(`%${filter.q}%`)
+  }
+  sql += " ORDER BY updated_at DESC"
+  return db.prepare(sql).all(...params).map(mapContentPiece)
+}
+
+export function getContentPieceStats() {
+  const placeholders = DEPRECATED_PLATFORMS.map(() => "?").join(",")
+  const excludeClause = `WHERE platform NOT IN (${placeholders})`
+  const excludeParams = DEPRECATED_PLATFORMS
+  const total = (db.prepare(`SELECT count(*) as c FROM content_pieces ${excludeClause}`).get(...excludeParams) as any).c
+  const published = (db.prepare(`SELECT count(*) as c FROM content_pieces ${excludeClause} AND status = '已发布'`).get(...excludeParams) as any).c
+  const byPlatform = db.prepare(`SELECT platform, count(*) as c FROM content_pieces ${excludeClause} AND platform != '' GROUP BY platform`).all(...excludeParams) as any[]
+  const byStatus = db.prepare(`SELECT status, count(*) as c FROM content_pieces ${excludeClause} GROUP BY status`).all(...excludeParams) as any[]
+  const byForm = db.prepare(`SELECT form, count(*) as c FROM content_pieces ${excludeClause} AND form != '' GROUP BY form`).all(...excludeParams) as any[]
+  const views = db.prepare(`SELECT COALESCE(SUM(views),0) as s, COALESCE(AVG(views),0) as a FROM content_pieces ${excludeClause} AND status = '已发布'`).get(...excludeParams) as any
+  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
+  const thisWeek = (db.prepare(`SELECT count(*) as c FROM content_pieces WHERE published_at >= ? AND platform NOT IN (${placeholders})`).get(weekAgo, ...excludeParams) as any).c
+  return {
+    total, published, thisWeek,
+    byPlatform: Object.fromEntries(byPlatform.map(r => [r.platform, r.c])),
+    byStatus: Object.fromEntries(byStatus.map(r => [r.status, r.c])),
+    byForm: Object.fromEntries(byForm.map(r => [r.form, r.c])),
+    totalViews: Number(views.s), avgViews: Math.round(Number(views.a)),
+  }
+}
+
 export function seedContentPieces() {
   if (!shouldSeedDemoData()) return 0
 
@@ -562,8 +596,6 @@ export function seedContentPieces() {
     { title: "30家企业AI内训真相调查", platform: "公众号", form: "文章", status: "草稿", topic_source: "选题池" },
     { title: "AI写文案prompt模板大全", platform: "抖音", form: "口播稿", status: "拍摄中", topic_source: "选题池" },
     { title: "制造业AI提效案例分享", platform: "视频号", form: "图文", status: "选题中", topic_source: "客户反馈" },
-    { title: "周末测评5款AI办公工具", platform: "朋友圈", form: "图文", status: "已发布", published_at: "2026-05-15", views: 560, likes: 34, comments: 12, shares: 8, topic_source: "日常" },
-    { title: "行业观点：别等了，AI不会等你", platform: "知识星球", form: "文章", status: "已发布", published_at: "2026-05-12", views: 1200, likes: 56, comments: 18, shares: 22, topic_source: "行业观察" },
     // 海外平台
     { title: "How SMEs Can Leverage AI Tools in 2026", platform: "YouTube", form: "Talk", status: "已发布", published_at: "2026-05-22", views: 15600, likes: 890, comments: 134, shares: 267, topic_source: "海外选题" },
     { title: "AI Automation for Small Business - Full Guide", platform: "YouTube", form: "Talk", status: "已发布", published_at: "2026-05-10", views: 32400, likes: 1820, comments: 256, shares: 534, topic_source: "海外选题" },
@@ -571,36 +603,15 @@ export function seedContentPieces() {
     { title: "AI tools comparison thread 🧵", platform: "Twitter", form: "图文", status: "已发布", published_at: "2026-05-19", views: 45000, likes: 1120, comments: 89, shares: 340, topic_source: "海外选题" },
     { title: "Behind the scenes: Building AI solutions for manufacturing", platform: "Instagram", form: "图文", status: "已发布", published_at: "2026-05-21", views: 8700, likes: 620, comments: 45, shares: 89, topic_source: "品牌建设" },
     { title: "5 AI tools every entrepreneur needs", platform: "Instagram", form: "图文", status: "草稿", topic_source: "海外选题" },
-    // 跨境电商
-    { title: "AI Training Toolkit - Enterprise Edition", platform: "Amazon", form: "文章", status: "已发布", published_at: "2026-05-16", views: 340, likes: 28, comments: 5, shares: 12, topic_source: "产品上架" },
-    { title: "AI Prompt Engineering Guide (English Edition)", platform: "Amazon", form: "文章", status: "待发布", topic_source: "产品上架" },
+    // 跨境短视频
     { title: "Day 1: 从0开始做TikTok AI内容", platform: "TikTok", form: "口播稿", status: "已发布", published_at: "2026-05-23", views: 128000, likes: 5600, comments: 342, shares: 1200, topic_source: "跨境选题" },
     { title: "AI makes this $0 to $10K challenge easy", platform: "TikTok", form: "口播稿", status: "拍摄中", topic_source: "跨境选题" },
-    { title: "AI SaaS Dashboard Template Launch", platform: "Shopify", form: "文章", status: "已发布", published_at: "2026-05-14", views: 180, likes: 12, comments: 3, shares: 5, topic_source: "产品推广" },
   ]
 
   for (const item of demoItems) {
     createContentPiece(item)
   }
   return demoItems.length
-}
-
-export function getContentPieceStats() {
-  const total = (db.prepare("SELECT count(*) as c FROM content_pieces").get() as any).c
-  const published = (db.prepare("SELECT count(*) as c FROM content_pieces WHERE status = '已发布'").get() as any).c
-  const byPlatform = db.prepare("SELECT platform, count(*) as c FROM content_pieces WHERE platform != '' GROUP BY platform").all() as any[]
-  const byStatus = db.prepare("SELECT status, count(*) as c FROM content_pieces GROUP BY status").all() as any[]
-  const byForm = db.prepare("SELECT form, count(*) as c FROM content_pieces WHERE form != '' GROUP BY form").all() as any[]
-  const views = db.prepare("SELECT COALESCE(SUM(views),0) as s, COALESCE(AVG(views),0) as a FROM content_pieces WHERE status = '已发布'").get() as any
-  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
-  const thisWeek = (db.prepare("SELECT count(*) as c FROM content_pieces WHERE published_at >= ?").get(weekAgo) as any).c
-  return {
-    total, published, thisWeek,
-    byPlatform: Object.fromEntries(byPlatform.map(r => [r.platform, r.c])),
-    byStatus: Object.fromEntries(byStatus.map(r => [r.status, r.c])),
-    byForm: Object.fromEntries(byForm.map(r => [r.form, r.c])),
-    totalViews: Number(views.s), avgViews: Math.round(Number(views.a)),
-  }
 }
 
 // ── Transactions ────────────────────────────────────────────

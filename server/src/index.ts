@@ -16,7 +16,7 @@ import {
   listFollowUps, createFollowUp, updateFollowUp, deleteFollowUp, getFollowUpReminders,
   listChannels, getChannel, createChannel, updateChannel, deleteChannel, getChannelStats,
   listChannelReferrals, createChannelReferral, listContactChannels,
-  listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats, seedContentPieces,
+  listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats, seedContentPieces, cleanupDeprecatedPlatforms,
   contentPublish, contentUpdateMetrics,
   createAuditLog, listAuditLogs,
   getIntegrationCheck, listIntegrationChecks, upsertIntegrationCheck,
@@ -4865,6 +4865,7 @@ const seedSkillsResult = seedSkills()
 // Seed field definitions from schema metadata
 seedFieldDefinitions()
 seedContentPieces()
+cleanupDeprecatedPlatforms()
 for (const entity of ['contacts', 'channels', 'transactions']) {
   discoverCustomFields(entity)
 }
