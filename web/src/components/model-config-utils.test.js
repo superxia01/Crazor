@@ -4,8 +4,10 @@ import test from "node:test"
 import assert from "node:assert/strict"
 
 import {
+  buildProviderSavePlan,
   buildModelConfigState,
   buildSelectableModelOptions,
+  getProviderModelSuggestions,
   getPrimaryModelValidationError,
   getPrimaryModelConfig,
   isImageOnlyPrimaryModel,
@@ -229,6 +231,92 @@ test("buildSelectableModelOptions collects configured provider and special model
   assert.equal(options[0].source, "provider")
   assert.equal(options[2].source, "local")
   assert.equal(options[3].source, "session")
+})
+
+test("getProviderModelSuggestions returns provider-scoped model choices and supports label fallback", () => {
+  const options = {
+    providers: [
+      {
+        id: "openai",
+        label: "OpenAI",
+        models: [
+          { id: "gpt-5", label: "GPT-5" },
+          { id: "gpt-4.1", label: "GPT-4.1" },
+        ],
+      },
+      {
+        id: "gemini",
+        label: "Gemini",
+        models: [{ id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" }],
+      },
+    ],
+  }
+
+  assert.deepEqual(getProviderModelSuggestions({ id: "openai", label: "OpenAI" }, options), [
+    { id: "gpt-5", label: "GPT-5" },
+    { id: "gpt-4.1", label: "GPT-4.1" },
+  ])
+  assert.deepEqual(getProviderModelSuggestions({ id: "google", label: "Gemini" }, options), [
+    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  ])
+  assert.deepEqual(getProviderModelSuggestions({ id: "anthropic", label: "Anthropic" }, options), [])
+})
+
+test("buildProviderSavePlan preserves stored masked keys and clears stale endpoint overrides", () => {
+  const state = buildModelConfigState({
+    DEEPSEEK_API_KEY: {
+      is_set: true,
+      redacted_value: "sk-***",
+      description: "DeepSeek key",
+      url: null,
+      category: "provider",
+      is_password: true,
+      tools: [],
+      advanced: false,
+    },
+    DEEPSEEK_BASE_URL: {
+      is_set: true,
+      redacted_value: null,
+      description: "DeepSeek base URL",
+      url: null,
+      category: "provider",
+      is_password: false,
+      tools: [],
+      advanced: true,
+      value: "https://openrouter.ai/api/v1",
+    },
+    DEEPSEEK_DEFAULT_MODEL: {
+      is_set: true,
+      redacted_value: null,
+      description: "DeepSeek default model",
+      url: null,
+      category: "provider",
+      is_password: false,
+      tools: [],
+      advanced: false,
+      value: "deepseek-chat",
+    },
+  })
+
+  const plan = buildProviderSavePlan(state.providers[0], {
+    apiKey: "sk-***",
+    baseUrl: "",
+    model: "deepseek-v4-pro",
+  })
+
+  assert.equal(plan.canSave, true)
+  assert.deepEqual(plan.envUpdates, [
+    { action: "delete", key: "DEEPSEEK_BASE_URL" },
+    { action: "set", key: "DEEPSEEK_DEFAULT_MODEL", value: "deepseek-v4-pro" },
+  ])
+  assert.deepEqual(plan.clearFields, ["baseUrl", "apiKey", "apiMode"])
+  assert.deepEqual(plan.primaryConfig, {
+    provider: "deepseek",
+    model: "deepseek-v4-pro",
+    baseUrl: "",
+    apiKey: "",
+    apiMode: "",
+  })
 })
 
 test("image-only models are rejected as primary chat models", () => {

@@ -37,8 +37,11 @@ import {
   CRAZOR_DELIVERY_CUSTOMER,
   CRAZOR_DELIVERY_MODEL_READINESS,
   CRAZOR_DELIVERY_PROTOCOL_VERSION,
+  CRAZOR_BUILD_SHA,
+  CRAZOR_BUILD_TIME,
   CRAZOR_HOME,
   CRAZOR_PUBLIC_BASE_URL,
+  CRAZOR_RELEASE_ID,
   CRAZOR_SKILLS_DIR,
   CRAZOR_VAULT_ROOT,
   DEPLOYMENT_TIER,
@@ -780,6 +783,9 @@ async function buildDeliveryReadiness() {
       public_base_url: publicBaseUrl(),
       protocol_version: CRAZOR_DELIVERY_PROTOCOL_VERSION,
       identity_fingerprint: deliveryIdentityFingerprint(),
+      release_id: cleanString(CRAZOR_RELEASE_ID),
+      build_sha: cleanString(CRAZOR_BUILD_SHA),
+      build_time: cleanString(CRAZOR_BUILD_TIME),
       plan: DEPLOYMENT_TIER,
     },
     auth: {
@@ -2168,6 +2174,9 @@ app.patch('/api/config', async (c) => {
   const hasBaseUrl = hasOwn(body, 'baseUrl') || hasOwn(body, 'base_url')
   const hasApiKey = hasOwn(body, 'apiKey') || hasOwn(body, 'api_key')
   const hasApiMode = hasOwn(body, 'apiMode') || hasOwn(body, 'api_mode')
+  const explicitBaseUrlClear = hasBaseUrl && !baseUrl
+  const explicitApiKeyClear = hasApiKey && !apiKey
+  const explicitApiModeClear = hasApiMode && !apiMode
   const clearFields = readClearFields(body)
   const contextLength = readContextLength(body)
 
@@ -2207,17 +2216,17 @@ app.patch('/api/config', async (c) => {
 
   nextModel.provider = resolvedProvider
   nextModel.default = resolvedModel
-  if (clearFields.has('baseUrl') || clearFields.has('base_url')) {
+  if (clearFields.has('baseUrl') || clearFields.has('base_url') || explicitBaseUrlClear) {
     nextModel.base_url = ''
   } else if (hasBaseUrl && baseUrl) {
     nextModel.base_url = baseUrl
   }
-  if (clearFields.has('apiKey') || clearFields.has('api_key')) {
+  if (clearFields.has('apiKey') || clearFields.has('api_key') || explicitApiKeyClear) {
     nextModel.api_key = ''
   } else if (hasApiKey && apiKey) {
     nextModel.api_key = apiKey
   }
-  if (clearFields.has('apiMode') || clearFields.has('api_mode')) {
+  if (clearFields.has('apiMode') || clearFields.has('api_mode') || explicitApiModeClear) {
     delete nextModel.api_mode
   } else if (hasApiMode && apiMode) {
     nextModel.api_mode = apiMode

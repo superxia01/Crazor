@@ -13,6 +13,7 @@ test("customer delivery runtime info exposes packaged customer identity", () => 
       VITE_CRAZOR_DELIVERY_CHANNEL: " customer ",
       VITE_CRAZOR_DELIVERY_PROTOCOL_VERSION: " 1 ",
       VITE_CRAZOR_DELIVERY_FINGERPRINT: " abc123def456 ",
+      VITE_CRAZOR_RELEASE_ID: " 20260603090752-de8651caccc4 ",
       VITE_CRAZOR_BUILD_SHA: " abc123 ",
       VITE_CRAZOR_BUILD_TIME: " 2026-06-01T17:02:17.391Z ",
     }),
@@ -23,6 +24,7 @@ test("customer delivery runtime info exposes packaged customer identity", () => 
       protocolVersion: "1",
       deliveryFingerprint: "abc123def456",
       serverUrl: "https://crazor.example.com",
+      releaseId: "20260603090752-de8651caccc4",
       buildSha: "abc123",
       buildTime: "2026-06-01T17:02:17.391Z",
     },
@@ -37,6 +39,7 @@ test("customer delivery runtime info stays local when no package env is embedded
     protocolVersion: "",
     deliveryFingerprint: "",
     serverUrl: "",
+    releaseId: "",
     buildSha: "",
     buildTime: "",
   })

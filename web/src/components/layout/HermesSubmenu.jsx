@@ -30,13 +30,17 @@ const HERMES_SUBMENU_ITEMS = [
 export function HermesSubmenu({
   activeView,
   onSelect,
+  visibleItemIds,
   className,
 }) {
   const { t } = useI18n()
+  const visibleItemSet = Array.isArray(visibleItemIds) && visibleItemIds.length > 0
+    ? new Set(visibleItemIds)
+    : null
 
   return (
     <div className={cn("flex flex-col gap-1 p-2", className)}>
-      {HERMES_SUBMENU_ITEMS.map((item) => {
+      {HERMES_SUBMENU_ITEMS.filter((item) => !visibleItemSet || visibleItemSet.has(item.id)).map((item) => {
         const Icon = item.icon
         const isActive = activeView === item.id
         return (

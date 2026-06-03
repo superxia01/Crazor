@@ -16,6 +16,7 @@ const verifyCustomerWebScript = readFileSync(resolve(repoRoot, "scripts/verify-c
 const verifyCustomerDeliveryScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-delivery.mjs"), "utf8")
 const verifyCustomerInstallerScript = readFileSync(resolve(repoRoot, "scripts/verify-customer-installer.mjs"), "utf8")
 const customerBackendEnvScript = readFileSync(resolve(repoRoot, "scripts/customer-backend-env.mjs"), "utf8")
+const indexCssSource = readFileSync(resolve(repoRoot, "web/src/index.css"), "utf8")
 const webPackage = readFileSync(resolve(repoRoot, "web/package.json"), "utf8")
 const desktopPackage = readFileSync(resolve(repoRoot, "desktop/package.json"), "utf8")
 const appSource = readFileSync(resolve(repoRoot, "web/src/App.jsx"), "utf8")
@@ -28,6 +29,8 @@ const deliveryIdentitySource = readFileSync(resolve(repoRoot, "web/src/api/deliv
 const customerDeliveryGateSource = readFileSync(resolve(repoRoot, "web/src/CustomerDeliveryGate.jsx"), "utf8")
 const remoteApiSource = readFileSync(resolve(repoRoot, "web/src/api/remote-api-base.js"), "utf8")
 const settingsModalSource = readFileSync(resolve(repoRoot, "web/src/SettingsModal.jsx"), "utf8")
+const homeViewSource = readFileSync(resolve(repoRoot, "web/src/HomeView.jsx"), "utf8")
+const accessCodeLoginCardSource = readFileSync(resolve(repoRoot, "web/src/components/AccessCodeLoginCard.jsx"), "utf8")
 const loginDialogSource = readFileSync(resolve(repoRoot, "web/src/components/LoginDialog.jsx"), "utf8")
 const loginPageSource = readFileSync(resolve(repoRoot, "web/src/pages/LoginPage.jsx"), "utf8")
 const serverIndex = readFileSync(resolve(repoRoot, "server/src/index.ts"), "utf8")
@@ -48,6 +51,7 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DELIVERY_CHANNEL" "customer"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DELIVERY_PROTOCOL_VERSION" "$DELIVERY_PROTOCOL_VERSION"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DELIVERY_FINGERPRINT" "$DELIVERY_IDENTITY_FINGERPRINT"') &&
+      buildCustomerScript.includes('write_web_env "VITE_CRAZOR_RELEASE_ID" "$BUILD_RELEASE_ID"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_BUILD_SHA" "$BUILD_SHA"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_BUILD_TIME" "$BUILD_TIME"') &&
       buildCustomerScript.includes("npm run build:tauri") &&
@@ -156,6 +160,7 @@ test("customer backend can be deployed to a remote Docker host with preserved da
   )
   assert.ok(
     customerBackendDeployScript.includes("--remote-dir") &&
+      customerBackendDeployScript.includes("--access-code") &&
       customerBackendDeployScript.includes("/home/wings/docker/crazor") &&
       customerBackendDeployScript.includes("releases") &&
       customerBackendDeployScript.includes("current") &&
@@ -177,6 +182,7 @@ test("customer backend can be deployed to a remote Docker host with preserved da
       customerBackendDeployScript.includes("真实对话模型连接预检通过") &&
       customerBackendDeployScript.includes("Provider API Key/token") &&
       customerBackendDeployScript.includes("/api/delivery/readiness") &&
+      customerBackendDeployScript.includes("CRAZOR_CUSTOMER_ACCESS_CODE") &&
       customerBackendDeployScript.includes("summarizeIssues") &&
       customerBackendDeployScript.includes("check.status === \"error\"") &&
       customerBackendDeployScript.includes("[\"ready\", \"degraded\"].includes(status)") &&
@@ -237,6 +243,7 @@ test("desktop client exposes the configured backend for delivery verification", 
       customerDeliverySource.includes("VITE_CRAZOR_DELIVERY_CHANNEL") &&
       customerDeliverySource.includes("VITE_CRAZOR_DELIVERY_PROTOCOL_VERSION") &&
       customerDeliverySource.includes("VITE_CRAZOR_DELIVERY_FINGERPRINT") &&
+      customerDeliverySource.includes("VITE_CRAZOR_RELEASE_ID") &&
       customerDeliverySource.includes("VITE_CRAZOR_BUILD_SHA") &&
       customerDeliverySource.includes("VITE_CRAZOR_BUILD_TIME"),
     "desktop client should expose packaged customer identity from build-time env"
@@ -256,12 +263,20 @@ test("desktop client exposes the configured backend for delivery verification", 
       settingsModalSource.includes("同源服务") &&
       settingsModalSource.includes("构建版本") &&
       settingsModalSource.includes("构建时间") &&
+      settingsModalSource.includes("发布批次") &&
       settingsModalSource.includes("isCustomerDeliveryMode") &&
       settingsModalSource.includes("客户交付模式") &&
       settingsModalSource.includes("本机端口控制") &&
       settingsModalSource.includes("{!isCustomerDeliveryMode && (") &&
       settingsModalSource.includes("nextCustomerDeliveryMode"),
     "settings connection panel should let operators verify the packaged client backend target"
+  )
+  assert.ok(
+    homeViewSource.includes("getCustomerDeliveryRuntimeInfo") &&
+      homeViewSource.includes('label: "交付版本"') &&
+      homeViewSource.includes("deliveryInfo.releaseId") &&
+      homeViewSource.includes("deliveryInfo.buildTime"),
+    "home dashboard should surface delivery build metadata so operators can distinguish deployed versions at a glance"
   )
 })
 
@@ -284,6 +299,8 @@ test("customer desktop blocks startup when the hosted backend is unavailable", (
       customerDeliveryGateSource.includes("runtime.deliveryInfo.protocolVersion") &&
       customerDeliveryGateSource.includes("交付指纹") &&
       customerDeliveryGateSource.includes("runtime.deliveryInfo.deliveryFingerprint") &&
+      customerDeliveryGateSource.includes("runtime.deliveryInfo.releaseId") &&
+      customerDeliveryGateSource.includes("发布批次") &&
       customerDeliveryGateSource.includes("构建版本") &&
       customerDeliveryGateSource.includes("构建时间") &&
       customerDeliveryGateSource.includes("重新检测"),
@@ -327,6 +344,9 @@ test("backend exposes a public delivery readiness self-check for installed clien
       serverIndex.includes("public_base_url") &&
       serverIndex.includes("protocol_version") &&
       serverIndex.includes("identity_fingerprint") &&
+      serverIndex.includes("release_id") &&
+      serverIndex.includes("build_sha") &&
+      serverIndex.includes("build_time") &&
       serverIndex.includes("deliveryIdentityFingerprint") &&
       serverIndex.includes("backendOrigin(c)") &&
       serverIndex.includes("publicBaseUrl() || new URL(c.req.url).origin"),
@@ -363,11 +383,11 @@ test("desktop WeChat login uses backend callback plus client polling", () => {
   )
   assert.ok(
     loginDialogSource.includes("/api/auth/access-code") &&
+      loginDialogSource.includes("AccessCodeLoginCard") &&
       loginDialogSource.includes("status.accessCodeConfigured") &&
-      loginDialogSource.includes("使用访问码登录") &&
-      loginDialogSource.includes("请输入客户访问码") &&
       loginDialogSource.includes("storeCustomerLoginCredentials(data)") &&
       loginPageSource.includes("storeCustomerLoginCredentials(data)") &&
+      loginPageSource.includes("AccessCodeLoginCard") &&
       authFetchSource.includes("storeCustomerLoginCredentials") &&
       authFetchSource.includes("window.localStorage.setItem(LOGIN_TOKEN_STORAGE_KEY, token)") &&
       authFetchSource.includes("setCrazorAuthToken(data?.actor_token || data?.actorToken || \"\")") &&
@@ -380,6 +400,11 @@ test("desktop WeChat login uses backend callback plus client polling", () => {
       serverIndex.includes("issueCustomerLoginActorToken") &&
       serverIndex.includes("actor_token") &&
       appInnerSource.includes("客户登录") &&
+      accessCodeLoginCardSource.includes("使用访问码登录") &&
+      accessCodeLoginCardSource.includes("输入客户访问码") &&
+      accessCodeLoginCardSource.includes("隐藏访问码") &&
+      accessCodeLoginCardSource.includes("显示访问码") &&
+      accessCodeLoginCardSource.includes("KeyRoundIcon") &&
       !appInnerSource.includes("微信扫码登录"),
     "desktop login should also support access-code customer handoff and store the issued actor token instead of assuming WeChat-only login"
   )
@@ -409,8 +434,15 @@ test("customer desktop requires login before entering workspace when backend enf
       loginPageSource.includes("!loading && allowSkip") &&
       loginPageSource.includes("/api/auth/access-code") &&
       loginPageSource.includes("status.accessCodeConfigured") &&
-      loginPageSource.includes("CRAZOR_CUSTOMER_ACCESS_CODE"),
+      loginPageSource.includes("CRAZOR_CUSTOMER_ACCESS_CODE") &&
+      loginPageSource.includes("客户认证") &&
+      loginPageSource.includes("交付负责人单独发放的客户访问码"),
     "login page should keep dev skip optional but expose customer access-code login for auth-gated clients"
+  )
+  assert.ok(
+    indexCssSource.includes("#root {\n    position: relative;\n    z-index: 1;") &&
+      indexCssSource.includes("body::before {\n    content: \"\";\n    position: fixed;\n    inset: 0;\n    z-index: 0;"),
+    "customer login UI should keep the application layer above the full-screen background overlays"
   )
   assert.ok(
     appSource.includes("consumeLoginTokenFromLocation") &&
@@ -459,6 +491,12 @@ test("docker customer backend receives hosted login and plan configuration", () 
       composeSource.includes("CRAZOR_DELIVERY_CUSTOMER: ${CRAZOR_DELIVERY_CUSTOMER:-}") &&
       composeSource.includes("CRAZOR_PUBLIC_BASE_URL: ${CRAZOR_PUBLIC_BASE_URL:-}") &&
       composeSource.includes("CRAZOR_DELIVERY_PROTOCOL_VERSION: ${CRAZOR_DELIVERY_PROTOCOL_VERSION:-1}") &&
+      composeSource.includes("CRAZOR_RELEASE_ID: ${CRAZOR_RELEASE_ID:-}") &&
+      composeSource.includes("CRAZOR_BUILD_SHA: ${CRAZOR_BUILD_SHA:-}") &&
+      composeSource.includes("CRAZOR_BUILD_TIME: ${CRAZOR_BUILD_TIME:-}") &&
+      composeSource.includes("VITE_CRAZOR_RELEASE_ID: ${CRAZOR_RELEASE_ID:-}") &&
+      composeSource.includes("VITE_CRAZOR_BUILD_SHA: ${CRAZOR_BUILD_SHA:-}") &&
+      composeSource.includes("VITE_CRAZOR_BUILD_TIME: ${CRAZOR_BUILD_TIME:-}") &&
       composeSource.includes("CRAZOR_DELIVERY_MODEL_READINESS: ${CRAZOR_DELIVERY_MODEL_READINESS:-strict}") &&
       composeSource.includes("HERMES_DASHBOARD_INSECURE: ${HERMES_DASHBOARD_INSECURE:-1}") &&
       composeSource.includes("${HERMES_DASHBOARD_BIND:-127.0.0.1}:9119:9119") &&
@@ -467,6 +505,12 @@ test("docker customer backend receives hosted login and plan configuration", () 
       composeSource.includes("./data/hermes/workspaces:/opt/workspaces") &&
       !composeSource.includes("./data/hermes/workspaces:/opt/data/workspaces"),
     "Compose backend should receive customer login, plan, and delivery identity env vars instead of silently running without them"
+  )
+  assert.ok(
+    customerBackendDeployScript.includes('set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_BUILD_SHA "$BUILD_SHA"') &&
+      customerBackendDeployScript.includes('set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_BUILD_TIME "$BUILD_TIME"') &&
+      customerBackendDeployScript.includes('set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_RELEASE_ID "$RELEASE_ID"'),
+    "customer backend deploy should stamp each hosted release with build metadata for version identification"
   )
 })
 

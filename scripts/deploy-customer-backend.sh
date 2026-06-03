@@ -65,6 +65,7 @@ usage() {
   --customer <名称>                  客户名称
   --server-url <URL>                 客户可访问的后端统一入口
   --env-file <路径>                  使用已有客户环境文件；不传则临时生成
+  --access-code <访问码>             覆盖/设定客户访问码
   --secrets-env-file <路径>          追加白名单内模型 provider 密钥到客户环境
   --hermes-image <镜像>              覆盖客户环境中的 HERMES_IMAGE
   --skip-live-chat                   只验证对话入口和模型列表，不真实调用对话
@@ -204,12 +205,32 @@ set_env_value_in_file() {
   chmod 600 "$target_file"
 }
 
+derive_delivery_identity_fingerprint() {
+  local customer="$1"
+  local server_url="$2"
+  local channel="$3"
+  local protocol_version="$4"
+
+  node -e '
+const crypto = require("node:crypto")
+const payload = JSON.stringify({
+  product: "Crazor",
+  customer: String(process.argv[1] || "").trim().replace(/\s+/g, " "),
+  serverUrl: String(process.argv[2] || "").trim().replace(/\/+$/, ""),
+  channel: String(process.argv[3] || "").trim().replace(/\s+/g, " "),
+  protocolVersion: String(process.argv[4] || "").trim().replace(/\s+/g, " "),
+})
+process.stdout.write(crypto.createHash("sha256").update(payload).digest("hex").slice(0, 12))
+' "$customer" "$server_url" "$channel" "$protocol_version"
+}
+
 HOST=""
 REMOTE_DIR="/home/wings/docker/crazor"
 SSH_KEY=""
 CUSTOMER=""
 SERVER_URL=""
 ENV_FILE=""
+ACCESS_CODE=""
 SECRETS_ENV_FILE=""
 HERMES_IMAGE=""
 RUN_SMOKE=1
@@ -241,6 +262,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --env-file)
       ENV_FILE="${2:-}"
+      shift 2
+      ;;
+    --access-code)
+      ACCESS_CODE="${2:-}"
       shift 2
       ;;
     --secrets-env-file)
@@ -310,6 +335,10 @@ else
     --force >/dev/null
 fi
 
+if [[ -n "$ACCESS_CODE" ]]; then
+  set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_CUSTOMER_ACCESS_CODE "$ACCESS_CODE"
+fi
+
 if [[ -n "$SECRETS_ENV_FILE" ]]; then
   append_selected_secret_env "$SECRETS_ENV_FILE" "$LOCAL_ENV_FILE"
 fi
@@ -332,7 +361,24 @@ if [[ "$RUN_SMOKE" == "1" && "$SKIP_LIVE_CHAT" != "1" ]]; then
 fi
 
 ACCESS_CODE="$(extract_env_value "$LOCAL_ENV_FILE" CRAZOR_CUSTOMER_ACCESS_CODE)"
-RELEASE_ID="$(date +%Y%m%d%H%M%S)-$(git -C "$PROJECT_ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo manual)"
+DELIVERY_CUSTOMER="$(extract_env_value "$LOCAL_ENV_FILE" CRAZOR_DELIVERY_CUSTOMER)"
+DELIVERY_SERVER_URL="$(extract_env_value "$LOCAL_ENV_FILE" CRAZOR_PUBLIC_BASE_URL)"
+DELIVERY_CHANNEL="$(extract_env_value "$LOCAL_ENV_FILE" CRAZOR_DELIVERY_CHANNEL)"
+DELIVERY_PROTOCOL_VERSION="$(extract_env_value "$LOCAL_ENV_FILE" CRAZOR_DELIVERY_PROTOCOL_VERSION)"
+DELIVERY_IDENTITY_FINGERPRINT="$(derive_delivery_identity_fingerprint \
+  "$DELIVERY_CUSTOMER" \
+  "$DELIVERY_SERVER_URL" \
+  "${DELIVERY_CHANNEL:-customer}" \
+  "${DELIVERY_PROTOCOL_VERSION:-1}")"
+set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_DELIVERY_IDENTITY_FINGERPRINT "$DELIVERY_IDENTITY_FINGERPRINT"
+BUILD_SHA="$(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || true)"
+BUILD_SHA_SHORT="$(git -C "$PROJECT_ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo manual)"
+[[ -n "$BUILD_SHA" ]] || BUILD_SHA="$BUILD_SHA_SHORT"
+BUILD_TIME="$(node -e 'process.stdout.write(new Date().toISOString())')"
+RELEASE_ID="$(date +%Y%m%d%H%M%S)-$BUILD_SHA_SHORT"
+set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_BUILD_SHA "$BUILD_SHA"
+set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_BUILD_TIME "$BUILD_TIME"
+set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_RELEASE_ID "$RELEASE_ID"
 REMOTE_RELEASE_DIR="$REMOTE_DIR/releases/$RELEASE_ID"
 REMOTE_SHARED_DIR="$REMOTE_DIR/shared"
 REMOTE_CURRENT_DIR="$REMOTE_DIR/current"

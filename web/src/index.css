@@ -165,12 +165,18 @@
     height: 100%;
   }
 
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+
   html {
     scroll-behavior: smooth;
   }
 
   body {
     min-height: 100%;
+    position: relative;
     background: transparent;
     color: var(--foreground);
     font-family: var(--font-sans);
@@ -183,6 +189,7 @@
     content: "";
     position: fixed;
     inset: 0;
+    z-index: 0;
     pointer-events: none;
     background: var(--background);
     opacity: 1;
@@ -192,6 +199,7 @@
     content: "";
     position: fixed;
     inset: 0;
+    z-index: 0;
     pointer-events: none;
     background: transparent;
     opacity: 0;

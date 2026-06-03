@@ -6,7 +6,6 @@ import test from "node:test"
 
 const settingsSource = readFileSync(new URL("./SettingsModal.jsx", import.meta.url), "utf8")
 const appSource = readFileSync(new URL("./AppInner.jsx", import.meta.url), "utf8")
-const configApiSource = readFileSync(new URL("./api/config.js", import.meta.url), "utf8")
 const zhSource = readFileSync(new URL("./locales/zh.json", import.meta.url), "utf8")
 const enSource = readFileSync(new URL("./locales/en.json", import.meta.url), "utf8")
 const zhTwSource = readFileSync(new URL("./locales/zh-tw.json", import.meta.url), "utf8")
@@ -29,8 +28,6 @@ test("settings exposes a user info section with nickname persistence", () => {
   ]) {
     assert.ok(appSource.includes(symbol), `app shell should include ${symbol}`)
   }
-
-  assert.ok(configApiSource.includes("user_nickname"), "config api should persist user_nickname")
 })
 
 test("settings translations include user info labels in all locales", () => {

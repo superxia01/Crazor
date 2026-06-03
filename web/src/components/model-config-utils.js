@@ -56,6 +56,10 @@ function normalizeString(value) {
   return String(value).trim()
 }
 
+function normalizeProviderLookupKey(value) {
+  return normalizeString(value).toLowerCase().replace(/[^a-z0-9]+/g, "")
+}
+
 export function isImageOnlyPrimaryModel(value) {
   const model = normalizeString(value).toLowerCase()
   if (!model) return false
@@ -268,4 +272,103 @@ export function buildSelectableModelOptions(envVars, dashboardConfig = null, ses
   })
 
   return options
+}
+
+export function getProviderModelSuggestions(provider, modelOptionsResponse) {
+  const providerId = normalizeString(typeof provider === "string" ? provider : provider?.id)
+  const providerLabel = normalizeString(typeof provider === "object" ? provider?.label : "")
+  const targetKeys = new Set(
+    [providerId, providerLabel].map(normalizeProviderLookupKey).filter(Boolean)
+  )
+
+  if (targetKeys.size === 0) return []
+
+  const providers = Array.isArray(modelOptionsResponse?.providers)
+    ? modelOptionsResponse.providers
+    : []
+  const suggestions = []
+  const seen = new Set()
+
+  providers.forEach((providerEntry) => {
+    const entryKeys = [
+      providerEntry?.id,
+      providerEntry?.label,
+      providerEntry?.name,
+    ]
+      .map(normalizeProviderLookupKey)
+      .filter(Boolean)
+
+    if (!entryKeys.some((key) => targetKeys.has(key))) return
+
+    const models = Array.isArray(providerEntry?.models) ? providerEntry.models : []
+    models.forEach((modelEntry) => {
+      const id = normalizeString(modelEntry?.id ?? modelEntry?.model ?? modelEntry?.value)
+      if (!id || seen.has(id)) return
+      seen.add(id)
+      suggestions.push({
+        id,
+        label: normalizeString(modelEntry?.label ?? modelEntry?.name) || id,
+      })
+    })
+  })
+
+  return suggestions
+}
+
+function envEntryHasValue(entry) {
+  return Boolean(entry?.is_set || normalizeString(entry?.value) || normalizeString(entry?.redacted_value))
+}
+
+export function buildProviderSavePlan(provider, draft = {}) {
+  const safeProvider = provider || {}
+  const entries = safeProvider.entries || {}
+  const apiKeyKey = normalizeString(safeProvider.apiKeyKey)
+  const baseUrlKey = normalizeString(safeProvider.baseUrlKey)
+  const defaultModelKey = normalizeString(safeProvider.defaultModelKey)
+  const apiKeyEntry = apiKeyKey ? entries[apiKeyKey] : null
+  const baseUrlEntry = baseUrlKey ? entries[baseUrlKey] : null
+  const defaultModelEntry = defaultModelKey ? entries[defaultModelKey] : null
+
+  const apiKey = normalizeString(draft.apiKey)
+  const baseUrl = normalizeString(draft.baseUrl)
+  const model = normalizeString(draft.model) || normalizeString(safeProvider.defaultModelValue)
+
+  const maskedApiKey =
+    apiKeyEntry?.is_password && !normalizeString(apiKeyEntry?.value)
+      ? normalizeString(apiKeyEntry?.redacted_value)
+      : ""
+  const reusesStoredApiKey = Boolean(maskedApiKey) && apiKey === maskedApiKey
+  const hasStoredApiKey = Boolean(apiKeyEntry?.is_set)
+
+  const envUpdates = []
+  if (apiKeyKey && apiKey && !reusesStoredApiKey) {
+    envUpdates.push({ action: "set", key: apiKeyKey, value: apiKey })
+  }
+  if (baseUrlKey) {
+    if (baseUrl) {
+      envUpdates.push({ action: "set", key: baseUrlKey, value: baseUrl })
+    } else if (envEntryHasValue(baseUrlEntry)) {
+      envUpdates.push({ action: "delete", key: baseUrlKey })
+    }
+  }
+  if (defaultModelKey) {
+    if (model) {
+      envUpdates.push({ action: "set", key: defaultModelKey, value: model })
+    } else if (envEntryHasValue(defaultModelEntry)) {
+      envUpdates.push({ action: "delete", key: defaultModelKey })
+    }
+  }
+
+  return {
+    canSave: Boolean(apiKey) || hasStoredApiKey,
+    envUpdates,
+    clearFields: ["baseUrl", "apiKey", "apiMode"],
+    primaryConfig: {
+      provider: normalizeString(safeProvider.id),
+      model,
+      baseUrl: "",
+      apiKey: "",
+      apiMode: "",
+    },
+  }
 }

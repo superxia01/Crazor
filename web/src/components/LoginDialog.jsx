@@ -7,6 +7,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog'
 import { storeCustomerLoginCredentials } from '@/api/crazor-auth'
+import { AccessCodeLoginCard } from '@/components/AccessCodeLoginCard'
 
 export function LoginDialog({ open, onOpenChange, onLogin }) {
   const [qrUrl, setQrUrl] = useState(null)
@@ -126,6 +127,13 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
 
   const canUseWechat = Boolean(authStatus?.wechatConfigured && qrUrl)
   const canUseAccessCode = Boolean(authStatus?.accessCodeConfigured)
+  const dialogDescription = canUseWechat
+    ? canUseAccessCode
+      ? '使用微信或客户访问码继续'
+      : '使用微信扫码继续'
+    : canUseAccessCode
+      ? '输入客户访问码继续'
+      : '正在确认登录方式'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -137,7 +145,7 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
             </svg>
             登录 Crazor
           </DialogTitle>
-          <DialogDescription>使用微信或客户访问码继续</DialogDescription>
+          <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
 
         <div className="py-4">
@@ -168,24 +176,23 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
             </button>
           )}
 
+          {!loading && canUseWechat && canUseAccessCode && (
+            <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border/70" />
+              <span>或使用访问码</span>
+              <div className="h-px flex-1 bg-border/70" />
+            </div>
+          )}
+
           {!loading && canUseAccessCode && (
-            <form className="mt-4 space-y-3" onSubmit={handleAccessCodeLogin}>
-              <input
-                value={accessCode}
-                onChange={(event) => setAccessCode(event.target.value)}
-                type="password"
-                autoComplete="one-time-code"
-                placeholder="输入客户访问码"
-                className="h-11 w-full rounded-xl border border-border bg-background px-4 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
-              />
-              <button
-                type="submit"
-                disabled={accessLoading}
-                className="flex w-full items-center justify-center rounded-xl bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {accessLoading ? '正在验证' : '使用访问码登录'}
-              </button>
-            </form>
+            <AccessCodeLoginCard
+              context="dialog"
+              value={accessCode}
+              onChange={setAccessCode}
+              onSubmit={handleAccessCodeLogin}
+              loading={accessLoading}
+              className={canUseWechat ? "mt-0" : "mt-1"}
+            />
           )}
 
           {/* Polling indicator */}

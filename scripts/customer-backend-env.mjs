@@ -14,6 +14,17 @@ const DEFAULT_TAURI_ORIGINS = [
   "https://tauri.localhost",
 ]
 
+function deliveryFingerprint(customer = "", serverUrl = "", channel = "customer", protocolVersion = DEFAULT_PROTOCOL_VERSION) {
+  const payload = JSON.stringify({
+    product: "Crazor",
+    customer: normalizeText(customer),
+    serverUrl: normalizeServerUrl(serverUrl),
+    channel: normalizeText(channel),
+    protocolVersion: normalizeText(protocolVersion) || DEFAULT_PROTOCOL_VERSION,
+  })
+  return createHash("sha256").update(payload).digest("hex").slice(0, 12)
+}
+
 export function buildCustomerBackendEnv({
   customer = "",
   serverUrl = "",
@@ -32,6 +43,12 @@ export function buildCustomerBackendEnv({
   const generatedJwtSecret = jwtSecret || randomBytes(32).toString("hex")
   const generatedAccessCode = accessCode || randomBytes(9).toString("base64url")
   const generatedAgentGatewayApiKey = agentGatewayApiKey || randomBytes(32).toString("hex")
+  const deliveryIdentityFingerprint = deliveryFingerprint(
+    normalizedCustomer,
+    normalizedServerUrl,
+    "customer",
+    protocolVersion,
+  )
   const corsOrigins = unique([
     normalizedServerUrl,
     "http://localhost:5173",
@@ -74,6 +91,7 @@ export function buildCustomerBackendEnv({
     CRAZOR_DELIVERY_CHANNEL: "customer",
     CRAZOR_PUBLIC_BASE_URL: normalizedServerUrl,
     CRAZOR_DELIVERY_PROTOCOL_VERSION: normalizeText(protocolVersion) || DEFAULT_PROTOCOL_VERSION,
+    CRAZOR_DELIVERY_IDENTITY_FINGERPRINT: deliveryIdentityFingerprint,
     CRAZOR_CUSTOMER_SERVER_PREFLIGHT: "strict",
     CRAZOR_REQUIRE_WRITE_TOKEN: "true",
     CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN: "true",

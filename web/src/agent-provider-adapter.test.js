@@ -9,6 +9,9 @@ const repoRoot = resolve(new URL("../..", import.meta.url).pathname)
 const serverIndex = readFileSync(resolve(repoRoot, "server/src/index.ts"), "utf8")
 const agentGatewaySource = readFileSync(resolve(repoRoot, "server/src/services/agent-gateway.ts"), "utf8")
 const agentApiSource = readFileSync(resolve(repoRoot, "web/src/api/agent.js"), "utf8")
+const appSource = readFileSync(resolve(repoRoot, "web/src/AppInner.jsx"), "utf8")
+const submenuSource = readFileSync(resolve(repoRoot, "web/src/components/layout/HermesSubmenu.jsx"), "utf8")
+const capabilitySource = readFileSync(resolve(repoRoot, "web/src/agent-provider-capabilities.js"), "utf8")
 const smokeSource = readFileSync(resolve(repoRoot, "scripts/crazor-smoke.mjs"), "utf8")
 
 test("Agent Provider Adapter exposes runtime descriptor and capabilities", () => {
@@ -49,6 +52,21 @@ test("Agent Provider Adapter exposes runtime descriptor and capabilities", () =>
       smokeSource.includes("gateway.chat_completions") &&
       smokeSource.includes("crazor.mcp"),
     "delivery smoke test should verify the provider adapter endpoint"
+  )
+  assert.ok(
+    appSource.includes("getAgentProvider") &&
+      appSource.includes("filterSidebarGroups") &&
+      appSource.includes("getAvailableHermesSubmenuIds") &&
+      appSource.includes("supportsViewCapability") &&
+      appSource.includes("if (!sessionsCapabilitySupported)") &&
+      appSource.includes("if (!modelConfigSupported)"),
+    "app shell should read provider metadata and filter provider-specific navigation by declared capabilities"
+  )
+  assert.ok(
+    submenuSource.includes("visibleItemIds") &&
+      capabilitySource.includes('export const VIEW_CAPABILITY_RULES') &&
+      capabilitySource.includes('export const HERMES_SUBMENU_CAPABILITY_RULES'),
+    "frontend capability helpers should drive both sidebar and Hermes submenu visibility"
   )
 })
 

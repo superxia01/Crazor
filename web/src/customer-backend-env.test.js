@@ -27,6 +27,7 @@ test("customer backend env generator prepares strict hosted delivery settings", 
 
   assert.equal(env.CRAZOR_DELIVERY_CUSTOMER, "CRAZYAIGC 客户")
   assert.equal(env.CRAZOR_PUBLIC_BASE_URL, "https://client.example.com/crazor")
+  assert.match(env.CRAZOR_DELIVERY_IDENTITY_FINGERPRINT, /^[a-f0-9]{12}$/)
   assert.equal(env.CRAZOR_CUSTOMER_SERVER_PREFLIGHT, "strict")
   assert.equal(env.CRAZOR_SEED_DEMO_DATA, "false")
   assert.equal(env.CRAZOR_REQUIRE_WRITE_TOKEN, "true")

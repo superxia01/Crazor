@@ -67,6 +67,7 @@ import {
   deleteWorkspace,
   getConfiguredModelCandidates,
   getConfig,
+  getAgentProvider,
   getEnvVars,
   getHermesVersionInfo,
   getMessages,
@@ -187,6 +188,14 @@ import { InputArea } from "@/components/InputArea"
 import { ToolActivityPanel } from "@/components/ToolActivityPanel"
 import { useTaskSteps } from "@/components/TaskStepTracker"
 import { buildSelectableModelOptions, getPrimaryModelValidationError } from "@/components/model-config-utils"
+import {
+  filterSidebarGroups,
+  getAvailableHermesSubmenuIds,
+  getDefaultHermesSubmenuView,
+  normalizeCapabilityIds,
+  supportsCapabilityRule,
+  supportsViewCapability,
+} from "@/agent-provider-capabilities"
 
 const SessionsView = lazy(() => import("@/SessionsView"))
 const HomeView = lazy(() => import("@/HomeView"))
@@ -312,7 +321,30 @@ const SIDEBAR_GROUPS = [
   },
 ]
 
-const VIEW_ITEMS = SIDEBAR_GROUPS.flatMap((g) => g.items)
+const HERMES_SIDEBAR_VIEWS = [
+  "tasks",
+  "commands",
+  "memory",
+  "hermes-analytics",
+  "hermes-channels",
+  "hermes-memory",
+  "hermes-agents",
+  "prompt-market",
+  "terminal",
+]
+
+function resolveHermesSubmenuTargetView(id) {
+  if (id === "model-config") return "tasks"
+  if (id === "prompt-market") return "prompt-market"
+  if (id === "commands") return "commands"
+  if (id === "logs") return "memory"
+  if (id === "analytics") return "hermes-analytics"
+  if (id === "channels") return "hermes-channels"
+  if (id === "memory") return "hermes-memory"
+  if (id === "agents") return "hermes-agents"
+  if (id === "terminal") return "terminal"
+  return "tasks"
+}
 
 function ViewFallback() {
   return (
@@ -552,6 +584,8 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
   const [sidebarModelDraft, setSidebarModelDraft] = useState({ provider: "", model: "" })
   const [sidebarModelLoading, setSidebarModelLoading] = useState(false)
   const [sidebarModelSaving, setSidebarModelSaving] = useState(false)
+  const [agentProviderDescriptor, setAgentProviderDescriptor] = useState(null)
+  const [agentProviderDescriptorResolved, setAgentProviderDescriptorResolved] = useState(false)
   const [configuredModelCandidates, setConfiguredModelCandidates] = useState([])
   const notebook = useNotebookState()
   const knowledge = useNotebookState("knowledge")
@@ -603,6 +637,38 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
   const baseModelOptions = useMemo(
     () => buildSelectableModelOptions(selectorEnvVars, selectorPrimaryModelConfig, historicalSessionModels),
     [historicalSessionModels, selectorEnvVars, selectorPrimaryModelConfig]
+  )
+  const providerCapabilityIds = useMemo(
+    () => normalizeCapabilityIds(agentProviderDescriptor?.capability_ids),
+    [agentProviderDescriptor]
+  )
+  const sessionsCapabilitySupported = useMemo(
+    () => supportsViewCapability("sessions", providerCapabilityIds),
+    [providerCapabilityIds]
+  )
+  const modelConfigSupported = useMemo(
+    () => supportsViewCapability("tasks", providerCapabilityIds),
+    [providerCapabilityIds]
+  )
+  const dashboardStatusSupported = useMemo(
+    () => supportsCapabilityRule(providerCapabilityIds, { all: ["dashboard.status"] }),
+    [providerCapabilityIds]
+  )
+  const dashboardUpdateSupported = useMemo(
+    () => supportsCapabilityRule(providerCapabilityIds, { all: ["dashboard.update"] }),
+    [providerCapabilityIds]
+  )
+  const availableHermesSubmenuIds = useMemo(
+    () => getAvailableHermesSubmenuIds(providerCapabilityIds),
+    [providerCapabilityIds]
+  )
+  const defaultHermesSubmenuView = useMemo(
+    () => getDefaultHermesSubmenuView(providerCapabilityIds),
+    [providerCapabilityIds]
+  )
+  const availableSidebarGroups = useMemo(
+    () => filterSidebarGroups(SIDEBAR_GROUPS, providerCapabilityIds),
+    [providerCapabilityIds]
   )
   const defaultConversationModel = selectorPrimaryModelConfig.model || ""
   const activeGlobalModel = selectorPrimaryModelConfig.model || ""
@@ -1091,6 +1157,12 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     return { nextWorkspaces, nextCurrentWorkspace }
   }, [])
 
+  const refreshAgentProviderDescriptor = useCallback(async () => {
+    const descriptor = await getAgentProvider()
+    setAgentProviderDescriptor(descriptor || null)
+    return descriptor
+  }, [])
+
   const refreshModelSelectorData = useCallback(async () => {
     const [envVars, primaryModel, configuredCandidates] = await Promise.all([
       getEnvVars(),
@@ -1379,9 +1451,12 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
   }, [updateChatTabState])
 
   useEffect(() => {
-    if (!configReady || view !== "chat") return
+    if (!configReady || !agentProviderDescriptorResolved || view !== "chat") return
 
     let mounted = true
+    if (!modelConfigSupported) return () => {
+      mounted = false
+    }
     void refreshModelSelectorData().catch((error) => {
       if (!mounted) return
       console.error("Failed to load model selector data:", error)
@@ -1390,12 +1465,20 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     return () => {
       mounted = false
     }
-  }, [configReady, refreshModelSelectorData, view])
+  }, [agentProviderDescriptorResolved, configReady, modelConfigSupported, refreshModelSelectorData, view])
 
   useEffect(() => {
-    if (!configReady) return
+    if (!configReady || !agentProviderDescriptorResolved) return
 
     let mounted = true
+    if (!modelConfigSupported) {
+      setSidebarModelLoading(false)
+      setSidebarModelOptions([])
+      setSidebarModelDraft({ provider: "", model: "" })
+      return () => {
+        mounted = false
+      }
+    }
     void refreshSidebarModelOptions().catch((error) => {
       if (!mounted) return
       console.error("Failed to load model options:", error)
@@ -1404,7 +1487,26 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     return () => {
       mounted = false
     }
-  }, [configReady, refreshSidebarModelOptions])
+  }, [agentProviderDescriptorResolved, configReady, modelConfigSupported, refreshSidebarModelOptions])
+
+  useEffect(() => {
+    if (!configReady) return
+
+    let mounted = true
+    setAgentProviderDescriptorResolved(false)
+    void refreshAgentProviderDescriptor().catch((error) => {
+      if (!mounted) return
+      console.error("Failed to load agent provider descriptor:", error)
+      setAgentProviderDescriptor(null)
+    }).finally(() => {
+      if (!mounted) return
+      setAgentProviderDescriptorResolved(true)
+    })
+
+    return () => {
+      mounted = false
+    }
+  }, [configReady, refreshAgentProviderDescriptor])
 
   const refreshHermesVersionInfo = useCallback(async () => {
     const info = await getHermesVersionInfo()
@@ -1414,7 +1516,13 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
   }, [])
 
   useEffect(() => {
-    if (!configReady) return
+    if (!configReady || !agentProviderDescriptorResolved) return
+    if (!dashboardStatusSupported) {
+      setInstalledHermesDisplay(null)
+      setInstalledHermesVersion(null)
+      setLatestHermesDisplay(null)
+      return
+    }
 
     let mounted = true
     void refreshHermesVersionInfo().catch((error) => {
@@ -1425,9 +1533,15 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     return () => {
       mounted = false
     }
-  }, [configReady, refreshHermesVersionInfo])
+  }, [agentProviderDescriptorResolved, configReady, dashboardStatusSupported, refreshHermesVersionInfo])
 
   useEffect(() => {
+    if (!agentProviderDescriptorResolved) return
+    if (!sessionsCapabilitySupported) {
+      setSessions([])
+      return
+    }
+
     const loadSessions = async () => {
       if (!currentWorkspace?.path) return
 
@@ -1441,7 +1555,7 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     }
 
     loadSessions()
-  }, [currentWorkspace?.path, t])
+  }, [agentProviderDescriptorResolved, currentWorkspace?.path, sessionsCapabilitySupported, t])
 
   const loadMessagesForSession = async (sessionId) => {
     try {
@@ -2122,6 +2236,22 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     }
   }
 
+  const openHermesSubmenu = useCallback((submenuId) => {
+    const nextSubmenuId = submenuId || defaultHermesSubmenuView
+    if (!nextSubmenuId) {
+      setView("home")
+      setActiveMiddleView(null)
+      setHermesSubmenuView(null)
+      setMiddleColumnOpen(false)
+      return
+    }
+
+    setActiveMiddleView("hermes-submenu")
+    setHermesSubmenuView(nextSubmenuId)
+    setView(resolveHermesSubmenuTargetView(nextSubmenuId))
+    setMiddleColumnOpen(true)
+  }, [defaultHermesSubmenuView])
+
   const handleNavigateView = useCallback((itemId) => {
     if (itemId === "home") {
       setView("home")
@@ -2140,10 +2270,7 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     }
 
     if (itemId === "hermes") {
-      setActiveMiddleView("hermes-submenu")
-      setHermesSubmenuView("model-config")
-      setView("tasks")
-      setMiddleColumnOpen(true)
+      openHermesSubmenu(defaultHermesSubmenuView)
       return
     }
 
@@ -2191,7 +2318,7 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     setActiveMiddleView(null)
     setHermesSubmenuView(null)
     setMiddleColumnOpen(false)
-  }, [newConversation])
+  }, [defaultHermesSubmenuView, newConversation, openHermesSubmenu])
 
   const handleHomeCreateNote = useCallback(async () => {
     await notebook.createNote(null)
@@ -2209,6 +2336,39 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     setView("notebook")
     setMiddleColumnOpen(true)
   }, [notebook])
+
+  useEffect(() => {
+    if (!supportsViewCapability(view, providerCapabilityIds)) {
+      setView("home")
+      setActiveMiddleView(null)
+      setHermesSubmenuView(null)
+      setMiddleColumnOpen(false)
+      return
+    }
+
+    if (activeMiddleView !== "hermes-submenu") return
+
+    const fallbackSubmenuId = defaultHermesSubmenuView
+    if (!fallbackSubmenuId) {
+      setView("home")
+      setActiveMiddleView(null)
+      setHermesSubmenuView(null)
+      setMiddleColumnOpen(false)
+      return
+    }
+
+    if (!hermesSubmenuView || !availableHermesSubmenuIds.includes(hermesSubmenuView)) {
+      setHermesSubmenuView(fallbackSubmenuId)
+      setView(resolveHermesSubmenuTargetView(fallbackSubmenuId))
+    }
+  }, [
+    activeMiddleView,
+    availableHermesSubmenuIds,
+    defaultHermesSubmenuView,
+    hermesSubmenuView,
+    providerCapabilityIds,
+    view,
+  ])
 
   const handleToggleTerminalDock = useCallback(() => {
     setTerminalDockOpen((current) => !current)
@@ -2360,26 +2520,18 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
 
   const viewItems = useMemo(
     () =>
-      VIEW_ITEMS.map((item) => ({
+      availableSidebarGroups.flatMap((group) => group.items).map((item) => ({
         ...item,
         label: t(item.labelKey),
         description: t(item.descriptionKey),
       })),
-    [t]
+    [availableSidebarGroups, t]
   )
   const currentViewItem =
     viewItems.find((item) => {
       if (item.id === view) return true
       if (item.id !== "hermes") return false
-      return [
-        "tasks",
-        "commands",
-        "memory",
-        "hermes-analytics",
-        "hermes-channels",
-        "hermes-memory",
-        "hermes-agents",
-      ].includes(view)
+      return HERMES_SIDEBAR_VIEWS.includes(view)
     }) || viewItems[0]
   const middlePanelTitle =
     activeMiddleView === "sessions"
@@ -2409,14 +2561,18 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     LANGUAGE_OPTIONS.find((option) => option.id === language) || LANGUAGE_OPTIONS[0]
   const gatewayTarget = `http://${gatewayHost}:${gatewayPort}`
   const hasHermesUpgrade =
+    dashboardUpdateSupported &&
     Boolean(installedHermesVersion) &&
     Boolean(latestHermesDisplay) &&
     !latestHermesDisplay.includes(installedHermesVersion)
-  const installedHermesLabel = `Hermes ${
-    installedHermesDisplay
-      ? installedHermesDisplay.replace(/^Hermes Agent\s*/i, "")
-      : t("app.agentVersionUnknown")
-  }`
+  const providerDisplayName = String(agentProviderDescriptor?.display_name || "").trim() || "Hermes"
+  const installedHermesLabel = dashboardStatusSupported
+    ? `${providerDisplayName} ${
+        installedHermesDisplay
+          ? installedHermesDisplay.replace(/^Hermes Agent\s*/i, "")
+          : t("app.agentVersionUnknown")
+      }`
+    : providerDisplayName
   const latestHermesLabel = latestHermesDisplay
     ? latestHermesDisplay.replace(/^Hermes Agent\s*/i, "")
     : null
@@ -2444,19 +2600,10 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
       : activeMiddleView === "notebook" || view === "notebook"
         ? "notebook"
         : activeMiddleView === "knowledge" || view === "knowledge"
-          ? "knowledge"
-          : activeMiddleView === "files" || view === "files"
-            ? "files"
-            : activeMiddleView === "hermes-submenu" ||
-              [
-                "tasks",
-                "commands",
-                "memory",
-                "hermes-analytics",
-                "hermes-channels",
-                "hermes-memory",
-                "hermes-agents",
-              ].includes(view)
+        ? "knowledge"
+        : activeMiddleView === "files" || view === "files"
+          ? "files"
+            : activeMiddleView === "hermes-submenu" || HERMES_SIDEBAR_VIEWS.includes(view)
             ? "hermes"
             : view
   const handleUpgradeHermes = useCallback(async () => {
@@ -2559,7 +2706,7 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
               <div className="px-1.5 pb-1 pt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
                 MENU
               </div>
-              {SIDEBAR_GROUPS.map((group, gi) => (
+              {availableSidebarGroups.map((group, gi) => (
                 <div key={group.group} className={cn("space-y-0.5", gi > 0 && "pt-1.5")}>
                   <div className="group-data-[collapsible=icon]:hidden mb-0.5 flex h-5 items-center px-3">
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
@@ -2620,76 +2767,80 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
           <SidebarFooter className="px-2 pb-2 pt-1 group-data-[collapsible=icon]:hidden">
             <div className="space-y-1.5 px-1">
               <OfficeToggle onNavigate={() => setView("office")} onLeave={() => setView("home")} isActive={view === "office"} />
-<div
-                data-sidebar-model-switcher="true"
-                className="rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 p-1.5">
-                <div className="mb-1 flex items-center gap-1.5 px-0.5 text-[10px] font-medium text-sidebar-foreground/80">
-                  <CpuIcon className="size-3 shrink-0" />
-                  <span className="truncate">{t("app.sidebarModelLabel")}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+              {modelConfigSupported ? (
+                <>
+                  <div
+                    data-sidebar-model-switcher="true"
+                    className="rounded-lg border border-sidebar-border/80 bg-sidebar-accent/35 p-1.5">
+                    <div className="mb-1 flex items-center gap-1.5 px-0.5 text-[10px] font-medium text-sidebar-foreground/80">
+                      <CpuIcon className="size-3 shrink-0" />
+                      <span className="truncate">{t("app.sidebarModelLabel")}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="outline"
+                            title={sidebarModelLabel}
+                            aria-label={t("app.sidebarModelLabel")}
+                            disabled={sidebarModelLoading}
+                            className="h-7 min-w-0 flex-1 justify-start gap-1.5 rounded-md border-sidebar-border bg-sidebar px-2 text-[10px] text-sidebar-foreground shadow-none hover:bg-accent">
+                            <span className="min-w-0 flex-1 truncate text-left">
+                              {sidebarModelLoading ? t("common.loading") : sidebarModelLabel}
+                            </span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          side="top"
+                          align="start"
+                          className="max-h-80 w-72 overflow-y-auto rounded-[12px] border-border/70 bg-popover/95 p-2 backdrop-blur-xl">
+                          <DropdownMenuLabel className="px-2 pb-1 text-xs text-muted-foreground">
+                            {t("app.sidebarModelLabel")}
+                          </DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          {sidebarModelChoices.length > 0 ? (
+                            <DropdownMenuRadioGroup
+                              value={sidebarModelDraftKey}
+                              onValueChange={handleSidebarModelDraftChange}>
+                              {sidebarModelChoices.map((choice) => (
+                                <DropdownMenuRadioItem
+                                  key={choice.key}
+                                  value={choice.key}
+                                  className="rounded-md py-2">
+                                  <span className="truncate text-sm">{choice.label}</span>
+                                </DropdownMenuRadioItem>
+                              ))}
+                            </DropdownMenuRadioGroup>
+                          ) : (
+                            <DropdownMenuItem disabled className="rounded-md py-2 text-xs text-muted-foreground">
+                              {t("app.sidebarModelEmpty")}
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
                       <Button
                         variant="outline"
-                        title={sidebarModelLabel}
-                        aria-label={t("app.sidebarModelLabel")}
-                        disabled={sidebarModelLoading}
-                        className="h-7 min-w-0 flex-1 justify-start gap-1.5 rounded-md border-sidebar-border bg-sidebar px-2 text-[10px] text-sidebar-foreground shadow-none hover:bg-accent">
-                        <span className="min-w-0 flex-1 truncate text-left">
-                          {sidebarModelLoading ? t("common.loading") : sidebarModelLabel}
-                        </span>
+                        size="xs"
+                        onClick={() => void handleSaveSidebarModel()}
+                        disabled={!sidebarModelCanSave || !sidebarModelDirty || sidebarModelSaving}
+                        className="h-7 shrink-0 rounded-md border-sidebar-border bg-sidebar px-2 text-[10px] text-sidebar-foreground shadow-none hover:bg-accent">
+                        {sidebarModelSaving ? (
+                          <RefreshCwIcon className="size-3 animate-spin" />
+                        ) : (
+                          t("common.save")
+                        )}
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      side="top"
-                      align="start"
-                      className="max-h-80 w-72 overflow-y-auto rounded-[12px] border-border/70 bg-popover/95 p-2 backdrop-blur-xl">
-                      <DropdownMenuLabel className="px-2 pb-1 text-xs text-muted-foreground">
-                        {t("app.sidebarModelLabel")}
-                      </DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      {sidebarModelChoices.length > 0 ? (
-                        <DropdownMenuRadioGroup
-                          value={sidebarModelDraftKey}
-                          onValueChange={handleSidebarModelDraftChange}>
-                          {sidebarModelChoices.map((choice) => (
-                            <DropdownMenuRadioItem
-                              key={choice.key}
-                              value={choice.key}
-                              className="rounded-md py-2">
-                              <span className="truncate text-sm">{choice.label}</span>
-                            </DropdownMenuRadioItem>
-                          ))}
-                        </DropdownMenuRadioGroup>
-                      ) : (
-                        <DropdownMenuItem disabled className="rounded-md py-2 text-xs text-muted-foreground">
-                          {t("app.sidebarModelEmpty")}
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                    </div>
+                  </div>
 
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    onClick={() => void handleSaveSidebarModel()}
-                    disabled={!sidebarModelCanSave || !sidebarModelDirty || sidebarModelSaving}
-                    className="h-7 shrink-0 rounded-md border-sidebar-border bg-sidebar px-2 text-[10px] text-sidebar-foreground shadow-none hover:bg-accent">
-                    {sidebarModelSaving ? (
-                      <RefreshCwIcon className="size-3 animate-spin" />
-                    ) : (
-                      t("common.save")
-                    )}
-                  </Button>
-                </div>
-              </div>
-
-              <div
-                aria-hidden="true"
-                data-sidebar-footer-model-separator="true"
-                className="-ml-5 h-px w-[var(--sidebar-width)] bg-sidebar-border/75"
-              />
+                  <div
+                    aria-hidden="true"
+                    data-sidebar-footer-model-separator="true"
+                    className="-ml-5 h-px w-[var(--sidebar-width)] bg-sidebar-border/75"
+                  />
+                </>
+              ) : null}
 
               <div className="flex items-center justify-center gap-2 text-[11px] text-sidebar-foreground">
                 <span className="mono truncate text-[8px] tracking-[0.04em] text-sidebar-foreground">
@@ -2953,18 +3104,8 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
                 {activeMiddleView === "hermes-submenu" && (
                   <HermesSubmenu
                     activeView={hermesSubmenuView}
-                    onSelect={(id) => {
-                      setHermesSubmenuView(id)
-                      if (id === "model-config") setView("tasks")
-                      else if (id === "prompt-market") setView("prompt-market")
-                      else if (id === "commands") setView("commands")
-                      else if (id === "logs") setView("memory")
-                      else if (id === "analytics") setView("hermes-analytics")
-                      else if (id === "channels") setView("hermes-channels")
-                      else if (id === "memory") setView("hermes-memory")
-                      else if (id === "agents") setView("hermes-agents")
-                      else if (id === "terminal") setView("terminal")
-                    }}
+                    visibleItemIds={availableHermesSubmenuIds}
+                    onSelect={openHermesSubmenu}
                   />
                 )}
                 {activeMiddleView === "sessions" && (

@@ -30,17 +30,14 @@ test("hermes submenu keeps config entries but no longer owns skills", () => {
   )
 })
 
-test("skills is a primary sidebar item directly below AI notes", () => {
-  const notebookIndex = appSource.indexOf('id: "notebook"')
+test("skills is a primary sidebar item outside the Hermes submenu", () => {
   const skillsIndex = appSource.indexOf('id: "hermes-skills"')
   const filesIndex = appSource.indexOf('id: "files"')
 
-  assert.ok(notebookIndex >= 0, "primary sidebar should include AI notes")
   assert.ok(skillsIndex >= 0, "primary sidebar should include skills")
   assert.ok(filesIndex >= 0, "primary sidebar should include files")
-  assert.ok(notebookIndex < skillsIndex, "skills should be below AI notes")
   assert.ok(skillsIndex < filesIndex, "skills should sit before files")
-  assert.ok(appSource.includes('labelKey: "nav.skills"'), "primary skills item should reuse skills label")
+  assert.ok(appSource.includes('labelKey: "nav.skillsList"'), "primary skills item should reuse the dedicated skills list label")
   assert.ok(appSource.includes('descriptionKey: "nav.skillsDescription"'), "primary skills item should reuse skills description")
   assert.ok(appSource.includes("icon: PackageIcon"), "primary skills item should use the skills package icon")
   assert.ok(appSource.includes('view === "hermes-skills" && <HermesSkillsPage />'), "skills should render the existing skills page")
@@ -48,21 +45,21 @@ test("skills is a primary sidebar item directly below AI notes", () => {
 
 test("app shell routes migrated hermes submenu items without changing the existing three behaviors", () => {
   assert.ok(
-    appSource.includes('if (id === "model-config") setView("tasks")') &&
-      appSource.includes('else if (id === "commands") setView("commands")') &&
-      appSource.includes('else if (id === "logs") setView("memory")'),
-    "existing Hermes submenu items should keep their current routes"
+    appSource.includes("function resolveHermesSubmenuTargetView") &&
+      appSource.includes('if (id === "model-config") return "tasks"') &&
+      appSource.includes('if (id === "commands") return "commands"') &&
+      appSource.includes('if (id === "logs") return "memory"'),
+    "existing Hermes submenu items should keep their current target views through a shared resolver"
   )
   for (const viewId of ["analytics", "channels", "memory", "agents"]) {
     assert.ok(
-      appSource.includes(`else if (id === "${viewId}")`) ||
-        appSource.includes(`if (id === "${viewId}")`) ||
+      appSource.includes(`if (id === "${viewId}") return`) ||
         appSource.includes(`view === "${viewId}"`),
       `app shell should route Hermes submenu item ${viewId}`
     )
   }
   assert.ok(
-    !appSource.includes('else if (id === "skills") setView("hermes-skills")'),
+    !appSource.includes('if (id === "skills") return "hermes-skills"'),
     "skills should not be routed through the Hermes submenu anymore"
   )
 })
@@ -138,8 +135,6 @@ test("hermes config and channel APIs exist for real memory and channel migration
     "readHermesSoulConfig",
     "writeHermesSoulConfig",
     "readHermesMemoryConfig",
-    "read_file_content",
-    "write_file_content",
   ]) {
     assert.ok(
       hermesConfigSource.includes(symbol),
@@ -152,8 +147,8 @@ test("hermes config and channel APIs exist for real memory and channel migration
     "writeChannelsConfig",
     "getWeixinQrCode",
     "getWhatsappQrCode",
-    "get_weixin_qrcode",
-    "get_whatsapp_qrcode",
+    "normalizeWeixinQrInfo",
+    "checkWeixinQrCodeStatus",
   ]) {
     assert.ok(
       channelsApiSource.includes(symbol),

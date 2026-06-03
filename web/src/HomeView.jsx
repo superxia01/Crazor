@@ -24,6 +24,7 @@ import {
   ZapIcon,
 } from "lucide-react"
 
+import { getCustomerDeliveryRuntimeInfo } from "@/api/customer-delivery"
 import { checkDashboardRunning, getCronJobs } from "@/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -745,10 +746,18 @@ export default function HomeView({
   const recentSessions = useMemo(() => getRecentSessions(sessions, 10), [sessions])
   const recentNotes = useMemo(() => getRecentNotes(notes, 10), [notes])
   const displayNickname = resolveHomeDisplayNickname(userNickname, t("home.guestNickname"))
+  const deliveryInfo = useMemo(() => getCustomerDeliveryRuntimeInfo(), [])
   const activityData = useMemo(
     () => buildActivitySeries({ sessions, notes, cronJobs, now, language: lang }),
     [cronJobs, lang, notes, now, sessions]
   )
+  const deliveryVersionValue = deliveryInfo.releaseId || deliveryInfo.buildSha || ""
+  const deliveryVersionDetail = [
+    deliveryInfo.buildTime ? `构建 ${deliveryInfo.buildTime}` : "",
+    deliveryInfo.deliveryFingerprint ? `指纹 ${deliveryInfo.deliveryFingerprint}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ")
 
   const healthTone =
     stats.healthLevel === "healthy"
@@ -859,6 +868,17 @@ export default function HomeView({
       tone: "neutral",
     },
   ]
+
+  if (deliveryVersionValue) {
+    systemRows.splice(3, 0, {
+      id: "delivery-version",
+      icon: FileTextIcon,
+      label: "交付版本",
+      value: deliveryVersionValue,
+      detail: deliveryVersionDetail || deliveryInfo.customerName || "客户交付构建",
+      tone: "info",
+    })
+  }
 
   return (
     <HomeFrame>

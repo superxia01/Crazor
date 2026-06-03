@@ -284,6 +284,11 @@ if [ -z "$BUILD_SHA" ] && command -v git >/dev/null 2>&1; then
     BUILD_SHA="$(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || true)"
 fi
 BUILD_TIME="$(node -e 'process.stdout.write(new Date().toISOString())')"
+BUILD_SHA_SHORT="$(printf '%s' "$BUILD_SHA" | cut -c1-12)"
+if [ -z "$BUILD_SHA_SHORT" ]; then
+    BUILD_SHA_SHORT="manual"
+fi
+BUILD_RELEASE_ID="$(node -e 'const sha=(process.argv[1]||"manual").trim()||"manual"; const stamp=new Date().toISOString().replace(/[-:TZ.]/g,"").slice(0,14); process.stdout.write(`${stamp}-${sha}`)' "$BUILD_SHA_SHORT")"
 
 if [ -f "$WEB_ENV" ]; then
     cp "$WEB_ENV" "$WEB_ENV_BAK"
@@ -312,6 +317,7 @@ write_web_env "VITE_CRAZOR_CUSTOMER_NAME" "$CUSTOMER"
 write_web_env "VITE_CRAZOR_DELIVERY_CHANNEL" "customer"
 write_web_env "VITE_CRAZOR_DELIVERY_PROTOCOL_VERSION" "$DELIVERY_PROTOCOL_VERSION"
 write_web_env "VITE_CRAZOR_DELIVERY_FINGERPRINT" "$DELIVERY_IDENTITY_FINGERPRINT"
+write_web_env "VITE_CRAZOR_RELEASE_ID" "$BUILD_RELEASE_ID"
 write_web_env "VITE_CRAZOR_BUILD_SHA" "$BUILD_SHA"
 write_web_env "VITE_CRAZOR_BUILD_TIME" "$BUILD_TIME"
 

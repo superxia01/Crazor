@@ -32,6 +32,9 @@ export const CRAZOR_DELIVERY_CUSTOMER = process.env.CRAZOR_DELIVERY_CUSTOMER || 
 export const CRAZOR_DELIVERY_CHANNEL = process.env.CRAZOR_DELIVERY_CHANNEL || ''
 export const CRAZOR_PUBLIC_BASE_URL = process.env.CRAZOR_PUBLIC_BASE_URL || ''
 export const CRAZOR_DELIVERY_PROTOCOL_VERSION = process.env.CRAZOR_DELIVERY_PROTOCOL_VERSION || '1'
+export const CRAZOR_RELEASE_ID = process.env.CRAZOR_RELEASE_ID || ''
+export const CRAZOR_BUILD_SHA = process.env.CRAZOR_BUILD_SHA || ''
+export const CRAZOR_BUILD_TIME = process.env.CRAZOR_BUILD_TIME || ''
 export const CRAZOR_DELIVERY_MODEL_READINESS = ['strict', 'warn'].includes(
   String(process.env.CRAZOR_DELIVERY_MODEL_READINESS || '').trim().toLowerCase(),
 )

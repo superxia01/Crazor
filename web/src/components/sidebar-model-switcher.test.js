@@ -20,6 +20,10 @@ test("sidebar footer exposes a global model switcher above the Hermes version", 
     "model switcher should appear above the Hermes version line"
   )
   assert.ok(appSource.includes("handleSaveSidebarModel"), "save button should persist the selected model")
+  assert.ok(
+    appSource.includes("modelConfigSupported ? ("),
+    "sidebar footer should only expose the model switcher when the current provider declares model-config support"
+  )
 })
 
 test("model switcher uses the official Hermes model options and set APIs", () => {

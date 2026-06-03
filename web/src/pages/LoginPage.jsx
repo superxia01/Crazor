@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { storeCustomerLoginCredentials } from '@/api/crazor-auth'
 import { consumeLoginTokenFromLocation } from '@/api/login-token-redirect'
+import { AccessCodeLoginCard } from '@/components/AccessCodeLoginCard'
 
 export function LoginPage({ onLogin, allowSkip = true }) {
   const [qrUrl, setQrUrl] = useState(null)
@@ -116,20 +117,36 @@ export function LoginPage({ onLogin, allowSkip = true }) {
 
   const canUseWechat = Boolean(authStatus?.wechatConfigured && qrUrl)
   const canUseAccessCode = Boolean(authStatus?.accessCodeConfigured)
+  const pageSubtitle = canUseWechat
+    ? canUseAccessCode
+      ? '微信扫码或客户访问码均可登录'
+      : '扫码即可开始使用'
+    : canUseAccessCode
+      ? '输入客户访问码后继续进入工作台'
+      : '正在确认可用的登录方式'
+  const pageHint = canUseWechat
+    ? '推荐先使用微信扫码；如交付负责人已提供访问码，也可以直接登录。'
+    : canUseAccessCode
+      ? '本次交付未启用微信扫码，请使用交付负责人单独发放的客户访问码。'
+      : '登录方式将在服务端准备完成后显示。'
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-muted/20">
-      <div className="w-full max-w-md px-4">
-        <div className="app-panel-strong rounded-[2rem] p-10 text-center">
+    <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_transparent_32%),linear-gradient(180deg,_var(--background)_0%,_color-mix(in_srgb,var(--background)_82%,white_18%)_100%)] px-4 py-10 dark:bg-[radial-gradient(circle_at_top,_rgba(96,165,250,0.18),_transparent_28%),linear-gradient(180deg,_var(--background)_0%,_color-mix(in_srgb,var(--background)_88%,black_12%)_100%)]">
+      <div className="w-full max-w-lg">
+        <div className="rounded-[2rem] border border-slate-200/88 bg-white/96 p-10 text-center shadow-[0_26px_80px_rgba(15,23,42,0.12)] dark:border-slate-700/72 dark:bg-slate-950/72 dark:shadow-[0_32px_96px_rgba(2,6,23,0.42)]">
           {/* Logo / Title */}
           <div className="mb-8">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+            <div className="mx-auto mb-3 inline-flex rounded-full border border-primary/16 bg-primary/8 px-3 py-1 text-[11px] font-semibold tracking-[0.08em] text-primary">
+              客户认证
+            </div>
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200/80 bg-primary/10 dark:border-slate-700/72 dark:bg-primary/14">
               <svg className="h-8 w-8 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
               </svg>
             </div>
             <h1 className="text-2xl font-bold text-foreground">Crazor 数字员工系统</h1>
-            <p className="mt-2 text-sm text-muted-foreground">扫码即可开始使用</p>
+            <p className="mt-2 text-sm text-muted-foreground">{pageSubtitle}</p>
+            <p className="mx-auto mt-3 max-w-md text-xs leading-6 text-muted-foreground">{pageHint}</p>
           </div>
 
           {/* Error state */}
@@ -161,24 +178,23 @@ export function LoginPage({ onLogin, allowSkip = true }) {
             </div>
           )}
 
+          {!loading && canUseWechat && canUseAccessCode && (
+            <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border/70" />
+              <span>或使用访问码</span>
+              <div className="h-px flex-1 bg-border/70" />
+            </div>
+          )}
+
           {!loading && canUseAccessCode && (
-            <form className="mt-4 space-y-3" onSubmit={handleAccessCodeLogin}>
-              <input
-                value={accessCode}
-                onChange={(event) => setAccessCode(event.target.value)}
-                type="password"
-                autoComplete="one-time-code"
-                placeholder="输入客户访问码"
-                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
-              />
-              <button
-                type="submit"
-                disabled={accessLoading}
-                className="flex w-full items-center justify-center rounded-xl bg-primary px-6 py-3.5 text-base font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {accessLoading ? '正在验证' : '使用访问码登录'}
-              </button>
-            </form>
+            <AccessCodeLoginCard
+              context="page"
+              value={accessCode}
+              onChange={setAccessCode}
+              onSubmit={handleAccessCodeLogin}
+              loading={accessLoading}
+              className={canUseWechat ? "mt-0" : "mt-2"}
+            />
           )}
 
           {/* Skip login (dev / no WeChat config) */}

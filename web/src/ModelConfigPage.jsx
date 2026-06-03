@@ -21,7 +21,9 @@ import {
 import { toast } from "sonner"
 
 import {
+  deleteEnvVar,
   getEnvVars,
+  getModelOptions,
   getPrimaryModelConfig,
   savePrimaryModelConfig,
   testGatewayConnection,
@@ -37,7 +39,13 @@ import {
  import { ViewFrame } from "@/components/view-frame"
  import { useI18n } from "@/i18n"
  import { cn } from "@/lib/utils"
- import { LOCAL_MODEL_PRESETS, buildModelConfigState, getPrimaryModelValidationError } from "@/components/model-config-utils"
+ import {
+   buildProviderSavePlan,
+   LOCAL_MODEL_PRESETS,
+   buildModelConfigState,
+   getPrimaryModelValidationError,
+   getProviderModelSuggestions,
+ } from "@/components/model-config-utils"
 
 function StatCard({ label, value, hint, accentClass = "" }) {
   return (
@@ -138,7 +146,16 @@ function ConfigField({
   testing,
   t,
   hideActions = false,
+  suggestions = [],
+  suggestionPlaceholder = "请选择",
+  suggestionEmptyHint = "",
 }) {
+  const safeSuggestions = Array.isArray(suggestions) ? suggestions : []
+  const hasSuggestionOptions = safeSuggestions.length > 0
+  const hasCustomValue =
+    fieldValue &&
+    !safeSuggestions.some((option) => String(option?.id || "").trim() === String(fieldValue).trim())
+
   return (
     <div className="rounded-[12px] border border-border/72 bg-background/60 px-4 py-4">
       <div className="flex items-start justify-between gap-3">
@@ -170,6 +187,27 @@ function ConfigField({
       </div>
 
       <div className="mt-3 space-y-3">
+        {hasSuggestionOptions ? (
+          <div className="space-y-2">
+            <div className="text-[11px] font-medium text-muted-foreground">可选模型</div>
+            <select
+              value={fieldValue}
+              onChange={(event) => onChange(event.target.value)}
+              className="h-9 w-full rounded-md border border-border/78 bg-background/80 px-3 text-[12px] text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40">
+              <option value="">{suggestionPlaceholder}</option>
+              {hasCustomValue ? <option value={fieldValue}>当前自定义值: {fieldValue}</option> : null}
+              {safeSuggestions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : suggestionEmptyHint ? (
+          <div className="rounded-[10px] border border-dashed border-border/72 bg-background/50 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+            {suggestionEmptyHint}
+          </div>
+        ) : null}
         <Input
           value={secret ? revealedValue ?? fieldValue : fieldValue}
           onChange={(event) => onChange(event.target.value)}
@@ -257,6 +295,7 @@ export default function ModelConfigPage() {
   const [selectedProviderId, setSelectedProviderId] = useState(null)
   const [error, setError] = useState(null)
   const [dashboardRunning, setDashboardRunning] = useState(null) // null=未检测, true=运行, false=未运行
+  const [providerModelOptions, setProviderModelOptions] = useState({ providers: [] })
 
   // 检测 Dashboard 是否在运行
   const checkDashboardRunning = useCallback(async () => {
@@ -280,9 +319,10 @@ export default function ModelConfigPage() {
     try {
       setLoading(true)
       setError(null)
-      const [envResult, primaryModelResult] = await Promise.allSettled([
+      const [envResult, primaryModelResult, modelOptionsResult] = await Promise.allSettled([
         getEnvVars(),
         getPrimaryModelConfig(),
+        getModelOptions(),
       ])
 
       let envError = null
@@ -298,6 +338,12 @@ export default function ModelConfigPage() {
         setPrimaryModelConfig(primaryModelResult.value || {})
       } else {
         primaryError = primaryModelResult.reason
+      }
+
+      if (modelOptionsResult.status === "fulfilled") {
+        setProviderModelOptions(modelOptionsResult.value || { providers: [] })
+      } else {
+        setProviderModelOptions({ providers: [] })
       }
 
       if (envError || primaryError) {
@@ -504,6 +550,20 @@ export default function ModelConfigPage() {
     }
   }, [configState.providers, selectedProviderId])
 
+  const selectedProviderModelSuggestions = useMemo(() => {
+    if (!selectedProvider) return []
+    return getProviderModelSuggestions(selectedProvider, providerModelOptions)
+  }, [providerModelOptions, selectedProvider])
+
+  const selectedProviderSavePlan = useMemo(() => {
+    if (!selectedProvider) return null
+    return buildProviderSavePlan(selectedProvider, {
+      apiKey: resolvePrimaryFieldValue("apiKey"),
+      baseUrl: resolvePrimaryFieldValue("baseUrl"),
+      model: resolvePrimaryFieldValue("model"),
+    })
+  }, [primaryDrafts, primaryModelConfig, selectedProvider])
+
   const handleApplyLocalPreset = (preset) => {
     setPrimaryDrafts((current) => ({
       ...current,
@@ -529,34 +589,29 @@ export default function ModelConfigPage() {
     }
    }
 
-   const handleSaveProviderConfig = async (provider) => {
+  const handleSaveProviderConfig = async (provider) => {
     if (!provider) return
 
-    const apiKey = String(resolvePrimaryFieldValue("apiKey") || "").trim()
-    const baseUrl = String(resolvePrimaryFieldValue("baseUrl") || "").trim()
-    const model = String(resolvePrimaryFieldValue("model") || "").trim()
+    const savePlan = buildProviderSavePlan(provider, {
+      apiKey: resolvePrimaryFieldValue("apiKey"),
+      baseUrl: resolvePrimaryFieldValue("baseUrl"),
+      model: resolvePrimaryFieldValue("model"),
+    })
 
-    if (!apiKey) {
+    if (!savePlan.canSave) {
       toast.error(t("modelsPage.saveError"), { description: "API Key is required" })
       return
     }
 
-     setSavingKey("primary:apiKey")
-     try {
-       // 先并行设置环境变量（使用 provider 定义的精确 key）
-       const promises = []
-       if (provider.apiKeyKey) promises.push(setEnvVar(provider.apiKeyKey, apiKey))
-       if (baseUrl && provider.baseUrlKey) promises.push(setEnvVar(provider.baseUrlKey, baseUrl))
-       if (model && provider.defaultModelKey) promises.push(setEnvVar(provider.defaultModelKey, model))
-       await Promise.all(promises)
+    setSavingKey("primary:apiKey")
+    try {
+      const promises = savePlan.envUpdates.map((update) => {
+        if (update.action === "delete") return deleteEnvVar(update.key)
+        return setEnvVar(update.key, update.value)
+      })
+      await Promise.all(promises)
 
-       // 保存主配置（内部会调用 load() 刷新状态）
-       const overrides = {
-         provider: provider.id,
-         baseUrl: baseUrl,
-         model: model || provider.defaultModelValue || "",
-       }
-       await commitPrimaryModelConfig(overrides)
+      await commitPrimaryModelConfig(savePlan.primaryConfig, savePlan.clearFields)
 
       toast.success(t("modelsPage.saveSuccess"), {
         description: `${provider.label} configured`,
@@ -763,7 +818,11 @@ export default function ModelConfigPage() {
                     />
                     <ConfigField
                       label={t("modelsPage.defaultModelLabel")}
-                      description="默认模型 ID（可选）"
+                      description={
+                        selectedProviderModelSuggestions.length > 0
+                          ? "可从供应商返回的模型列表中选择，也可以继续手动输入自定义模型 ID"
+                          : "默认模型 ID（可选）"
+                      }
                       envKey={`${selectedProvider.envPrefix}_DEFAULT_MODEL`}
                       fieldValue={resolvePrimaryFieldValue("model")}
                       placeholder={selectedProvider.defaultModelValue || "gpt-4"}
@@ -774,6 +833,9 @@ export default function ModelConfigPage() {
                       docsUrl={selectedProvider.docsUrl}
                       t={t}
                       hideActions
+                      suggestions={selectedProviderModelSuggestions}
+                      suggestionPlaceholder={`选择 ${selectedProvider.label} 模型`}
+                      suggestionEmptyHint="当前未从服务端拿到该供应商的模型列表，你仍然可以直接手动输入模型 ID。"
                     />
                   </div>
 
@@ -790,7 +852,7 @@ export default function ModelConfigPage() {
                     </Button>
                     <Button
                       onClick={() => handleSaveProviderConfig(selectedProvider)}
-                      disabled={savingKey !== null || !resolvePrimaryFieldValue("apiKey").trim()}
+                      disabled={savingKey !== null || !selectedProviderSavePlan?.canSave}
                       size="sm"
                       className="rounded-md">
                       <SaveIcon className="size-4" />
