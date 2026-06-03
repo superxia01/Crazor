@@ -7,17 +7,22 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog'
 import { storeCustomerLoginCredentials } from '@/api/crazor-auth'
+import { buildWorkspaceEntryHref, resolveRequestedWorkspace } from '@/api/login-entry'
 import { AccessCodeLoginCard } from '@/components/AccessCodeLoginCard'
 
 export function LoginDialog({ open, onOpenChange, onLogin }) {
+  const requestedWorkspace = resolveRequestedWorkspace()
+  const internalEntryRequested = requestedWorkspace === "internal"
   const [qrUrl, setQrUrl] = useState(null)
   const [loginState, setLoginState] = useState("")
   const [loading, setLoading] = useState(true)
   const [accessLoading, setAccessLoading] = useState(false)
+  const [internalAccessLoading, setInternalAccessLoading] = useState(false)
   const [error, setError] = useState(null)
   const [polling, setPolling] = useState(false)
   const [authStatus, setAuthStatus] = useState(null)
   const [accessCode, setAccessCode] = useState("")
+  const [internalAccessCode, setInternalAccessCode] = useState("")
 
   const fetchLoginUrl = useCallback(async () => {
     try {
@@ -26,6 +31,15 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
       const resp = await fetch('/api/auth/status')
       const status = await resp.json()
       setAuthStatus(status)
+
+      if (internalEntryRequested) {
+        if (!status.internalAccessCodeConfigured) {
+          setError('当前环境未启用内部演示入口，请确认 CRAZOR_INTERNAL_ACCESS_CODE 已配置')
+          setLoading(false)
+          return
+        }
+        return
+      }
 
       if (!status.wechatConfigured && !status.accessCodeConfigured) {
         setError('登录方式未配置，请设置 WECHAT_APP_ID / WECHAT_APP_SECRET 或 CRAZOR_CUSTOMER_ACCESS_CODE')
@@ -49,7 +63,7 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [internalEntryRequested])
 
   // Fetch login URL when dialog opens
   useEffect(() => {
@@ -62,7 +76,9 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
       setPolling(false)
       setAuthStatus(null)
       setAccessCode("")
+      setInternalAccessCode("")
       setAccessLoading(false)
+      setInternalAccessLoading(false)
     }
   }, [open, fetchLoginUrl])
 
@@ -125,9 +141,46 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
     }
   }
 
-  const canUseWechat = Boolean(authStatus?.wechatConfigured && qrUrl)
-  const canUseAccessCode = Boolean(authStatus?.accessCodeConfigured)
-  const dialogDescription = canUseWechat
+  const handleInternalAccessLogin = async (event) => {
+    event.preventDefault()
+    const code = internalAccessCode.trim()
+    if (!code) {
+      setError('请输入内部演示码')
+      return
+    }
+    try {
+      setInternalAccessLoading(true)
+      setError(null)
+      const resp = await fetch('/api/auth/internal-access-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok || !data.token) {
+        setError(data.error || '内部演示码验证失败')
+        return
+      }
+      storeCustomerLoginCredentials(data)
+      setPolling(false)
+      onLogin()
+      onOpenChange(false)
+    } catch {
+      setError('网络错误，请重试')
+    } finally {
+      setInternalAccessLoading(false)
+    }
+  }
+
+  const canUseWechat = !internalEntryRequested && Boolean(authStatus?.wechatConfigured && qrUrl)
+  const canUseAccessCode = !internalEntryRequested && Boolean(authStatus?.accessCodeConfigured)
+  const canUseInternalAccessCode = internalEntryRequested && Boolean(authStatus?.internalAccessCodeConfigured)
+  const canSwitchToInternalEntry = !internalEntryRequested && Boolean(authStatus?.internalAccessCodeConfigured)
+  const internalEntryHref = buildWorkspaceEntryHref('internal')
+  const customerEntryHref = buildWorkspaceEntryHref('customer')
+  const dialogDescription = internalEntryRequested
+    ? '输入内部演示码继续'
+    : canUseWechat
     ? canUseAccessCode
       ? '使用微信或客户访问码继续'
       : '使用微信扫码继续'
@@ -143,12 +196,33 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
             <svg className="h-5 w-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
             </svg>
-            登录 Crazor
+            {internalEntryRequested ? '进入内部工作台' : '登录 Crazor'}
           </DialogTitle>
           <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
 
         <div className="py-4">
+          {(canSwitchToInternalEntry || internalEntryRequested) && (
+            <div className="mb-4 flex items-center justify-center gap-3 text-xs">
+              {canSwitchToInternalEntry && (
+                <a
+                  href={internalEntryHref}
+                  className="inline-flex items-center rounded-full border border-slate-300/88 bg-white/92 px-3 py-1.5 font-medium text-slate-700 transition hover:border-primary/48 hover:text-primary dark:border-slate-600/82 dark:bg-slate-900/72 dark:text-slate-200 dark:hover:border-primary/44 dark:hover:text-primary"
+                >
+                  团队内部入口
+                </a>
+              )}
+              {internalEntryRequested && (
+                <a
+                  href={customerEntryHref}
+                  className="inline-flex items-center rounded-full border border-slate-300/88 bg-white/92 px-3 py-1.5 font-medium text-slate-700 transition hover:border-primary/48 hover:text-primary dark:border-slate-600/82 dark:bg-slate-900/72 dark:text-slate-200 dark:hover:border-primary/44 dark:hover:text-primary"
+                >
+                  返回客户入口
+                </a>
+              )}
+            </div>
+          )}
+
           {/* Error state */}
           {error && (
             <div className="mb-4 rounded-xl bg-destructive/10 p-4 text-sm text-destructive">
@@ -187,11 +261,24 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
           {!loading && canUseAccessCode && (
             <AccessCodeLoginCard
               context="dialog"
+              mode="customer"
               value={accessCode}
               onChange={setAccessCode}
               onSubmit={handleAccessCodeLogin}
               loading={accessLoading}
               className={canUseWechat ? "mt-0" : "mt-1"}
+            />
+          )}
+
+          {!loading && canUseInternalAccessCode && (
+            <AccessCodeLoginCard
+              context="dialog"
+              mode="internal"
+              value={internalAccessCode}
+              onChange={setInternalAccessCode}
+              onSubmit={handleInternalAccessLogin}
+              loading={internalAccessLoading}
+              className="mt-1"
             />
           )}
 

@@ -11,6 +11,7 @@ import {
   runCustomerDesktopSmoke,
   summarizeReadinessIssues,
   validateBusinessEntrypointShape,
+  validateCustomerPortalPayload,
   validateWebAssetResponse,
   validateWebEntrypointHtml,
 } from "../../scripts/customer-desktop-smoke.mjs"
@@ -193,7 +194,7 @@ test("customer desktop smoke preserves path-prefixed hosted server URLs", async 
   assert.ok(!calls.some((url) => url.includes("/crazor/crazor/")))
 })
 
-test("customer desktop smoke can exchange customer access code for login JWT", async () => {
+test("customer desktop smoke verifies customer portal isolation after access-code login", async () => {
   const calls = []
   const fetchImpl = async (url, init = {}) => {
     calls.push({ url, init })
@@ -218,33 +219,44 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
     if (pathname === "/api/auth/access-code") {
       assert.equal(init.method, "POST")
       assert.equal(JSON.parse(init.body).code, "handoff-code")
-      return jsonResponse({ loggedIn: true, token: "access.jwt", actor_token: "czr_customer", nickname: "客户用户" })
+      return jsonResponse({ loggedIn: true, token: "access.jwt", nickname: "客户用户" })
     }
     if (pathname === "/api/auth/me") {
       assert.equal(init.headers.Authorization, "Bearer access.jwt")
-      return jsonResponse({ loggedIn: true, nickname: "客户用户" })
+      return jsonResponse({ loggedIn: true, nickname: "客户用户", portalMode: true })
+    }
+    if (pathname === "/api/customer/portal") {
+      assert.equal(init.headers.Authorization, "Bearer access.jwt")
+      assert.equal(init.headers["X-Crazor-Token"], undefined)
+      return jsonResponse({
+        binding: { status: "bound" },
+        summary: { deliveries: 1, docs: 1, attachments: 0, pendingAcceptance: 0 },
+        deliveries: [],
+        tasks: [],
+        docs: [],
+        projects: [],
+        attachments: { contact: [], projects: [], deliveries: [] },
+      })
     }
     if (pathname === "/api/crazor/context") {
       assert.equal(init.headers.Authorization, "Bearer access.jwt")
-      return jsonResponse({ items: [] })
+      return jsonResponse({ error: "customer portal sessions cannot access internal workspace routes" }, 403)
     }
-    const businessResponse = businessEntrypointResponse(pathname, init)
-    if (businessResponse) {
+    if (pathname === "/api/crazor/contacts" && init.method === "POST") {
       assert.equal(init.headers.Authorization, "Bearer access.jwt")
-      assert.equal(init.headers["X-Crazor-Token"], "czr_customer")
-      return businessResponse
+      return jsonResponse({ error: "customer portal sessions cannot access internal workspace routes" }, 403)
     }
     if (pathname === "/api/agent/provider") {
       return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
     }
     if (pathname === "/api/models") {
       assert.equal(init.headers.Authorization, "Bearer access.jwt")
-      assert.equal(init.headers["X-Crazor-Token"], "czr_customer")
+      assert.equal(init.headers["X-Crazor-Token"], undefined)
       return jsonResponse({ data: [{ id: "hermes-agent" }] })
     }
     if (pathname === "/api/chat/completions") {
       assert.equal(init.headers.Authorization, "Bearer access.jwt")
-      assert.equal(init.headers["X-Crazor-Token"], "czr_customer")
+      assert.equal(init.headers["X-Crazor-Token"], undefined)
       return jsonResponse({ choices: [{ message: { content: "OK" } }] })
     }
     throw new Error(`unexpected ${url}`)
@@ -262,12 +274,87 @@ test("customer desktop smoke can exchange customer access code for login JWT", a
   assert.equal(result.webEntrypointChecked, true)
   assert.equal(result.webAssetChecks.length, 1)
   assert.equal(result.accessCodeLoginChecked, true)
-  assert.equal(result.accessActorTokenChecked, true)
+  assert.equal(result.accessActorTokenChecked, false)
   assert.equal(result.interactiveLoginRequired, false)
-  assert.equal(result.businessEntryChecks.length, 6)
-  assert.equal(result.businessWriteChecked, true)
+  assert.equal(result.portalMode, true)
+  assert.equal(result.customerPortalChecked, true)
+  assert.equal(result.internalAdminBlockedChecked, true)
+  assert.equal(result.internalWriteBlockedChecked, true)
+  assert.deepEqual(result.businessEntryChecks, [
+    { id: "customer-portal", label: "客户工作台", path: "/api/customer/portal", status: "ok" },
+  ])
+  assert.equal(result.businessWriteChecked, false)
   assert.equal(result.liveChatChecked, true)
   assert.ok(calls.some((call) => new URL(call.url).pathname === "/api/auth/access-code"))
+})
+
+test("customer desktop smoke accepts token-required blocks for portal sessions on internal routes", async () => {
+  const fetchImpl = async (url, init = {}) => {
+    const pathname = new URL(url).pathname
+    if (pathname === "/api/health") return jsonResponse({ status: "ok" })
+    if (pathname === "/") return htmlResponse()
+    if (pathname === "/assets/index.js") return jsResponse()
+    if (pathname === "/api/delivery/readiness") {
+      return jsonResponse({
+        status: "ready",
+        delivery: {
+          customer: "CRAZYAIGC 内部",
+          public_base_url: "https://client.example.com",
+          protocol_version: "1",
+        },
+        checks: [],
+      })
+    }
+    if (pathname === "/api/auth/status") {
+      return jsonResponse({ loginRequired: true, accessCodeConfigured: true })
+    }
+    if (pathname === "/api/auth/access-code") {
+      return jsonResponse({ loggedIn: true, token: "access.jwt", nickname: "客户用户" })
+    }
+    if (pathname === "/api/auth/me") {
+      return jsonResponse({ loggedIn: true, nickname: "客户用户", portalMode: true })
+    }
+    if (pathname === "/api/customer/portal") {
+      return jsonResponse({
+        binding: { status: "bound" },
+        summary: { deliveries: 1, docs: 1, attachments: 0, pendingAcceptance: 0 },
+        deliveries: [],
+        tasks: [],
+        docs: [],
+        projects: [],
+        attachments: { contact: [], projects: [], deliveries: [] },
+      })
+    }
+    if (pathname === "/api/crazor/context") {
+      return jsonResponse({ error: "token required" }, 401)
+    }
+    if (pathname === "/api/crazor/contacts" && init.method === "POST") {
+      return jsonResponse({ error: "token required" }, 401)
+    }
+    if (pathname === "/api/agent/provider") {
+      return jsonResponse({ capability_ids: ["gateway.chat_completions"] })
+    }
+    if (pathname === "/api/models") {
+      return jsonResponse({ data: [{ id: "hermes-agent" }] })
+    }
+    throw new Error(`unexpected ${url}`)
+  }
+
+  const result = await runCustomerDesktopSmoke({
+    customer: "CRAZYAIGC 内部",
+    serverUrl: "https://client.example.com/",
+    protocolVersion: "1",
+    accessCode: "handoff-code",
+    liveChat: false,
+    fetchImpl,
+    logger: { log() {}, warn() {} },
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.portalMode, true)
+  assert.equal(result.customerPortalChecked, true)
+  assert.equal(result.internalAdminBlockedChecked, true)
+  assert.equal(result.internalWriteBlockedChecked, true)
 })
 
 test("customer desktop smoke treats missing login token as an expected login gate", async () => {
@@ -401,6 +488,8 @@ test("customer desktop smoke helper exposes desktop request auth semantics", () 
   assert.equal(validateBusinessEntrypointShape({ shape: "array" }, {}), false)
   assert.equal(validateBusinessEntrypointShape({ shape: "object" }, { ok: true }), true)
   assert.equal(validateBusinessEntrypointShape({ shape: "object" }, []), false)
+  assert.equal(validateCustomerPortalPayload({ binding: {}, summary: {} }), true)
+  assert.equal(validateCustomerPortalPayload({ binding: {} }), false)
   assert.equal(validateWebEntrypointHtml("<!doctype html><html><head><title>Crazor数字员工系统</title></head><body><div id=\"root\"></div><script src=\"/assets/app.js\"></script></body></html>"), true)
   assert.equal(validateWebEntrypointHtml("{\"status\":\"ok\"}"), false)
   assert.deepEqual(

@@ -27,16 +27,19 @@ function deliveryFingerprint(customer = "", serverUrl = "", channel = "customer"
 
 export function buildCustomerBackendEnv({
   customer = "",
+  contactId = "",
   serverUrl = "",
   protocolVersion = DEFAULT_PROTOCOL_VERSION,
   jwtSecret = "",
   accessCode = "",
+  internalAccessCode = "",
   agentGatewayApiKey = "",
   wechatAppId = "",
   wechatAppSecret = "",
   composeProjectName = "",
   deploymentTier = "customer",
   webPort = "5173",
+  defaultWorkspace = "customer",
 } = {}) {
   const normalizedCustomer = normalizeText(customer)
   const normalizedServerUrl = normalizeServerUrl(serverUrl)
@@ -85,9 +88,12 @@ export function buildCustomerBackendEnv({
     DEPLOYMENT_TIER: deploymentTier || "customer",
     JWT_SECRET: generatedJwtSecret,
     CRAZOR_CUSTOMER_ACCESS_CODE: generatedAccessCode,
+    CRAZOR_INTERNAL_ACCESS_CODE: String(internalAccessCode || "").trim(),
+    CRAZOR_DEFAULT_WORKSPACE: normalizeWorkspace(defaultWorkspace),
     WECHAT_APP_ID: String(wechatAppId || "").trim(),
     WECHAT_APP_SECRET: String(wechatAppSecret || "").trim(),
     CRAZOR_DELIVERY_CUSTOMER: normalizedCustomer,
+    CRAZOR_DELIVERY_CONTACT_ID: normalizeText(contactId),
     CRAZOR_DELIVERY_CHANNEL: "customer",
     CRAZOR_PUBLIC_BASE_URL: normalizedServerUrl,
     CRAZOR_DELIVERY_PROTOCOL_VERSION: normalizeText(protocolVersion) || DEFAULT_PROTOCOL_VERSION,
@@ -174,6 +180,13 @@ export function validateCustomerBackendEnv(env = {}, {
   }
   if (!isStrongAccessCode(env.CRAZOR_CUSTOMER_ACCESS_CODE)) {
     errors.push("CRAZOR_CUSTOMER_ACCESS_CODE 必须是至少 8 字符的客户访问码")
+  }
+  if (normalizeText(env.CRAZOR_INTERNAL_ACCESS_CODE) && !isStrongAccessCode(env.CRAZOR_INTERNAL_ACCESS_CODE)) {
+    errors.push("CRAZOR_INTERNAL_ACCESS_CODE 必须是至少 8 字符的内部演示码")
+  }
+  const defaultWorkspace = String(env.CRAZOR_DEFAULT_WORKSPACE || "").trim().toLowerCase()
+  if (defaultWorkspace && !["customer", "internal"].includes(defaultWorkspace)) {
+    errors.push("CRAZOR_DEFAULT_WORKSPACE 只支持 customer 或 internal")
   }
 
   const corsOrigins = splitCsv(env.CORS_ORIGINS)
@@ -276,6 +289,10 @@ function splitCsv(value) {
     .filter(Boolean)
 }
 
+function normalizeWorkspace(value) {
+  return String(value || "").trim().toLowerCase() === "internal" ? "internal" : "customer"
+}
+
 function quoteEnvValue(value) {
   return `"${String(value ?? "")
     .replace(/\\/g, "\\\\")
@@ -325,9 +342,12 @@ function parseArgs(argv) {
     const arg = argv[index]
     if (arg === "--customer") options.customer = argv[++index] || ""
     else if (arg === "--server-url") options.serverUrl = argv[++index] || ""
+    else if (arg === "--contact-id") options.contactId = argv[++index] || ""
     else if (arg === "--protocol-version") options.protocolVersion = argv[++index] || ""
     else if (arg === "--jwt-secret") options.jwtSecret = argv[++index] || ""
     else if (arg === "--access-code") options.accessCode = argv[++index] || ""
+    else if (arg === "--internal-access-code") options.internalAccessCode = argv[++index] || ""
+    else if (arg === "--default-workspace") options.defaultWorkspace = argv[++index] || ""
     else if (arg === "--agent-gateway-api-key") options.agentGatewayApiKey = argv[++index] || ""
     else if (arg === "--wechat-app-id") options.wechatAppId = argv[++index] || ""
     else if (arg === "--wechat-app-secret") options.wechatAppSecret = argv[++index] || ""
@@ -348,12 +368,12 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`用法:
   node scripts/customer-backend-env.mjs "客户名称" "http://局域网IP:5173" [输出文件]
-  node scripts/customer-backend-env.mjs --customer "客户名称" --server-url "https://crazor.example.com" --access-code "客户访问码" --agent-gateway-api-key "Agent网关密钥" --output .env.customer --force
+  node scripts/customer-backend-env.mjs --customer "客户名称" --contact-id "contact_xxx" --server-url "https://crazor.example.com" --access-code "客户访问码" --internal-access-code "内部演示码" --default-workspace "internal" --agent-gateway-api-key "Agent网关密钥" --output .env.customer --force
   node scripts/customer-backend-env.mjs --check .env.customer --customer "客户名称" --server-url "https://crazor.example.com" --strict
 
 说明:
   生成客户后端 Docker Compose 环境文件，默认输出到 .env.customer。
-  默认会生成 CRAZOR_CUSTOMER_ACCESS_CODE 访问码和 AGENT_GATEWAY_API_KEY；正式交付也可同时传入 --wechat-app-id 和 --wechat-app-secret。`)
+  默认会生成 CRAZOR_CUSTOMER_ACCESS_CODE 访问码和 AGENT_GATEWAY_API_KEY；如需同服保留内部演示入口，可额外传入 --internal-access-code，并通过 --default-workspace internal 让网页默认落在内部入口。正式交付也可同时传入 --wechat-app-id 和 --wechat-app-secret。`)
 }
 
 async function main() {

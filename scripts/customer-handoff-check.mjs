@@ -8,7 +8,7 @@ import {
   parseEnvText,
   validateCustomerBackendEnv,
 } from "./customer-backend-env.mjs"
-import { runCustomerDesktopSmoke } from "./customer-desktop-smoke.mjs"
+import { requestDesktopJson, runCustomerDesktopSmoke } from "./customer-desktop-smoke.mjs"
 import { verifyCustomerDeliveryPackage } from "./verify-customer-delivery.mjs"
 import {
   normalizeServerUrl,
@@ -71,6 +71,7 @@ export async function runCustomerHandoffCheck({
   deliveryDir,
   envFile = "",
   accessCode = "",
+  internalAccessCode = "",
   loginToken = "",
   actorToken = "",
   live = true,
@@ -101,6 +102,7 @@ export async function runCustomerHandoffCheck({
     gitSha: normalizeText(manifest.gitSha),
     builtAt: normalizeText(manifest.builtAt),
     clientRuntime: normalizeClientRuntime(manifest.clientRuntime),
+    internalEntry: normalizeInternalEntry(manifest.internalEntry),
     installers: deliveryCheck.installers || [],
   }
   const env = readCustomerEnv(envFile, {
@@ -111,10 +113,15 @@ export async function runCustomerHandoffCheck({
     warnings,
   })
   const resolvedAccessCode = normalizeText(
-    accessCode ||
+      accessCode ||
       env.accessCode ||
       process.env.CRAZOR_DESKTOP_SMOKE_ACCESS_CODE ||
       process.env.CRAZOR_CUSTOMER_ACCESS_CODE,
+  )
+  const resolvedInternalAccessCode = normalizeText(
+    internalAccessCode ||
+      env.internalAccessCode ||
+      process.env.CRAZOR_INTERNAL_ACCESS_CODE,
   )
   const resolvedLoginToken = normalizeText(
     loginToken ||
@@ -129,6 +136,13 @@ export async function runCustomerHandoffCheck({
 
   let server = null
   let desktopSmoke = null
+  let internalWorkspace = null
+
+  if (delivery.internalEntry.enabled && env.checked && !env.internalAccessCode) {
+    errors.push("交付清单已启用团队内部演示入口，但环境文件未配置 CRAZOR_INTERNAL_ACCESS_CODE")
+  } else if (!delivery.internalEntry.enabled && env.internalAccessCode) {
+    warnings.push("环境文件配置了 CRAZOR_INTERNAL_ACCESS_CODE，但交付清单未声明团队内部演示入口")
+  }
 
   if (deliveryCheck.ok && live) {
     server = await verifyCustomerServer({
@@ -167,17 +181,77 @@ export async function runCustomerHandoffCheck({
         if (desktopSmoke.loginRequired && !desktopSmoke.accessCodeLoginChecked && !resolvedLoginToken) {
           errors.push("后端要求登录，但本次未验证客户访问码换取 JWT")
         }
-        if (desktopSmoke.loginRequired && !desktopSmoke.accessActorTokenChecked && !resolvedActorToken && !desktopSmoke.businessWriteChecked) {
-          errors.push("后端要求登录，但客户访问码未返回可写业务数据的 actor token")
-        }
-        if (!desktopSmoke.businessWriteChecked) {
-          errors.push("本次未完成客户业务写入与清理检查")
+        if (desktopSmoke.portalMode) {
+          if (!desktopSmoke.customerPortalChecked) {
+            errors.push("本次未完成客户工作台入口检查")
+          }
+          if (!desktopSmoke.internalAdminBlockedChecked) {
+            errors.push("本次未验证客户登录已隔离内部后台接口")
+          }
+          if (!desktopSmoke.internalWriteBlockedChecked) {
+            errors.push("本次未验证客户登录被禁止写入内部业务数据")
+          }
+          if (desktopSmoke.accessActorTokenChecked) {
+            errors.push("客户访问码不应返回内部 actor token")
+          }
+        } else {
+          if (desktopSmoke.loginRequired && !desktopSmoke.accessActorTokenChecked && !resolvedActorToken && !desktopSmoke.businessWriteChecked) {
+            errors.push("后端要求登录，但客户访问码未返回可写业务数据的 actor token")
+          }
+          if (!desktopSmoke.businessWriteChecked) {
+            errors.push("本次未完成客户业务写入与清理检查")
+          }
         }
         if (liveChat && !desktopSmoke.liveChatChecked) {
           errors.push("本次未完成真实对话响应检查")
         }
       } catch (error) {
         errors.push(`客户桌面远程烟测失败: ${error?.message || error}`)
+      }
+
+      if (delivery.internalEntry.enabled) {
+        if (!resolvedInternalAccessCode) {
+          errors.push("交付清单已启用团队内部演示入口，但未提供可用于验收的 CRAZOR_INTERNAL_ACCESS_CODE")
+        } else {
+          try {
+            internalWorkspace = await runInternalWorkspaceSmoke({
+              customer: delivery.customer,
+              serverUrl: delivery.serverUrl,
+              protocolVersion: delivery.deliveryProtocolVersion,
+              internalAccessCode: resolvedInternalAccessCode,
+              verifyFeishu: env.feishuConfigured,
+              timeoutMs,
+              chatTimeoutMs,
+              liveChat,
+              fetchImpl,
+              logger,
+            })
+            warnings.push(...internalWorkspace.warnings)
+            if (env.feishuConfigured) {
+              server = await verifyCustomerServer({
+                customer: delivery.customer,
+                serverUrl: delivery.serverUrl,
+                protocolVersion: delivery.deliveryProtocolVersion,
+                identityFingerprint: delivery.identityFingerprint,
+                timeoutMs,
+                fetchImpl,
+              })
+              if (!server.ok) errors.push(...server.errors)
+              warnings.push(...server.warnings)
+
+              const feishuReadiness = Array.isArray(server.readinessChecks)
+                ? server.readinessChecks.find((check) => check.id === "connector-feishu")
+                : null
+              if (!feishuReadiness) {
+                errors.push("飞书已通过内部演示入口验收，但 /api/delivery/readiness 尚未暴露 connector-feishu 状态")
+              } else if (normalizeText(feishuReadiness.status) !== "ok") {
+                errors.push(`飞书已通过内部演示入口验收，但交付自检仍返回 ${feishuReadiness.label || "飞书连接器"} ${feishuReadiness.status}: ${feishuReadiness.detail || "无详情"}`)
+              }
+            }
+          } catch (error) {
+            errors.push(`团队内部演示入口验收失败: ${error?.message || error}`)
+          }
+        }
       }
     }
   } else if (!live) {
@@ -195,11 +269,14 @@ export async function runCustomerHandoffCheck({
       serverUrl: env.serverUrl,
       deliveryProtocolVersion: env.deliveryProtocolVersion,
       accessCodeConfigured: Boolean(resolvedAccessCode),
+      internalAccessCodeConfigured: Boolean(resolvedInternalAccessCode),
+      feishuConfigured: env.feishuConfigured,
       modelConnections: env.modelConnections,
       modelConnectionConfigured: env.modelConnections.length > 0,
     },
     server,
     desktopSmoke,
+    internalWorkspace,
     live,
     liveChat,
     loginTokenProvided: Boolean(resolvedLoginToken),
@@ -221,6 +298,7 @@ export function renderCustomerHandoffReport(result) {
     `- 交付指纹: ${result.delivery.identityFingerprint || "未声明"}`,
     `- 平台: ${result.delivery.platform || "未声明"}`,
     `- 客户访问码: ${result.env.accessCodeConfigured ? "已提供" : "未提供"}`,
+    `- 团队内部演示入口: ${result.delivery.internalEntry.enabled ? "已启用" : "未启用"}`,
     "",
     "## 客户端内置配置",
     "",
@@ -252,6 +330,8 @@ export function renderCustomerHandoffReport(result) {
     `- 配置客户: ${result.env.customer || "未声明"}`,
     `- 配置后端地址: ${result.env.serverUrl || "未声明"}`,
     `- 配置交付协议: ${result.env.deliveryProtocolVersion || "未声明"}`,
+    `- 内部演示码: ${result.env.internalAccessCodeConfigured ? "已提供" : "未提供"}`,
+    `- 飞书演示凭据: ${result.env.feishuConfigured ? "已提供" : "未提供"}`,
     `- 模型连接凭据: ${formatModelConnections(result.env.modelConnections)}`,
     "",
     "## 在线链路",
@@ -263,9 +343,26 @@ export function renderCustomerHandoffReport(result) {
     `- Web 静态资源: ${formatWebAssetSummary(result.desktopSmoke?.webAssetChecks)}`,
     `- 登录门禁: ${result.desktopSmoke ? (result.desktopSmoke.loginRequired ? "需要登录" : "未要求登录") : "未执行"}`,
     `- 访问码登录: ${result.desktopSmoke?.accessCodeLoginChecked ? "已验证" : "未验证"}`,
+    `- 工作台模式: ${result.desktopSmoke ? (result.desktopSmoke.portalMode ? "客户交付" : "内部协作") : "未执行"}`,
+    `- 客户工作台: ${result.desktopSmoke?.portalMode ? (result.desktopSmoke?.customerPortalChecked ? "已验证" : "未验证") : "不适用"}`,
+    `- 内部后台隔离: ${result.desktopSmoke?.portalMode ? (result.desktopSmoke?.internalAdminBlockedChecked ? "已验证" : "未验证") : "不适用"}`,
     `- 业务入口: ${formatBusinessEntrySummary(result.desktopSmoke?.businessEntryChecks)}`,
-    `- 业务写入: ${result.desktopSmoke?.businessWriteChecked ? "已验证" : "未验证"}`,
+    `- 业务写入: ${result.desktopSmoke?.portalMode ? (result.desktopSmoke?.internalWriteBlockedChecked ? "已验证已隔离" : "未验证") : (result.desktopSmoke?.businessWriteChecked ? "已验证" : "未验证")}`,
     `- 真实对话: ${result.desktopSmoke?.liveChatChecked ? "已验证" : "未验证"}`,
+    "",
+    "## 团队内部演示入口",
+    "",
+    `- 清单声明: ${result.delivery.internalEntry.enabled ? "已启用" : "未启用"}`,
+    `- 入口地址: ${result.delivery.internalEntry.url || "未声明"}`,
+    `- 演示码配置: ${result.env.internalAccessCodeConfigured ? "已提供" : "未提供"}`,
+    `- 登录验收: ${result.internalWorkspace?.loginChecked ? "已验证" : (result.delivery.internalEntry.enabled ? "未验证" : "不适用")}`,
+    `- 工作台模式: ${result.internalWorkspace ? (result.internalWorkspace.portalMode ? "异常: 客户交付" : "内部协作") : (result.delivery.internalEntry.enabled ? "未执行" : "不适用")}`,
+    `- 内部业务入口: ${result.internalWorkspace ? (result.internalWorkspace.businessEntryChecked ? "已验证" : "未验证") : (result.delivery.internalEntry.enabled ? "未执行" : "不适用")}`,
+    `- 内部业务写入: ${result.internalWorkspace ? (result.internalWorkspace.businessWriteChecked ? "已验证" : "未验证") : (result.delivery.internalEntry.enabled ? "未执行" : "不适用")}`,
+    `- 内部控制面: ${result.internalWorkspace ? (result.internalWorkspace.settingsChecked ? formatControlSurfaceSummary(result.internalWorkspace.settingsChecks) : "未验证") : (result.delivery.internalEntry.enabled ? "未执行" : "不适用")}`,
+    `- 内部真实对话: ${result.internalWorkspace ? (result.internalWorkspace.liveChatChecked ? "已验证" : "未验证") : (result.delivery.internalEntry.enabled ? "未执行" : "不适用")}`,
+    `- 飞书连接器: ${result.env.feishuConfigured ? (result.internalWorkspace?.feishuCheck?.checked ? "已验证" : "未验证") : "不适用"}`,
+    `- 飞书结果: ${result.internalWorkspace?.feishuCheck?.summary || (result.env.feishuConfigured ? "未执行" : "不适用")}`,
     "",
     "## Web 入口自检",
     "",
@@ -274,6 +371,10 @@ export function renderCustomerHandoffReport(result) {
     "## 业务入口自检",
     "",
     ...renderBusinessEntryChecks(result.desktopSmoke?.businessEntryChecks),
+    "",
+    "## 内部控制面自检",
+    "",
+    ...renderControlSurfaceChecks(result.internalWorkspace?.settingsChecks, result.delivery.internalEntry.enabled),
     "",
     "## 后端自检项",
     "",
@@ -313,6 +414,8 @@ function readCustomerEnv(envFile, {
     serverUrl: "",
     deliveryProtocolVersion: "",
     accessCode: "",
+    internalAccessCode: "",
+    feishuConfigured: false,
     modelConnections: [],
   }
 
@@ -338,6 +441,10 @@ function readCustomerEnv(envFile, {
   result.serverUrl = normalizeServerUrl(parsed.CRAZOR_PUBLIC_BASE_URL)
   result.deliveryProtocolVersion = normalizeText(parsed.CRAZOR_DELIVERY_PROTOCOL_VERSION)
   result.accessCode = normalizeText(parsed.CRAZOR_CUSTOMER_ACCESS_CODE)
+  result.internalAccessCode = normalizeText(parsed.CRAZOR_INTERNAL_ACCESS_CODE)
+  result.feishuConfigured = Boolean(
+    normalizeText(parsed.FEISHU_APP_ID) && normalizeText(parsed.FEISHU_APP_SECRET),
+  )
   result.modelConnections = listModelProviderConnections(parsed)
 
   if (!validation.ok) errors.push(...validation.errors)
@@ -347,6 +454,168 @@ function readCustomerEnv(envFile, {
   }
 
   return result
+}
+
+function normalizeInternalEntry(entry = {}) {
+  return {
+    enabled: Boolean(entry?.enabled),
+    url: normalizeHttpUrl(entry?.url),
+  }
+}
+
+function normalizeHttpUrl(value) {
+  const text = String(value || "").trim()
+  if (!text) return ""
+  try {
+    const url = new URL(text)
+    if (url.protocol !== "http:" && url.protocol !== "https:") return ""
+    const pathname = url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, "")
+    return `${url.origin}${pathname}${url.search}${url.hash}`
+  } catch {
+    return ""
+  }
+}
+
+async function runInternalWorkspaceSmoke({
+  customer = "",
+  serverUrl = "",
+  protocolVersion = "",
+  internalAccessCode = "",
+  verifyFeishu = false,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  chatTimeoutMs = DEFAULT_CHAT_TIMEOUT_MS,
+  liveChat = true,
+  fetchImpl = globalThis.fetch,
+  logger = console,
+} = {}) {
+  const status = await requestDesktopJson(serverUrl, "/api/auth/status", {
+    timeoutMs,
+    fetchImpl,
+    expected: [200],
+  })
+  if (!status.data?.internalAccessCodeConfigured) {
+    throw new Error("/api/auth/status 未声明 internalAccessCodeConfigured=true")
+  }
+
+  const login = await requestDesktopJson(serverUrl, "/api/auth/internal-access-code", {
+    method: "POST",
+    timeoutMs,
+    fetchImpl,
+    expected: [200],
+    body: { code: internalAccessCode },
+  })
+  const loginToken = normalizeText(login.data?.token)
+  if (!loginToken) throw new Error("内部演示码登录成功响应未返回 JWT")
+  const issuedActorToken = normalizeText(login.data?.actor_token || login.data?.actorToken)
+  if (!issuedActorToken) throw new Error("内部演示码登录成功响应未返回 actor token")
+
+  const me = await requestDesktopJson(serverUrl, "/api/auth/me", {
+    loginToken,
+    timeoutMs,
+    fetchImpl,
+    expected: [200],
+  })
+  if (!me.data?.loggedIn) {
+    throw new Error("内部演示码登录后 /api/auth/me 未返回登录态")
+  }
+  if (Boolean(me.data?.portalMode)) {
+    throw new Error("内部演示码登录后仍落在客户工作台模式")
+  }
+
+  const smoke = await runCustomerDesktopSmoke({
+    customer,
+    serverUrl,
+    protocolVersion,
+    loginToken,
+    actorToken: issuedActorToken,
+    timeoutMs,
+    chatTimeoutMs,
+    liveChat,
+    fetchImpl,
+    logger,
+  })
+  if (smoke.portalMode) {
+    throw new Error("内部演示入口烟测仍返回客户工作台模式")
+  }
+
+  const settingsChecks = await verifyInternalControlSurface({
+    serverUrl,
+    loginToken,
+    actorToken: issuedActorToken,
+    timeoutMs,
+    fetchImpl,
+  })
+
+  let feishuCheck = null
+  if (verifyFeishu) {
+    const feishu = await requestDesktopJson(serverUrl, "/api/integrations/feishu/test", {
+      method: "POST",
+      loginToken,
+      actorToken: issuedActorToken,
+      timeoutMs: Math.max(timeoutMs, 15000),
+      fetchImpl,
+      expected: [200],
+    })
+    const status = normalizeText(feishu.data?.status)
+    const summary = normalizeText(feishu.data?.summary)
+    if (status !== "ok") {
+      throw new Error(`飞书连接器未通过内部演示验收：${summary || status || "未知状态"}`)
+    }
+    feishuCheck = {
+      checked: true,
+      status,
+      summary,
+      connectorId: normalizeText(feishu.data?.connector_id),
+    }
+  }
+
+  return {
+    checked: true,
+    loginChecked: true,
+    actorTokenIssued: true,
+    loginChannel: normalizeText(me.data?.loginChannel),
+    portalMode: Boolean(smoke.portalMode),
+    businessEntryChecked: Array.isArray(smoke.businessEntryChecks) && smoke.businessEntryChecks.length > 0,
+    businessWriteChecked: Boolean(smoke.businessWriteChecked),
+    liveChatChecked: Boolean(smoke.liveChatChecked),
+    webEntrypointChecked: Boolean(smoke.webEntrypointChecked),
+    settingsChecked: settingsChecks.length > 0,
+    feishuCheck,
+    businessEntryChecks: smoke.businessEntryChecks,
+    settingsChecks,
+    webAssetChecks: smoke.webAssetChecks,
+    warnings: smoke.warnings || [],
+    summary: smoke.summary || [],
+  }
+}
+
+async function verifyInternalControlSurface({
+  serverUrl = "",
+  loginToken = "",
+  actorToken = "",
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  const checks = []
+  const endpoints = [
+    { id: "dashboard-config", label: "基础配置", path: "/api/config" },
+    { id: "model-config", label: "模型配置", path: "/api/model/info" },
+    { id: "env-inventory", label: "环境变量清单", path: "/api/env" },
+    { id: "integration-status", label: "连接器状态", path: "/api/integrations/checks" },
+  ]
+
+  for (const endpoint of endpoints) {
+    await requestDesktopJson(serverUrl, endpoint.path, {
+      loginToken,
+      actorToken,
+      timeoutMs,
+      fetchImpl,
+      expected: [200],
+    })
+    checks.push({ ...endpoint, status: "ok" })
+  }
+
+  return checks
 }
 
 export function listModelProviderConnections(env = {}) {
@@ -394,6 +663,11 @@ function formatBusinessEntrySummary(checks = []) {
   return `${checks.length} 项已验证`
 }
 
+function formatControlSurfaceSummary(checks = []) {
+  if (!Array.isArray(checks) || checks.length === 0) return "未执行"
+  return `${checks.length} 项已验证`
+}
+
 function formatWebAssetSummary(checks = []) {
   if (!Array.isArray(checks) || checks.length === 0) return "未执行"
   return `${checks.length} 项已验证`
@@ -412,6 +686,16 @@ function renderBusinessEntryChecks(checks = []) {
   if (!Array.isArray(checks) || checks.length === 0) return ["- 未执行或登录门禁阻止自动进入业务数据"]
   return checks.map((check) => {
     const label = normalizeText(check?.label || check?.id || "业务入口")
+    const path = normalizeText(check?.path || "")
+    return `- 通过 ${label}${path ? `: ${path}` : ""}`
+  })
+}
+
+function renderControlSurfaceChecks(checks = [], enabled = false) {
+  if (!enabled) return ["- 当前交付未启用团队内部演示入口"]
+  if (!Array.isArray(checks) || checks.length === 0) return ["- 未执行或内部演示入口未完成控制面验收"]
+  return checks.map((check) => {
+    const label = normalizeText(check?.label || check?.id || "内部控制面")
     const path = normalizeText(check?.path || "")
     return `- 通过 ${label}${path ? `: ${path}` : ""}`
   })
@@ -457,6 +741,7 @@ function parseArgs(argv) {
     const arg = argv[index]
     if (arg === "--env-file" || arg === "-e") options.envFile = argv[++index] || ""
     else if (arg === "--access-code") options.accessCode = argv[++index] || ""
+    else if (arg === "--internal-access-code") options.internalAccessCode = argv[++index] || ""
     else if (arg === "--login-token") options.loginToken = argv[++index] || ""
     else if (arg === "--actor-token") options.actorToken = argv[++index] || ""
     else if (arg === "--timeout-ms") options.timeoutMs = Number(argv[++index] || DEFAULT_TIMEOUT_MS)
@@ -485,6 +770,7 @@ function printHelp() {
 常用参数:
   --env-file <文件>       客户后端环境文件，通常是 .env.customer
   --access-code <访问码>  覆盖环境文件中的 CRAZOR_CUSTOMER_ACCESS_CODE
+  --internal-access-code <演示码>  覆盖环境文件中的 CRAZOR_INTERNAL_ACCESS_CODE
   --login-token <JWT>     使用已有客户登录 JWT 验收
   --actor-token <Token>   使用 Crazor 内部权限 token 验收受控业务接口
   --output <文件>         输出 Markdown 验收报告

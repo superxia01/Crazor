@@ -45,6 +45,9 @@ const ENTITY_GROUPS: Record<string, string[]> = {
   audit: ["audit_log"],
   channel: ["channel", "channel_referral"],
   channels: ["channel", "channel_referral"],
+  dashboard: ["dashboard_config", "dashboard_env", "dashboard_model"],
+  integration: ["integration_connector"],
+  integrations: ["integration_connector"],
 }
 
 export function normalizeScopes(input: unknown): string[] {

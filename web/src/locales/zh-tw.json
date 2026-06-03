@@ -137,6 +137,8 @@
     "finance": "財務中心",
     "deliveries": "交付管理",
     "deliveriesDescription": "追蹤交付階段、驗收狀態和交付物",
+    "customerPortal": "客戶工作台",
+    "customerPortalDescription": "查看當前客戶的交付、資料和驗收動作",
     "projects": "專案看板",
     "knowledge": "知識庫",
     "analytics": "數據分析",
@@ -168,7 +170,8 @@
     "sidebar": {
       "group": {
         "ai": "AI",
-        "business": "企業數據"
+        "business": "企業數據",
+        "customer": "客戶交付"
       }
     }
   },

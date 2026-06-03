@@ -77,6 +77,18 @@ export function validateBusinessEntrypointShape(entrypoint, data) {
   return data !== null && data !== undefined
 }
 
+export function validateCustomerPortalPayload(data) {
+  return Boolean(
+    data &&
+    typeof data === "object" &&
+    !Array.isArray(data) &&
+    data.summary &&
+    typeof data.summary === "object" &&
+    data.binding &&
+    typeof data.binding === "object",
+  )
+}
+
 export function validateWebEntrypointHtml(text) {
   const html = String(text || "")
   return /<html[\s>]/i.test(html) &&
@@ -268,6 +280,10 @@ export async function runCustomerDesktopSmoke({
   let accessActorTokenChecked = false
   const businessEntryChecks = []
   let businessWriteChecked = false
+  let portalMode = false
+  let customerPortalChecked = false
+  let internalAdminBlockedChecked = false
+  let internalWriteBlockedChecked = false
 
   async function step(name, fn) {
     logger.log(`- ${name}...`)
@@ -385,6 +401,7 @@ export async function runCustomerDesktopSmoke({
       fetchImpl,
       expected: [200],
     })
+    portalMode = Boolean(me.data?.portalMode)
     const gate = evaluateDesktopLoginGate(status.data, me.data, { loginToken: activeLoginToken })
     if (!gate.ok) {
       throw new Error("已提供登录 token，但 /api/auth/me 未返回登录态")
@@ -402,6 +419,36 @@ export async function runCustomerDesktopSmoke({
         fetchImpl,
         expected: [401],
       })
+      return
+    }
+
+    if (portalMode) {
+      const portal = await requestDesktopJson(normalizedServerUrl, "/api/customer/portal", {
+        loginToken: activeLoginToken,
+        actorToken: activeActorToken,
+        timeoutMs,
+        fetchImpl,
+        expected: [200],
+      })
+      if (!validateCustomerPortalPayload(portal.data)) {
+        throw new Error("客户工作台返回结构不符合预期")
+      }
+      customerPortalChecked = true
+      businessEntryChecks.push({
+        id: "customer-portal",
+        label: "客户工作台",
+        path: "/api/customer/portal",
+        status: "ok",
+      })
+
+      await requestDesktopJson(normalizedServerUrl, "/api/crazor/context?limit=1", {
+        loginToken: activeLoginToken,
+        actorToken: activeActorToken,
+        timeoutMs,
+        fetchImpl,
+        expected: [401, 403],
+      })
+      internalAdminBlockedChecked = true
       return
     }
 
@@ -435,6 +482,23 @@ export async function runCustomerDesktopSmoke({
 
   await step("业务写入权限检查", async () => {
     if (authStatus.gate.needsInteractiveLogin) return
+
+    if (portalMode) {
+      await requestDesktopJson(normalizedServerUrl, "/api/crazor/contacts", {
+        method: "POST",
+        loginToken: activeLoginToken,
+        actorToken: activeActorToken,
+        timeoutMs,
+        fetchImpl,
+        expected: [401, 403],
+        body: {
+          name: `Crazor 客户越权探测 ${Date.now()}`,
+          status: "lead",
+        },
+      })
+      internalWriteBlockedChecked = true
+      return
+    }
 
     const created = await requestDesktopJson(normalizedServerUrl, "/api/crazor/contacts", {
       method: "POST",
@@ -526,6 +590,10 @@ export async function runCustomerDesktopSmoke({
     interactiveLoginRequired: authStatus.gate.needsInteractiveLogin,
     accessCodeLoginChecked,
     accessActorTokenChecked,
+    portalMode,
+    customerPortalChecked,
+    internalAdminBlockedChecked,
+    internalWriteBlockedChecked,
     businessEntryChecks,
     businessWriteChecked,
     liveChatChecked: Boolean(chatReply),

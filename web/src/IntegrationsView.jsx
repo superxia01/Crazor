@@ -20,6 +20,7 @@ import {
   PhoneIcon,
   PlusCircleIcon,
   PlugIcon,
+  RefreshCwIcon,
   SaveIcon,
   SendIcon,
   ShoppingCartIcon,
@@ -32,6 +33,7 @@ import {
   EyeOffIcon,
   CheckSquareIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 import { ViewFrame } from "@/components/view-frame"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -45,9 +47,16 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { getEnvVars, setEnvVar, deleteEnvVar, revealEnvVar } from "@/api/dashboard"
+import { readChannelsConfig, writeChannelsConfig } from "@/api/channels"
+import { getIntegrationChecks, saveIntegrationConnectorConfig, testIntegrationConnector } from "@/api/integrations"
 import {
   buildConnectorEnvMap,
+  getConnectorBridge,
+  getConnectorBridgeConfig,
+  getConnectorBridgeStatus,
   getConnectorStatus,
+  getFeishuLinkSteps,
+  normalizeIntegrationCheck,
   parseConnectorFields,
 } from "@/integrations-utils"
 import { cn } from "@/lib/utils"
@@ -261,17 +270,102 @@ const STATUS_CONFIG = {
   disconnected: { label: "未配置", dot: "bg-zinc-300", badge: "bg-zinc-100 text-zinc-500" },
 }
 
+const CONNECTIVITY_STATUS_CONFIG = {
+  idle: { label: "未验证", dot: "bg-zinc-300", badge: "bg-zinc-100 text-zinc-500" },
+  missing_credentials: { label: "缺少凭证", dot: "bg-zinc-300", badge: "bg-zinc-100 text-zinc-500" },
+  ok: { label: "连通通过", dot: "bg-emerald-500", badge: "bg-emerald-100 text-emerald-700" },
+  warning: { label: "需要处理", dot: "bg-amber-500", badge: "bg-amber-100 text-amber-700" },
+  error: { label: "测试失败", dot: "bg-rose-500", badge: "bg-rose-100 text-rose-700" },
+}
+
+const BRIDGE_STATUS_CONFIG = {
+  synced: { dot: "bg-emerald-500", text: "text-emerald-700" },
+  channel_only: { dot: "bg-blue-500", text: "text-blue-700" },
+  env_only: { dot: "bg-amber-500", text: "text-amber-700" },
+  out_of_sync: { dot: "bg-amber-500", text: "text-amber-700" },
+  missing: { dot: "bg-zinc-300", text: "text-zinc-500" },
+  not_applicable: { dot: "bg-zinc-300", text: "text-zinc-500" },
+}
+
+const LINK_STEP_STATUS_CONFIG = {
+  ok: { dot: "bg-emerald-500", text: "text-emerald-700", border: "border-emerald-200 bg-emerald-50/60" },
+  warning: { dot: "bg-amber-500", text: "text-amber-700", border: "border-amber-200 bg-amber-50/60" },
+  error: { dot: "bg-rose-500", text: "text-rose-700", border: "border-rose-200 bg-rose-50/60" },
+  pending: { dot: "bg-zinc-300", text: "text-zinc-500", border: "border-border/70 bg-background/70" },
+}
+
+function cleanString(value) {
+  if (value === null || value === undefined) return ""
+  return String(value).trim()
+}
+
+function formatCheckedAt(value) {
+  const text = cleanString(value)
+  if (!text) return "尚未测试"
+
+  const date = new Date(text)
+  if (Number.isNaN(date.getTime())) return text
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date)
+}
+
+async function revealPresetConnectorEnvMap(baseEnvMap = {}, connectors = PRESET_CONNECTORS) {
+  const nextEnvMap = { ...(baseEnvMap || {}) }
+  const fields = Array.from(new Set(
+    connectors.flatMap((connector) => Array.isArray(connector.fields) ? connector.fields : [])
+  ))
+
+  await Promise.all(fields.map(async (key) => {
+    if (cleanString(nextEnvMap[key])) return
+    try {
+      const revealed = await revealEnvVar(key)
+      const value = cleanString(revealed?.value || revealed)
+      if (value) nextEnvMap[key] = value
+    } catch {
+      // Missing connector env vars are expected for most presets.
+    }
+  }))
+
+  return nextEnvMap
+}
+
 // ── Connector Config Dialog ────────────────────────────────
 
-function ConnectorDialog({ connector, open, onClose, envMap, onRefresh }) {
+function ConnectorDialog({
+  connector,
+  open,
+  onClose,
+  envMap,
+  channelConfigs,
+  integrationChecks,
+  onRefresh,
+  onCheckUpdated,
+}) {
   const [values, setValues] = useState({})
   const [revealed, setRevealed] = useState({})
   const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+
+  const bridge = getConnectorBridge(connector)
+  const bridgeConfig = getConnectorBridgeConfig(connector, channelConfigs)
+  const bridgeStatus = getConnectorBridgeStatus(connector, envMap, channelConfigs)
+  const bridgeStatusConfig = BRIDGE_STATUS_CONFIG[bridgeStatus.state] || BRIDGE_STATUS_CONFIG.missing
+  const check = normalizeIntegrationCheck(integrationChecks?.[connector?.id])
+  const checkConfig = CONNECTIVITY_STATUS_CONFIG[check.status] || CONNECTIVITY_STATUS_CONFIG.idle
+  const feishuLinkSteps = connector?.id === "feishu"
+    ? getFeishuLinkSteps(envMap, channelConfigs, check)
+    : []
 
   // Load values when dialog opens
   useEffect(() => {
     if (!open || !connector) return
     const initial = {}
+    const bridgeFieldMap = bridge?.fieldMap || {}
     const revealPromises = connector.fields.map(async (key) => {
       initial[key] = ""
       if (envMap[key]) {
@@ -281,29 +375,93 @@ function ConnectorDialog({ connector, open, onClose, envMap, onRefresh }) {
         } catch {
           initial[key] = ""
         }
+      } else {
+        const channelKey = bridgeFieldMap[key]
+        if (channelKey && bridgeConfig[channelKey]) {
+          initial[key] = cleanString(bridgeConfig[channelKey])
+        }
       }
     })
     Promise.all(revealPromises).then(() => setValues({ ...initial }))
     setRevealed({})
-  }, [open, connector, envMap])
+  }, [open, connector, envMap, bridge, bridgeConfig])
 
   if (!connector) return null
 
   const handleSave = async () => {
     setSaving(true)
     try {
+      const nextValues = {}
       for (const key of connector.fields) {
-        const val = (values[key] || "").trim()
-        if (val) {
+        const val = cleanString(values[key])
+        nextValues[key] = val
+        if (val && connector.id !== "feishu") {
           await setEnvVar(key, val)
         }
       }
+
+      let saveResult = null
+      if (connector.id === "feishu") {
+        saveResult = await saveIntegrationConnectorConfig(connector.id, nextValues)
+      } else if (bridge) {
+        const nextChannelConfigs = { ...(channelConfigs || {}) }
+        const nextChannelConfig = {
+          ...(bridgeConfig || {}),
+        }
+        for (const [envKey, channelKey] of Object.entries(bridge.fieldMap)) {
+          const nextValue = cleanString(nextValues[envKey])
+          if (nextValue) {
+            nextChannelConfig[channelKey] = nextValue
+          } else if (cleanString(bridgeConfig?.[channelKey])) {
+            nextChannelConfig[channelKey] = cleanString(bridgeConfig[channelKey])
+          }
+        }
+        nextChannelConfigs[bridge.channelId] = nextChannelConfig
+        await writeChannelsConfig(nextChannelConfigs)
+      }
+
       await onRefresh()
+      toast.success(saveResult?.summary || `${connector.name} 配置已保存`)
       onClose()
     } catch (err) {
       console.error("Failed to save:", err)
+      toast.error(`${connector.name} 保存失败`, {
+        description: String(err?.message || err),
+      })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleTest = async () => {
+    if (!connector?.id) return
+    setTesting(true)
+    try {
+      if (connector.id === "feishu") {
+        const pendingValues = {}
+        for (const key of connector.fields) {
+          const value = cleanString(values[key])
+          if (value) pendingValues[key] = value
+        }
+        await saveIntegrationConnectorConfig(connector.id, pendingValues)
+      }
+      const result = await testIntegrationConnector(connector.id)
+      onCheckUpdated?.(connector.id, result)
+      await onRefresh()
+      const normalized = normalizeIntegrationCheck(result)
+      if (normalized.status === "ok") {
+        toast.success(normalized.summary || `${connector.name} 已连通`)
+      } else if (normalized.status === "warning") {
+        toast.warning(normalized.summary || `${connector.name} 需要处理`)
+      } else {
+        toast.error(normalized.summary || `${connector.name} 测试失败`)
+      }
+    } catch (err) {
+      toast.error(`${connector.name} 测试失败`, {
+        description: String(err?.message || err),
+      })
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -325,6 +483,21 @@ function ConnectorDialog({ connector, open, onClose, envMap, onRefresh }) {
         </DialogHeader>
 
         <div className="flex flex-col gap-3 py-2">
+          {bridge && (
+            <div className="rounded-xl border border-border/70 bg-muted/40 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-[12px] font-medium">Hermes 接入</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">{bridgeStatus.description}</div>
+                </div>
+                <div className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium", bridgeStatusConfig.text)}>
+                  <span className={cn("size-2 rounded-full", bridgeStatusConfig.dot)} />
+                  {bridgeStatus.label}
+                </div>
+              </div>
+            </div>
+          )}
+
           {connector.fields.map((key) => (
             <div key={key} className="space-y-1">
               <label className="text-[12px] font-medium text-muted-foreground">{key}</label>
@@ -347,10 +520,59 @@ function ConnectorDialog({ connector, open, onClose, envMap, onRefresh }) {
               </div>
             </div>
           ))}
+
+          {connector.id === "feishu" && (
+            <div className="rounded-xl border border-border/70 bg-muted/40 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-[12px] font-medium">连通性验证</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    会用当前凭证请求飞书官方 OpenAPI，并核对 Hermes 配置与运行时监听状态。
+                  </div>
+                </div>
+                <Badge variant="outline" className={cn("text-[10px] h-5", checkConfig.badge)}>
+                  {checkConfig.label}
+                </Badge>
+              </div>
+              <div className="mt-3 rounded-lg border border-border/70 bg-background/70 px-3 py-2">
+                <div className="text-[12px] font-medium">{check.summary || "还没有做过飞书连通测试"}</div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  最近一次：{formatCheckedAt(check.checked_at)}
+                </div>
+              </div>
+              <div className="mt-3 space-y-2">
+                <div className="text-[11px] font-medium text-muted-foreground">真实链路</div>
+                {feishuLinkSteps.map((step) => {
+                  const stepConfig = LINK_STEP_STATUS_CONFIG[step.state] || LINK_STEP_STATUS_CONFIG.pending
+                  return (
+                    <div
+                      key={step.id}
+                      className={cn("rounded-lg border px-3 py-2", stepConfig.border)}
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className={cn("mt-1 size-2 rounded-full shrink-0", stepConfig.dot)} />
+                        <div className="min-w-0">
+                          <div className={cn("text-[11px] font-medium", stepConfig.text)}>{step.label}</div>
+                          <div className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{step.detail}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="mt-3 flex justify-end">
+                <Button size="sm" variant="outline" onClick={handleTest} disabled={testing || saving}>
+                  <RefreshCwIcon className={cn("mr-1 size-3.5", testing && "animate-spin")} />
+                  {testing ? "测试中..." : "测试连接"}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 pt-2 border-t">
-          {envMap && connector.fields.some((k) => envMap[k]) && (
+          {(envMap && connector.fields.some((k) => envMap[k])) ||
+          (bridge && Object.values(bridge.fieldMap).some((fieldKey) => cleanString(bridgeConfig?.[fieldKey]))) ? (
             <Button
               variant="ghost"
               size="sm"
@@ -359,14 +581,23 @@ function ConnectorDialog({ connector, open, onClose, envMap, onRefresh }) {
                 for (const key of connector.fields) {
                   if (envMap[key]) await deleteEnvVar(key).catch(() => {})
                 }
+                if (bridge) {
+                  const nextChannelConfigs = { ...(channelConfigs || {}) }
+                  nextChannelConfigs[bridge.channelId] = {
+                    ...(bridgeConfig || {}),
+                    ...Object.fromEntries(Object.values(bridge.fieldMap).map((fieldKey) => [fieldKey, ""])),
+                  }
+                  await writeChannelsConfig(nextChannelConfigs)
+                }
                 await onRefresh()
+                toast.success(`${connector.name} 配置已清除`)
                 onClose()
               }}
             >
               <TrashIcon className="size-3.5 mr-1" />
               清除配置
             </Button>
-          )}
+          ) : null}
           <Button variant="outline" size="sm" onClick={onClose}>
             取消
           </Button>
@@ -505,6 +736,8 @@ function CustomConnectorDialog({ open, onClose, onRefresh }) {
 
 export default function IntegrationsView() {
   const [envMap, setEnvMap] = useState({})
+  const [channelConfigs, setChannelConfigs] = useState({})
+  const [integrationChecks, setIntegrationChecks] = useState({})
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
   const [customOpen, setCustomOpen] = useState(false)
@@ -533,10 +766,19 @@ export default function IntegrationsView() {
 
   const refresh = useCallback(async () => {
     try {
-      const vars = await getEnvVars()
-      setEnvMap(buildConnectorEnvMap(vars))
+      const [vars, channels, checks] = await Promise.all([
+        getEnvVars(),
+        readChannelsConfig().catch(() => ({})),
+        getIntegrationChecks().catch(() => ({})),
+      ])
+      const connectorEnvMap = await revealPresetConnectorEnvMap(buildConnectorEnvMap(vars))
+      setEnvMap(connectorEnvMap)
+      setChannelConfigs(channels && typeof channels === "object" ? channels : {})
+      setIntegrationChecks(checks && typeof checks === "object" ? checks : {})
     } catch {
       setEnvMap({})
+      setChannelConfigs({})
+      setIntegrationChecks({})
     } finally {
       setLoading(false)
     }
@@ -545,6 +787,14 @@ export default function IntegrationsView() {
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  const handleCheckUpdated = useCallback((connectorId, check) => {
+    if (!connectorId) return
+    setIntegrationChecks((current) => ({
+      ...current,
+      [connectorId]: normalizeIntegrationCheck(check),
+    }))
+  }, [])
 
   const allConnectors = [...PRESET_CONNECTORS, ...customConnectors()]
 
@@ -568,6 +818,10 @@ export default function IntegrationsView() {
                 {connectors.map((conn) => {
                   const status = getConnectorStatus(conn, envMap)
                   const cfg = STATUS_CONFIG[status]
+                  const bridgeStatus = getConnectorBridgeStatus(conn, envMap, channelConfigs)
+                  const bridgeCfg = BRIDGE_STATUS_CONFIG[bridgeStatus.state] || BRIDGE_STATUS_CONFIG.missing
+                  const check = normalizeIntegrationCheck(integrationChecks?.[conn.id])
+                  const connectivityCfg = CONNECTIVITY_STATUS_CONFIG[check.status] || CONNECTIVITY_STATUS_CONFIG.idle
                   const Icon = conn.icon
                   return (
                     <Card
@@ -575,7 +829,7 @@ export default function IntegrationsView() {
                       className="cursor-pointer py-3 gap-3 hover:border-primary/40 transition-colors"
                       onClick={() => setSelected(conn)}
                     >
-                      <CardContent className="px-4 py-0">
+                      <CardContent className="px-4 py-0 min-h-[156px]">
                         <div className="flex items-start justify-between">
                           <div className={cn("flex size-9 items-center justify-center rounded-lg", conn.color)}>
                             <Icon className="size-4.5" />
@@ -589,6 +843,18 @@ export default function IntegrationsView() {
                         <Badge variant="outline" className={cn("text-[10px] h-5 mt-2", cfg.badge)}>
                           {cfg.label}
                         </Badge>
+                        {bridgeStatus.label && (
+                          <div className={cn("mt-2 flex items-center gap-1.5 text-[10px] font-medium", bridgeCfg.text)}>
+                            <span className={cn("size-1.5 rounded-full", bridgeCfg.dot)} />
+                            {bridgeStatus.label}
+                          </div>
+                        )}
+                        {conn.id === "feishu" && (
+                          <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                            <span className={cn("size-1.5 rounded-full", connectivityCfg.dot)} />
+                            <span>{connectivityCfg.label}</span>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   )
@@ -606,6 +872,8 @@ export default function IntegrationsView() {
               {customConnectors().map((conn) => {
                 const status = getConnectorStatus(conn, envMap)
                 const cfg = STATUS_CONFIG[status]
+                const check = normalizeIntegrationCheck(integrationChecks?.[conn.id])
+                const connectivityCfg = CONNECTIVITY_STATUS_CONFIG[check.status] || CONNECTIVITY_STATUS_CONFIG.idle
                 const Icon = conn.icon
                 return (
                   <Card
@@ -613,7 +881,7 @@ export default function IntegrationsView() {
                     className="cursor-pointer py-3 gap-3 hover:border-primary/40 transition-colors"
                     onClick={() => setSelected(conn)}
                   >
-                    <CardContent className="px-4 py-0">
+                    <CardContent className="px-4 py-0 min-h-[156px]">
                       <div className="flex items-start justify-between">
                         <div className={cn("flex size-9 items-center justify-center rounded-lg", conn.color)}>
                           <Icon className="size-4.5" />
@@ -627,6 +895,10 @@ export default function IntegrationsView() {
                       <Badge variant="outline" className={cn("text-[10px] h-5 mt-2", cfg.badge)}>
                         {cfg.label}
                       </Badge>
+                      <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                        <span className={cn("size-1.5 rounded-full", connectivityCfg.dot)} />
+                        <span>{connectivityCfg.label}</span>
+                      </div>
                     </CardContent>
                   </Card>
                 )
@@ -658,7 +930,10 @@ export default function IntegrationsView() {
         open={!!selected}
         onClose={() => setSelected(null)}
         envMap={envMap}
+        channelConfigs={channelConfigs}
+        integrationChecks={integrationChecks}
         onRefresh={refresh}
+        onCheckUpdated={handleCheckUpdated}
       />
 
       {/* Custom connector dialog */}

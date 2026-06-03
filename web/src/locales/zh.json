@@ -140,6 +140,8 @@
     "projects": "项目看板",
     "deliveries": "交付管理",
     "deliveriesDescription": "追踪交付阶段、验收状态和交付物",
+    "customerPortal": "客户工作台",
+    "customerPortalDescription": "查看当前客户的交付、资料和验收动作",
     "knowledge": "知识库",
     "analytics": "数据分析",
     "hermesAnalytics": "分析",
@@ -174,7 +176,8 @@
     "sidebar": {
       "group": {
         "ai": "AI",
-        "business": "企业数据"
+        "business": "企业数据",
+        "customer": "客户交付"
       }
     }
   },

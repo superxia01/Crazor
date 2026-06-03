@@ -60,6 +60,24 @@ test("customer delivery verifier accepts a generated handoff report", async () =
   }
 })
 
+test("customer delivery verifier accepts a package with internal demo entry notes", async () => {
+  const dir = createDeliveryFixture({
+    internalEntry: {
+      enabled: true,
+      url: "https://crazor.example.com?workspace=internal",
+    },
+  })
+  try {
+    const result = await verifyCustomerDeliveryPackage(dir)
+
+    assert.equal(result.ok, true)
+    assert.equal(result.manifest.internalEntry.enabled, true)
+    assert.equal(result.manifest.internalEntry.url, "https://crazor.example.com?workspace=internal")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("customer delivery verifier rejects packages without the customer start guide", async () => {
   const dir = createDeliveryFixture()
   try {
@@ -116,6 +134,35 @@ test("customer delivery verifier rejects client runtime mismatches", async () =>
   }
 })
 
+test("customer delivery verifier rejects enabled internal demo entries without start-guide notes", async () => {
+  const dir = createDeliveryFixture({
+    internalEntry: {
+      enabled: true,
+      url: "https://crazor.example.com?workspace=internal",
+    },
+  })
+  try {
+    writeFileSync(
+      join(dir, "crazor-start-here.md"),
+      renderStartGuide({
+        ...createManifest({
+          installerPath: "dmg/Crazor_1.0.0_aarch64.dmg",
+          installerContent: "fake installer",
+          platform: "macos-current",
+          sha256: createHash("sha256").update("fake installer").digest("hex"),
+          internalEntry: { enabled: false, url: "" },
+        }),
+      }),
+    )
+    const result = await verifyCustomerDeliveryPackage(dir)
+
+    assert.equal(result.ok, false)
+    assert.match(result.errors.join("\n"), /团队内部演示入口说明/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("customer delivery verifier rejects build helper files", async () => {
   const dir = createDeliveryFixture()
   try {
@@ -141,7 +188,7 @@ function createDeliveryFixture(options = {}) {
   mkdirSync(join(dir, installerDir), { recursive: true })
   writeFileSync(join(dir, installerPath), installerContent)
   writeFileSync(join(dir, "crazor-delivery-checksums.txt"), `${sha256}  ${installerPath}\n`)
-  const manifest = createManifest({ installerPath, installerContent, platform, sha256 })
+  const manifest = createManifest({ installerPath, installerContent, platform, sha256, internalEntry: options.internalEntry })
   writeFileSync(
     join(dir, "crazor-delivery-manifest.json"),
     JSON.stringify(manifest, null, 2) + "\n",
@@ -153,7 +200,7 @@ function createDeliveryFixture(options = {}) {
   return dir
 }
 
-function createManifest({ installerPath, installerContent, platform, sha256 }) {
+function createManifest({ installerPath, installerContent, platform, sha256, internalEntry }) {
   return {
     product: "Crazor",
     customer: "测试客户",
@@ -169,6 +216,10 @@ function createManifest({ installerPath, installerContent, platform, sha256 }) {
     workflowSha: "def456",
     githubRunId: "123",
     builtAt: "2026-06-01T20:00:00.000Z",
+    internalEntry: internalEntry || {
+      enabled: false,
+      url: "",
+    },
     clientRuntime: {
       apiBase: "https://crazor.example.com",
       customerName: "测试客户",
@@ -211,7 +262,12 @@ function renderStartGuide(manifest) {
 
 ${manifest.bundleFiles.map((file) => `- ${file.path}`).join("\n")}
 
-## 验收文件
+${manifest.internalEntry?.enabled ? `## 团队内部演示入口
+
+- 入口地址: ${manifest.internalEntry.url}
+- 说明: 仅供 CRAZYAIGC 团队成员演示后台、连接器和现场配置时使用。
+
+` : ""}## 验收文件
 
 - crazor-delivery-manifest.json
 - crazor-delivery-checksums.txt

@@ -157,9 +157,23 @@ function validateManifestShape(manifest, errors) {
     errors.push("manifest.deliveryIdentityFingerprint 必须是 12 位十六进制交付指纹")
   }
   if (Number.isNaN(Date.parse(String(manifest?.builtAt || "")))) errors.push("manifest.builtAt 不是有效时间")
+  validateInternalEntry(manifest, errors)
   validateClientRuntime(manifest, errors)
   if (!Array.isArray(manifest?.bundleFiles) || manifest.bundleFiles.length === 0) {
     errors.push("manifest.bundleFiles 不能为空")
+  }
+}
+
+function validateInternalEntry(manifest, errors) {
+  const entry = manifest?.internalEntry
+  if (!entry) return
+  if (typeof entry !== "object" || Array.isArray(entry)) {
+    errors.push("manifest.internalEntry 必须是对象")
+    return
+  }
+  if (!entry.enabled) return
+  if (!isHttpUrl(entry.url)) {
+    errors.push("manifest.internalEntry.url 必须是 http:// 或 https:// 地址")
   }
 }
 
@@ -230,6 +244,16 @@ function validateStartGuide(text, manifest, errors) {
     const packagePath = normalizePackagePath(file?.path)
     if (packagePath && !text.includes(packagePath)) {
       errors.push(`${START_GUIDE_FILE} 未列出安装包: ${packagePath}`)
+    }
+  }
+
+  if (manifest?.internalEntry?.enabled) {
+    const internalUrl = String(manifest.internalEntry.url || "").trim()
+    if (internalUrl && !text.includes(internalUrl)) {
+      errors.push(`${START_GUIDE_FILE} 缺少内部演示入口地址: ${internalUrl}`)
+    }
+    if (!text.includes("团队内部演示入口")) {
+      errors.push(`${START_GUIDE_FILE} 缺少团队内部演示入口说明`)
     }
   }
 }

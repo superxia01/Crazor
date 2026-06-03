@@ -21,11 +21,13 @@ test("customer backend env generator prepares strict hosted delivery settings", 
     customer: " CRAZYAIGC 客户 ",
     serverUrl: "https://client.example.com/crazor/",
     jwtSecret: "0123456789abcdef0123456789abcdef",
+    internalAccessCode: "internal-demo-001",
     wechatAppId: "wx-demo",
     wechatAppSecret: "secret-demo",
   })
 
   assert.equal(env.CRAZOR_DELIVERY_CUSTOMER, "CRAZYAIGC 客户")
+  assert.equal(env.CRAZOR_DELIVERY_CONTACT_ID, "")
   assert.equal(env.CRAZOR_PUBLIC_BASE_URL, "https://client.example.com/crazor")
   assert.match(env.CRAZOR_DELIVERY_IDENTITY_FINGERPRINT, /^[a-f0-9]{12}$/)
   assert.equal(env.CRAZOR_CUSTOMER_SERVER_PREFLIGHT, "strict")
@@ -33,7 +35,9 @@ test("customer backend env generator prepares strict hosted delivery settings", 
   assert.equal(env.CRAZOR_REQUIRE_WRITE_TOKEN, "true")
   assert.equal(env.CRAZOR_REQUIRE_BUSINESS_READ_TOKEN, "true")
   assert.equal(env.CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN, "true")
+  assert.equal(env.CRAZOR_DEFAULT_WORKSPACE, "customer")
   assert.ok(env.CRAZOR_CUSTOMER_ACCESS_CODE.length >= 8)
+  assert.equal(env.CRAZOR_INTERNAL_ACCESS_CODE, "internal-demo-001")
   assert.equal(env.AGENT_GATEWAY_URL, "http://hermes:8642")
   assert.ok(env.AGENT_GATEWAY_API_KEY.length >= 32)
   assert.equal(env.HERMES_API_SERVER_KEY, env.AGENT_GATEWAY_API_KEY)
@@ -69,6 +73,7 @@ test("customer backend env validator rejects unsafe customer handoff config", ()
     CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN: "false",
     JWT_SECRET: "dev-secret-change-in-production",
     CRAZOR_CUSTOMER_ACCESS_CODE: "12345678",
+    CRAZOR_INTERNAL_ACCESS_CODE: "demo",
     CORS_ORIGINS: "http://localhost:5173",
     API_SERVER_CORS_ORIGINS: "",
   })
@@ -77,6 +82,7 @@ test("customer backend env validator rejects unsafe customer handoff config", ()
   assert.match(result.errors.join("\n"), /CRAZOR_DELIVERY_CUSTOMER/)
   assert.match(result.errors.join("\n"), /CRAZOR_CUSTOMER_SERVER_PREFLIGHT/)
   assert.match(result.errors.join("\n"), /CRAZOR_CUSTOMER_ACCESS_CODE/)
+  assert.match(result.errors.join("\n"), /CRAZOR_INTERNAL_ACCESS_CODE/)
   assert.match(result.errors.join("\n"), /AGENT_GATEWAY_API_KEY/)
   assert.match(result.errors.join("\n"), /HERMES_API_SERVER_KEY/)
   assert.match(result.errors.join("\n"), /HERMES_DASHBOARD_BIND/)
@@ -118,6 +124,7 @@ test("customer backend env treats shared address space as private delivery netwo
 test("customer backend env renderer round-trips quoted customer values", () => {
   const env = buildCustomerBackendEnv({
     customer: "客户 A $测试",
+    contactId: "contact_demo",
     serverUrl: "http://192.168.103.4:5173/",
     jwtSecret: "0123456789abcdef0123456789abcdef",
     accessCode: "客户访问码123",
@@ -127,7 +134,10 @@ test("customer backend env renderer round-trips quoted customer values", () => {
   const parsed = parseEnvText(renderCustomerBackendEnv(env))
 
   assert.equal(parsed.CRAZOR_DELIVERY_CUSTOMER, "客户 A $测试")
+  assert.equal(parsed.CRAZOR_DELIVERY_CONTACT_ID, "contact_demo")
   assert.equal(parsed.CRAZOR_CUSTOMER_ACCESS_CODE, "客户访问码123")
+  assert.equal(parsed.CRAZOR_INTERNAL_ACCESS_CODE, "")
+  assert.equal(parsed.CRAZOR_DEFAULT_WORKSPACE, "customer")
   assert.equal(parsed.CRAZOR_PUBLIC_BASE_URL, "http://192.168.103.4:5173")
   assert.deepEqual(validateCustomerBackendEnv(parsed).errors, [])
 })

@@ -10,6 +10,7 @@ import { CustomerDeliveryGate } from "./CustomerDeliveryGate"
 import { LoginPage } from "./pages/LoginPage"
 import { clearCustomerLoginCredentials } from "./api/crazor-auth"
 import { consumeLoginTokenFromLocation } from "./api/login-token-redirect"
+import { isWorkspaceSessionCompatible, resolveRequestedWorkspace } from "./api/login-entry"
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -56,6 +57,7 @@ class ErrorBoundary extends React.Component {
 }
 
 export default function App() {
+  const requestedWorkspace = resolveRequestedWorkspace()
   // userInfo: null = not logged in, { nickname, avatarUrl } = logged in
   const [userInfo, setUserInfo] = useState(null)
   const [authStatus, setAuthStatus] = useState(null)
@@ -70,7 +72,14 @@ export default function App() {
       .then(([status, data]) => {
         setAuthStatus(status)
         if (data.loggedIn) {
-          setUserInfo({ nickname: data.nickname, avatarUrl: data.avatarUrl })
+          setUserInfo({
+            nickname: data.nickname,
+            avatarUrl: data.avatarUrl,
+            portalMode: Boolean(data.portalMode),
+            loginChannel: data.loginChannel || "",
+            deliveryCustomer: data.deliveryCustomer || "",
+            deliveryChannel: data.deliveryChannel || "",
+          })
         } else {
           setUserInfo(null)
         }
@@ -109,7 +118,8 @@ export default function App() {
   }, [])
 
   const loginRequired = Boolean(authStatus?.loginRequired)
-  const showLoginGate = authReady && loginRequired && !userInfo
+  const workspaceMismatch = Boolean(userInfo) && !isWorkspaceSessionCompatible(requestedWorkspace, userInfo)
+  const showLoginGate = authReady && loginRequired && (!userInfo || workspaceMismatch)
 
   return (
     <I18nProvider>

@@ -66,6 +66,8 @@ usage() {
   --server-url <URL>                 客户可访问的后端统一入口
   --env-file <路径>                  使用已有客户环境文件；不传则临时生成
   --access-code <访问码>             覆盖/设定客户访问码
+  --internal-access-code <访问码>    覆盖/设定内部演示入口码
+  --default-workspace <模式>         默认入口模式，支持 customer 或 internal
   --secrets-env-file <路径>          追加白名单内模型 provider 密钥到客户环境
   --hermes-image <镜像>              覆盖客户环境中的 HERMES_IMAGE
   --skip-live-chat                   只验证对话入口和模型列表，不真实调用对话
@@ -205,6 +207,18 @@ set_env_value_in_file() {
   chmod 600 "$target_file"
 }
 
+download_remote_env_if_exists() {
+  local target_file="$1"
+
+  if ssh "${SSH_ARGS[@]}" "$HOST" "test -f $(remote_quote "$REMOTE_SHARED_DIR/.env.customer")"; then
+    ssh "${SSH_ARGS[@]}" "$HOST" "cat $(remote_quote "$REMOTE_SHARED_DIR/.env.customer")" > "$target_file"
+    chmod 600 "$target_file"
+    return 0
+  fi
+
+  return 1
+}
+
 derive_delivery_identity_fingerprint() {
   local customer="$1"
   local server_url="$2"
@@ -231,6 +245,8 @@ CUSTOMER=""
 SERVER_URL=""
 ENV_FILE=""
 ACCESS_CODE=""
+INTERNAL_ACCESS_CODE=""
+DEFAULT_WORKSPACE=""
 SECRETS_ENV_FILE=""
 HERMES_IMAGE=""
 RUN_SMOKE=1
@@ -266,6 +282,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --access-code)
       ACCESS_CODE="${2:-}"
+      shift 2
+      ;;
+    --internal-access-code)
+      INTERNAL_ACCESS_CODE="${2:-}"
+      shift 2
+      ;;
+    --default-workspace)
+      DEFAULT_WORKSPACE="${2:-}"
       shift 2
       ;;
     --secrets-env-file)
@@ -306,6 +330,7 @@ done
 [[ -n "$CUSTOMER" ]] || die "必须提供 --customer"
 [[ -n "$SERVER_URL" ]] || die "必须提供 --server-url"
 [[ "$KEEP_RELEASES" =~ ^[0-9]+$ ]] || die "--keep-releases 必须是数字"
+[[ -z "$DEFAULT_WORKSPACE" || "$DEFAULT_WORKSPACE" == "customer" || "$DEFAULT_WORKSPACE" == "internal" ]] || die "--default-workspace 只支持 customer 或 internal"
 
 need node
 need ssh
@@ -317,6 +342,9 @@ if [[ -n "$SSH_KEY" ]]; then
   SSH_ARGS=(-i "$SSH_KEY" "${SSH_ARGS[@]}")
 fi
 
+REMOTE_SHARED_DIR="$REMOTE_DIR/shared"
+REMOTE_CURRENT_DIR="$REMOTE_DIR/current"
+
 TMP_DIR="$(mktemp -d)"
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -327,16 +355,31 @@ LOCAL_ENV_FILE="$TMP_DIR/.env.customer"
 if [[ -n "$ENV_FILE" ]]; then
   [[ -f "$ENV_FILE" ]] || die "客户环境文件不存在：$ENV_FILE"
   cp "$ENV_FILE" "$LOCAL_ENV_FILE"
+elif download_remote_env_if_exists "$LOCAL_ENV_FILE"; then
+  printf '已读取远端现有客户环境，作为本次部署基底\n'
 else
-  node "$PROJECT_ROOT/scripts/customer-backend-env.mjs" \
-    --customer "$CUSTOMER" \
-    --server-url "$SERVER_URL" \
-    --output "$LOCAL_ENV_FILE" \
-    --force >/dev/null
+  GENERATED_ENV_ARGS=(
+    --customer "$CUSTOMER"
+    --server-url "$SERVER_URL"
+    --output "$LOCAL_ENV_FILE"
+    --force
+  )
+  if [[ -n "$DEFAULT_WORKSPACE" ]]; then
+    GENERATED_ENV_ARGS+=(--default-workspace "$DEFAULT_WORKSPACE")
+  fi
+  node "$PROJECT_ROOT/scripts/customer-backend-env.mjs" "${GENERATED_ENV_ARGS[@]}" >/dev/null
 fi
 
 if [[ -n "$ACCESS_CODE" ]]; then
   set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_CUSTOMER_ACCESS_CODE "$ACCESS_CODE"
+fi
+
+if [[ -n "$INTERNAL_ACCESS_CODE" ]]; then
+  set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_INTERNAL_ACCESS_CODE "$INTERNAL_ACCESS_CODE"
+fi
+
+if [[ -n "$DEFAULT_WORKSPACE" ]]; then
+  set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_DEFAULT_WORKSPACE "$DEFAULT_WORKSPACE"
 fi
 
 if [[ -n "$SECRETS_ENV_FILE" ]]; then
@@ -380,8 +423,6 @@ set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_BUILD_SHA "$BUILD_SHA"
 set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_BUILD_TIME "$BUILD_TIME"
 set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_RELEASE_ID "$RELEASE_ID"
 REMOTE_RELEASE_DIR="$REMOTE_DIR/releases/$RELEASE_ID"
-REMOTE_SHARED_DIR="$REMOTE_DIR/shared"
-REMOTE_CURRENT_DIR="$REMOTE_DIR/current"
 
 run_remote_diagnostics() {
   ssh "${SSH_ARGS[@]}" "$HOST" "
@@ -480,6 +521,14 @@ tar -tzf "$SOURCE_ARCHIVE" | grep -q '^web/src/components/office/data/officeLayo
 
 ssh "${SSH_ARGS[@]}" "$HOST" \
   "tar -xzf - -C $(remote_quote "$REMOTE_RELEASE_DIR")" < "$SOURCE_ARCHIVE"
+
+ssh "${SSH_ARGS[@]}" "$HOST" "
+  set -Eeuo pipefail
+  mkdir -p $(remote_quote "$REMOTE_SHARED_DIR/backups")
+  if [ -f $(remote_quote "$REMOTE_SHARED_DIR/.env.customer") ]; then
+    cp $(remote_quote "$REMOTE_SHARED_DIR/.env.customer") $(remote_quote "$REMOTE_SHARED_DIR/backups/.env.customer.$RELEASE_ID")
+  fi
+"
 
 ssh "${SSH_ARGS[@]}" "$HOST" \
   "cat > $(remote_quote "$REMOTE_SHARED_DIR/.env.customer") && chmod 600 $(remote_quote "$REMOTE_SHARED_DIR/.env.customer")" < "$LOCAL_ENV_FILE"

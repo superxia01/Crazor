@@ -9,7 +9,7 @@ import { basename, extname, join, resolve } from 'node:path'
 import {
   listContacts, getContact, createContact, updateContact, deleteContact,
   listTransactions, createTransaction, updateTransaction, deleteTransaction,
-  getMonthlyRevenue, listProjects, createProject, updateProject, deleteProject,
+  getMonthlyRevenue, listProjects, getProject, createProject, updateProject, deleteProject,
   listTasks, listTasksByContact, getTaskReminders, createTask, updateTask, deleteTask, moveTask,
   listDeliveries, getDelivery, createDelivery, updateDelivery, deleteDelivery, getDeliveryStats,
   getContactStats, getFinanceStats, getProjectStats, getHermesSessionStats,
@@ -19,6 +19,7 @@ import {
   listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats, seedContentPieces,
   contentPublish, contentUpdateMetrics,
   createAuditLog, listAuditLogs,
+  getIntegrationCheck, listIntegrationChecks, upsertIntegrationCheck,
   createTeamMember, listTeamMembers, updateTeamMember, deleteTeamMember,
   createActorToken, listActorTokens, revokeActorToken, resolveActorToken, hasActiveActorTokens,
 } from './services/crazor-db'
@@ -34,6 +35,7 @@ import { migrateVault } from './services/migrate-vault'
 import { handleSSEConnect, handleSSEMessage, handleStreamableHTTP } from './services/crazor-mcp'
 import {
   CRAZOR_DELIVERY_CHANNEL,
+  CRAZOR_DELIVERY_CONTACT_ID,
   CRAZOR_DELIVERY_CUSTOMER,
   CRAZOR_DELIVERY_MODEL_READINESS,
   CRAZOR_DELIVERY_PROTOCOL_VERSION,
@@ -59,7 +61,8 @@ import {
 } from './services/agent-gateway'
 import { evaluateReadPermission, evaluateWritePermission } from './services/crazor-permissions'
 import { authMiddleware } from './middleware/auth'
-import { generateState, getWechatLoginUrl, exchangeCodeForToken, upsertUser, isUserBound, signJWT, verifyJWT, customerAccessCodeConfigured, verifyCustomerAccessCode } from './services/crazor-auth'
+import { generateState, getWechatLoginUrl, exchangeCodeForToken, upsertUser, isUserBound, signJWT, verifyJWT, customerAccessCodeConfigured, verifyCustomerAccessCode, internalAccessCodeConfigured, verifyInternalAccessCode } from './services/crazor-auth'
+import { testFeishuConnector } from './services/feishu'
 
 const app = new Hono()
 
@@ -92,7 +95,12 @@ const DEFAULT_ATTACHMENT_EXTENSIONS = [
 const TEXT_ATTACHMENT_EXTENSIONS = new Set(['txt', 'md', 'csv', 'json', 'log', 'yaml', 'yml'])
 
 function loginRequiredByEnv() {
-  return Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID || process.env.CRAZOR_CUSTOMER_ACCESS_CODE)
+  return Boolean(
+    process.env.JWT_SECRET ||
+    process.env.WECHAT_APP_ID ||
+    process.env.CRAZOR_CUSTOMER_ACCESS_CODE ||
+    process.env.CRAZOR_INTERNAL_ACCESS_CODE
+  )
 }
 const IMAGE_ATTACHMENT_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif'])
 const CRAZOR_ATTACHMENT_MAX_BYTES = parsePositiveInt(process.env.CRAZOR_ATTACHMENT_MAX_BYTES, 20 * 1024 * 1024)
@@ -202,6 +210,197 @@ async function proxyDashboardJsonResponse(c: any, path: string, options: Request
     return proxyJsonResponse(c, await dashboardFetch(path, options))
   } catch (error) {
     return upstreamConnectionFailedResponse(c, 'Agent Dashboard', error)
+  }
+}
+
+async function revealDashboardEnvValue(key: string): Promise<string> {
+  if (!cleanString(key)) return ''
+
+  const resp = await dashboardFetch(`/api/env/reveal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key }),
+  })
+
+  if (!resp.ok) return ''
+
+  const payload = asRecord(await parseResponsePayload(resp))
+  return readFirstString(payload, ['value', 'redacted_value', 'redactedValue'])
+}
+
+async function saveDashboardEnvValue(key: string, value: string) {
+  const normalizedKey = cleanString(key)
+  const normalizedValue = cleanString(value)
+  if (!normalizedKey || !normalizedValue) return null
+
+  const resp = await dashboardFetch(`/api/env`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: normalizedKey, value: normalizedValue }),
+  })
+  if (!resp.ok) {
+    const payload = await parseResponsePayload(resp).catch(() => ({ error: resp.statusText }))
+    throw new Error(`保存 ${normalizedKey} 失败: ${readFirstString(asRecord(payload), ['error', 'message']) || resp.status}`)
+  }
+  return parseResponsePayload(resp).catch(() => ({ ok: true }))
+}
+
+function resolveConnectorCredential(envValue: string, channelValue: string) {
+  if (cleanString(envValue)) return { value: cleanString(envValue), source: 'env' as const }
+  if (cleanString(channelValue)) return { value: cleanString(channelValue), source: 'hermes_channel' as const }
+  return { value: '', source: 'missing' as const }
+}
+
+function normalizeHermesPlatformState(value: string) {
+  const normalized = cleanString(value).toLowerCase()
+  if (normalized === 'connected') return 'connected'
+  if (normalized === 'fatal') return 'fatal'
+  if (normalized === 'disconnected') return 'disconnected'
+  if (normalized) return normalized
+  return 'missing'
+}
+
+async function readDashboardStatusConfig() {
+  return asRecord(await safeDashboardJson(null, '/api/status', {}, {}))
+}
+
+async function readHermesPlatformRuntime(platform: string) {
+  const status = await readDashboardStatusConfig().catch(() => ({}))
+  const platforms = asRecord(status.gateway_platforms)
+  const platformStatus = asRecord(platforms[platform])
+  const state = normalizeHermesPlatformState(readFirstString(platformStatus, ['state']))
+
+  return {
+    platform,
+    state,
+    connected: state === 'connected',
+    configured: state !== 'missing',
+    error_code: readFirstString(platformStatus, ['error_code', 'errorCode']),
+    error_message: readFirstString(platformStatus, ['error_message', 'errorMessage']),
+    updated_at: readFirstString(platformStatus, ['updated_at', 'updatedAt']),
+    gateway_state: readFirstString(status, ['gateway_state', 'gatewayState']),
+    gateway_running: status.gateway_running === true,
+  }
+}
+
+async function readDashboardChannelsConfig() {
+  return asRecord(await safeDashboardJson(null, '/api/channels', {}, {}))
+}
+
+async function writeDashboardChannelsConfig(config: Record<string, unknown>) {
+  const resp = await dashboardFetch(`/api/channels`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  })
+  if (!resp.ok) {
+    const payload = await parseResponsePayload(resp).catch(() => ({ error: resp.statusText }))
+    throw new Error(`保存 Hermes 频道配置失败: ${readFirstString(asRecord(payload), ['error', 'message']) || resp.status}`)
+  }
+  return parseResponsePayload(resp).catch(() => ({ ok: true }))
+}
+
+async function restartDashboardGateway() {
+  const resp = await dashboardFetch(`/api/gateway/restart`, { method: 'POST' })
+  if (!resp.ok) {
+    const payload = await parseResponsePayload(resp).catch(() => ({ error: resp.statusText }))
+    throw new Error(`重启 Hermes Gateway 失败: ${readFirstString(asRecord(payload), ['error', 'detail', 'message']) || resp.status}`)
+  }
+  return parseResponsePayload(resp).catch(() => ({ ok: true }))
+}
+
+async function resolveFeishuConnectorState() {
+  const channelsPayload = await readDashboardChannelsConfig().catch(() => ({}))
+  const channelConfig = asRecord(channelsPayload.feishu)
+  const channelAppId = readFirstString(channelConfig, ['appId', 'app_id'])
+  const channelAppSecret = readFirstString(channelConfig, ['appSecret', 'app_secret'])
+  const [envAppId, envAppSecret] = await Promise.all([
+    revealDashboardEnvValue('FEISHU_APP_ID').catch(() => ''),
+    revealDashboardEnvValue('FEISHU_APP_SECRET').catch(() => ''),
+  ])
+
+  return {
+    channelsPayload,
+    channelConfig,
+    channelAppId,
+    channelAppSecret,
+    envAppId,
+    envAppSecret,
+    effectiveAppId: resolveConnectorCredential(envAppId, channelAppId),
+    effectiveAppSecret: resolveConnectorCredential(envAppSecret, channelAppSecret),
+  }
+}
+
+async function syncFeishuConnectorToHermes(
+  input: { appId?: string; appSecret?: string } = {},
+  options: { restartGateway?: boolean } = {},
+) {
+  const appIdInput = cleanString(input.appId)
+  const appSecretInput = cleanString(input.appSecret)
+  const before = await resolveFeishuConnectorState()
+  const appId = appIdInput || before.envAppId || before.channelAppId
+  const appSecret = appSecretInput || before.envAppSecret || before.channelAppSecret
+
+  if (appIdInput) await saveDashboardEnvValue('FEISHU_APP_ID', appIdInput)
+  if (appSecretInput) await saveDashboardEnvValue('FEISHU_APP_SECRET', appSecretInput)
+
+  let restartRequested = false
+  let restartSucceeded = false
+  let restartError = ''
+  if (options.restartGateway && appId && appSecret) {
+    restartRequested = true
+    try {
+      await restartDashboardGateway()
+      restartSucceeded = true
+    } catch (error) {
+      restartError = error instanceof Error ? error.message : String(error || '重启 Hermes Gateway 失败')
+    }
+  }
+
+  const after = await resolveFeishuConnectorState()
+  const envConfigured = Boolean(cleanString(after.envAppId) && cleanString(after.envAppSecret))
+  const channelConfigured = Boolean(cleanString(after.channelAppId) && cleanString(after.channelAppSecret))
+  const hermesConfigured = envConfigured || channelConfigured
+  const synchronized = envConfigured &&
+    (
+      !channelConfigured ||
+      (
+        cleanString(after.envAppId) === cleanString(after.channelAppId) &&
+        cleanString(after.envAppSecret) === cleanString(after.channelAppSecret)
+      )
+    )
+  const runtime = await readHermesPlatformRuntime('feishu').catch(() => ({
+    platform: 'feishu',
+    state: 'unknown',
+    connected: false,
+    configured: false,
+    error_code: '',
+    error_message: '',
+    updated_at: '',
+    gateway_state: '',
+    gateway_running: false,
+  }))
+
+  return {
+    connector_id: 'feishu',
+    env_configured: envConfigured,
+    hermes_configured: hermesConfigured,
+    channel_configured: channelConfigured,
+    synchronized,
+    restart_requested: restartRequested,
+    restart_succeeded: restartSucceeded,
+    restart_error: restartError,
+    runtime_connected: runtime.connected,
+    runtime_state: runtime.state,
+    runtime_error_code: runtime.error_code,
+    runtime_error_message: runtime.error_message,
+    runtime_updated_at: runtime.updated_at,
+    gateway_state: runtime.gateway_state,
+    gateway_running: runtime.gateway_running,
+    app_id_source: after.effectiveAppId.source,
+    app_secret_source: after.effectiveAppSecret.source,
+    appId: after.effectiveAppId.value,
+    appSecret: after.effectiveAppSecret.value,
   }
 }
 
@@ -557,8 +756,16 @@ function deliveryCustomerName(): string {
   return cleanString(CRAZOR_DELIVERY_CUSTOMER)
 }
 
+function deliveryContactId(): string {
+  return cleanString(CRAZOR_DELIVERY_CONTACT_ID)
+}
+
 function deliveryChannel(): string {
   return cleanString(CRAZOR_DELIVERY_CHANNEL) || (deliveryCustomerName() ? 'customer' : 'local')
+}
+
+function deliveryPortalEnabled(): boolean {
+  return deliveryChannel() === 'customer'
 }
 
 function publicBaseUrl(): string {
@@ -589,6 +796,196 @@ function readDeliveryIdentityReadiness(): DeliveryReadinessCheck {
   }
 
   return deliveryCheck('delivery-identity', '交付身份', 'ok', `后端声明为 ${customer} 的 ${deliveryChannel()} 交付服务`)
+}
+
+function sameCustomerIdentity(value: unknown, expected: string): boolean {
+  const left = cleanString(value).replace(/\s+/g, ' ').toLowerCase()
+  const right = cleanString(expected).replace(/\s+/g, ' ').toLowerCase()
+  return Boolean(left && right && left === right)
+}
+
+function resolveDeliveryBoundContact() {
+  const contactId = deliveryContactId()
+  if (contactId) {
+    const contact = getContact(contactId)
+    if (contact) return contact
+  }
+
+  const customer = deliveryCustomerName()
+  if (!customer) return null
+
+  return listContacts().find((contact: any) =>
+    sameCustomerIdentity(contact?.name, customer) ||
+    sameCustomerIdentity(contact?.company, customer),
+  ) || null
+}
+
+function readDeliveryBindingReadiness(): DeliveryReadinessCheck {
+  if (!deliveryPortalEnabled()) {
+    return deliveryCheck('delivery-binding', '客户绑定', 'ok', '当前不是客户交付模式')
+  }
+
+  const contactId = deliveryContactId()
+  const contact = resolveDeliveryBoundContact()
+  if (contact) {
+    return deliveryCheck(
+      'delivery-binding',
+      '客户绑定',
+      'ok',
+      `已绑定联系人 ${cleanString(contact.name || contact.company || contact.id)}${contactId ? `（${contact.id}）` : ''}`,
+    )
+  }
+
+  if (contactId) {
+    return deliveryCheck('delivery-binding', '客户绑定', 'warn', `CRAZOR_DELIVERY_CONTACT_ID=${contactId} 未匹配到联系人`)
+  }
+
+  if (deliveryCustomerName()) {
+    return deliveryCheck('delivery-binding', '客户绑定', 'warn', '未显式绑定联系人，当前会按客户名匹配联系人名称或公司名称')
+  }
+
+  return deliveryCheck('delivery-binding', '客户绑定', 'warn', '未声明客户联系人，客户交付工作台将无法显示真实业务数据')
+}
+
+type FeishuReadinessState = {
+  configured: boolean
+  hermesConfigured: boolean
+  synchronized: boolean
+  runtimeConnected: boolean
+  runtimeState: string
+  detail: string
+}
+
+function parseIsoTimestamp(value: string): number {
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+async function readFeishuReadinessState(): Promise<FeishuReadinessState> {
+  try {
+    const state = await resolveFeishuConnectorState()
+    const envConfigured = Boolean(cleanString(state.envAppId) && cleanString(state.envAppSecret))
+    const channelConfigured = Boolean(cleanString(state.channelAppId) && cleanString(state.channelAppSecret))
+    const hermesConfigured = envConfigured || channelConfigured
+    const synchronized = envConfigured &&
+      (
+        !channelConfigured ||
+        (
+          cleanString(state.envAppId) === cleanString(state.channelAppId) &&
+          cleanString(state.envAppSecret) === cleanString(state.channelAppSecret)
+        )
+      )
+    const runtime = await readHermesPlatformRuntime('feishu').catch(() => ({
+      connected: false,
+      state: 'unknown',
+      error_message: '',
+    }))
+    const runtimeState = cleanString(runtime.state) || 'unknown'
+    const runtimeDetail = runtime.connected
+      ? 'Hermes 运行时已连接飞书平台'
+      : runtimeState === 'missing'
+        ? 'Hermes 运行时尚未登记飞书平台'
+        : `Hermes 飞书运行时状态为 ${runtimeState}${cleanString(runtime.error_message) ? `：${cleanString(runtime.error_message)}` : ''}`
+
+    if (synchronized && runtime.connected) {
+      return {
+        configured: true,
+        hermesConfigured: true,
+        synchronized: true,
+        runtimeConnected: true,
+        runtimeState,
+        detail: `飞书凭证已写入 Hermes 配置，${runtimeDetail}`,
+      }
+    }
+
+    if (synchronized) {
+      return {
+        configured: true,
+        hermesConfigured: true,
+        synchronized: true,
+        runtimeConnected: false,
+        runtimeState,
+        detail: `飞书凭证已写入 Hermes 配置，但${runtimeDetail}`,
+      }
+    }
+
+    if (hermesConfigured) {
+      return {
+        configured: true,
+        hermesConfigured: true,
+        synchronized: false,
+        runtimeConnected: runtime.connected,
+        runtimeState,
+        detail: envConfigured
+          ? '飞书凭证与 Hermes 历史配置不一致，建议重新保存'
+          : 'Hermes 历史配置存在飞书凭证，但统一后台凭证未完整保存',
+      }
+    }
+
+    if (envConfigured) {
+      return {
+        configured: true,
+        hermesConfigured: false,
+        synchronized: false,
+        runtimeConnected: runtime.connected,
+        runtimeState,
+        detail: '统一后台已保存飞书凭证，但 Hermes 配置还未同步',
+      }
+    }
+  } catch (error) {
+    if (cleanString(process.env.FEISHU_APP_ID) && cleanString(process.env.FEISHU_APP_SECRET)) {
+      return {
+        configured: true,
+        hermesConfigured: false,
+        synchronized: false,
+        runtimeConnected: false,
+        runtimeState: 'unknown',
+        detail: `无法读取 Hermes 飞书配置状态，已回退到进程环境变量：${error instanceof Error ? error.message : String(error || 'unknown')}`,
+      }
+    }
+    return {
+      configured: false,
+      hermesConfigured: false,
+      synchronized: false,
+      runtimeConnected: false,
+      runtimeState: 'unknown',
+      detail: `无法读取 Hermes 飞书配置状态：${error instanceof Error ? error.message : String(error || 'unknown')}`,
+    }
+  }
+
+  return {
+    configured: false,
+    hermesConfigured: false,
+    synchronized: false,
+    runtimeConnected: false,
+    runtimeState: 'missing',
+    detail: '尚未配置飞书凭证',
+  }
+}
+
+async function readFeishuConnectorReadiness(): Promise<DeliveryReadinessCheck | null> {
+  const readiness = await readFeishuReadinessState()
+  const check = getIntegrationCheck('feishu')
+  if (!check) {
+    if (!readiness.configured) return null
+    return deliveryCheck('connector-feishu', '飞书连接器', 'warn', `${readiness.detail}，但尚未执行真实连通测试`)
+  }
+
+  const rawStatus = cleanString(check.status).toLowerCase()
+  const summary = cleanString(check.summary) || '已记录飞书连接器检测结果'
+  const checkedAt = cleanString(check.checked_at || check.updated_at)
+  const stale = checkedAt ? (Date.now() - parseIsoTimestamp(checkedAt)) > 24 * 60 * 60 * 1000 : false
+  const suffix = checkedAt ? `（最近检测 ${checkedAt}${stale ? '，建议重新验证' : ''}）` : ''
+
+  if (!readiness.configured) {
+    return deliveryCheck('connector-feishu', '飞书连接器', 'warn', `${readiness.detail}，但保留了历史检测结果：${summary}${suffix}`)
+  }
+
+  if (rawStatus === 'ok' && !stale && readiness.hermesConfigured && readiness.synchronized && readiness.runtimeConnected) {
+    return deliveryCheck('connector-feishu', '飞书连接器', 'ok', `${summary}；${readiness.detail}${suffix}`)
+  }
+
+  return deliveryCheck('connector-feishu', '飞书连接器', 'warn', `${summary}；${readiness.detail}${suffix}`)
 }
 
 function isCustomModelProvider(provider: string): boolean {
@@ -728,6 +1125,7 @@ async function buildDeliveryReadiness() {
   const checks: DeliveryReadinessCheck[] = [
     deliveryCheck('api', '后端 API', 'ok', 'Crazor API 已响应'),
     readDeliveryIdentityReadiness(),
+    readDeliveryBindingReadiness(),
     deliveryCheck(
       'auth',
       '登录入口',
@@ -762,6 +1160,9 @@ async function buildDeliveryReadiness() {
     readBusinessDataReadiness(),
     readKnowledgeVaultReadiness(),
   ]
+
+  const feishuReadiness = await readFeishuConnectorReadiness()
+  if (feishuReadiness) checks.push(feishuReadiness)
 
   if (agentProviderSupports('dashboard.status')) {
     checks.push(deliveryCheck(
@@ -1107,6 +1508,35 @@ function resolveLoginJwtActor(c: any) {
   }
 }
 
+function resolveAuthenticatedLoginPayload(c: any) {
+  try {
+    return c.get?.('user') || null
+  } catch {
+    return null
+  }
+}
+
+function isCustomerPortalSessionPayload(payload: any): boolean {
+  return Boolean(payload?.portal_mode)
+}
+
+const CUSTOMER_PORTAL_ALLOWED_ROUTE_PREFIXES = [
+  '/api/auth/me',
+  '/api/auth/logout',
+  '/api/auth/status',
+  '/api/auth/plan',
+  '/api/agent/provider',
+  '/api/models',
+  '/api/chat/completions',
+  '/api/responses',
+  '/api/sessions',
+  '/api/customer/portal',
+]
+
+function customerPortalRouteAllowed(pathname: string): boolean {
+  return CUSTOMER_PORTAL_ALLOWED_ROUTE_PREFIXES.some((prefix) => pathMatchesPrefix(pathname, prefix))
+}
+
 function requireMcpClientAuth(c: any) {
   if (!loginRequiredByEnv()) return null
 
@@ -1119,6 +1549,59 @@ function requireMcpClientAuth(c: any) {
   if (resolveLoginJwtActor(c)) return null
 
   return c.json({ error: 'Unauthorized', needLogin: true, mcp_auth_required: true }, 401)
+}
+
+function shouldBypassScopedActorRequirement(): boolean {
+  return !loginRequiredByEnv() && !CRAZOR_REQUIRE_WRITE_TOKEN && !hasActiveActorTokens()
+}
+
+function evaluateScopedActorPermission(actor: any, requiredScope: string) {
+  const normalized = cleanString(requiredScope).toLowerCase()
+  const [entity, action = 'read'] = normalized.split(':', 2)
+  if (!entity) {
+    return {
+      allowed: false,
+      status: 403,
+      error: 'permission denied',
+      required_scope: normalized || requiredScope,
+    }
+  }
+  if (action === 'read') return evaluateReadPermission(actor, entity)
+  return evaluateWritePermission(actor, action, entity)
+}
+
+function requireScopedActorToken(c: any, requiredScope: string) {
+  if (shouldBypassScopedActorRequirement()) return null
+
+  const actorToken = extractActorToken(c)
+  if (!actorToken) {
+    return c.json({
+      error: 'token required',
+      required_scope: requiredScope,
+      auth_required: true,
+    }, 401)
+  }
+
+  const actor = resolveActorToken(actorToken)
+  if (!actor) {
+    return c.json({
+      error: 'invalid token',
+      required_scope: requiredScope,
+      auth_required: true,
+    }, 401)
+  }
+
+  const permission = evaluateScopedActorPermission(actor, requiredScope)
+  if (!permission.allowed) {
+    return c.json({
+      error: permission.error,
+      required_scope: permission.required_scope,
+      actor_id: actor?.actor_id || '',
+      auth_required: permission.status === 401,
+    }, permission.status || 403)
+  }
+
+  return actor
 }
 
 function resolveMcpRequestActor(c: any) {
@@ -1327,7 +1810,7 @@ function attachmentEntityRoot(entityType: AttachmentEntityType): string {
 function attachmentEntityExists(entityType: AttachmentEntityType, entityId: string): boolean {
   if (entityType === 'contacts') return Boolean(getContact(entityId))
   if (entityType === 'deliveries') return Boolean(getDelivery(entityId))
-  return listProjects().some((project: any) => project.id === entityId)
+  return Boolean(getProject(entityId))
 }
 
 function attachmentDefaultCategory(entityType: AttachmentEntityType): string {
@@ -1676,28 +2159,48 @@ function backendOrigin(c: any): string {
   return publicBaseUrl() || new URL(c.req.url).origin
 }
 
-function issueCustomerLoginActorToken(nickname: string) {
+function issueCustomerLoginActorToken(
+  nickname: string,
+  options: {
+    portalMode?: boolean
+    role?: string
+    tokenLabel?: string
+    memberLabel?: string
+    scopes?: unknown
+  } = {},
+) {
+  const portalMode = options.portalMode === undefined ? deliveryPortalEnabled() : Boolean(options.portalMode)
+  if (portalMode) {
+    return null
+  }
   if (!CRAZOR_REQUIRE_WRITE_TOKEN && !CRAZOR_REQUIRE_BUSINESS_READ_TOKEN && !CRAZOR_REQUIRE_SENSITIVE_READ_TOKEN) {
     return null
   }
 
-  const memberName = `${cleanString(nickname) || '客户用户'} · 客户访问`
+  const role = cleanString(options.role) || 'member'
+  const tokenLabel = cleanString(options.tokenLabel) || 'customer-login'
+  const memberLabel = cleanString(options.memberLabel) || '客户访问'
+  const memberName = `${cleanString(nickname) || '客户用户'} · ${memberLabel}`
   const existingMember = (listTeamMembers() as any[]).find((member) =>
     member?.name === memberName &&
     member?.actor_type === 'human' &&
     member?.status === 'active',
   )
-  const member = existingMember || createTeamMember({
-    name: memberName,
-    actor_type: 'human',
-    role: 'member',
-    status: 'active',
-  })
+  const member = existingMember
+    ? (cleanString(existingMember.role) === role
+      ? existingMember
+      : updateTeamMember(existingMember.id, { role }) || existingMember)
+    : createTeamMember({
+      name: memberName,
+      actor_type: 'human',
+      role,
+      status: 'active',
+    })
   const actorToken = createActorToken({
     member_id: member.id,
     token_type: 'api',
-    label: 'customer-login',
-    scopes: '*',
+    label: tokenLabel,
+    scopes: options.scopes ?? '*',
   })
 
   return {
@@ -1747,8 +2250,15 @@ app.get('/api/auth/wechat/callback', async (c) => {
     const wechatInfo = await exchangeCodeForToken(code)
     const user = upsertUser(wechatInfo)
     const nickname = wechatInfo.nickname || user.nickname
-    const token = signJWT({ openid: wechatInfo.openid, nickname })
-    const actorToken = issueCustomerLoginActorToken(nickname)
+    const portalMode = deliveryPortalEnabled()
+    const token = signJWT({
+      openid: wechatInfo.openid,
+      nickname,
+      portal_mode: portalMode,
+      login_channel: 'wechat',
+      customer_name: deliveryCustomerName(),
+    })
+    const actorToken = issueCustomerLoginActorToken(nickname, { portalMode })
     completeWechatLoginSession(String(state || ''), {
       token,
       actorToken: actorToken?.token || '',
@@ -1819,11 +2329,65 @@ app.post('/api/auth/access-code', async (c) => {
   const nickname = deliveryCustomerName()
     ? `${deliveryCustomerName()} 用户`
     : '客户用户'
+  const portalMode = deliveryPortalEnabled()
   const token = signJWT({
     openid: `customer-access-${deliveryCustomerName() || publicBaseUrl() || 'crazor'}`,
     nickname,
+    portal_mode: portalMode,
+    login_channel: 'access-code',
+    customer_name: deliveryCustomerName(),
   })
-  const actorToken = issueCustomerLoginActorToken(nickname)
+  const actorToken = issueCustomerLoginActorToken(nickname, { portalMode })
+  c.header('Set-Cookie', `crazor_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 86400}`, { append: true })
+  return c.json({
+    loggedIn: true,
+    token,
+    actor_token: actorToken?.token || '',
+    actorToken: actorToken?.token || '',
+    actor: actorToken
+      ? {
+          member_id: actorToken.member_id,
+          token_prefix: actorToken.token_prefix,
+          scopes: actorToken.scopes,
+        }
+      : null,
+    nickname,
+  })
+})
+
+app.post('/api/auth/internal-access-code', async (c) => {
+  if (!internalAccessCodeConfigured()) {
+    return c.json({ error: 'Internal access code login not configured' }, 404)
+  }
+
+  let body: any = {}
+  try {
+    body = await c.req.json()
+  } catch {
+    body = {}
+  }
+  const code = String(body?.code || '')
+  if (!verifyInternalAccessCode(code)) {
+    return c.json({ error: '内部演示码错误' }, 401)
+  }
+
+  const nickname = deliveryCustomerName()
+    ? `${deliveryCustomerName()} 内部演示`
+    : '内部演示用户'
+  const token = signJWT({
+    openid: `internal-access-${deliveryCustomerName() || publicBaseUrl() || 'crazor'}`,
+    nickname,
+    portal_mode: false,
+    login_channel: 'internal-access-code',
+    customer_name: deliveryCustomerName(),
+  })
+  const actorToken = issueCustomerLoginActorToken(nickname, {
+    portalMode: false,
+    role: 'admin',
+    tokenLabel: 'internal-demo-login',
+    memberLabel: '内部演示',
+    scopes: '*',
+  })
   c.header('Set-Cookie', `crazor_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 86400}`, { append: true })
   return c.json({
     loggedIn: true,
@@ -1858,9 +2422,14 @@ app.get('/api/auth/me', async (c) => {
 
   try {
     const payload = verifyJWT(token)
+    const portalMode = payload.portal_mode === undefined ? deliveryPortalEnabled() : Boolean(payload.portal_mode)
     return c.json({
       loggedIn: true,
       nickname: payload.nickname,
+      portalMode,
+      loginChannel: cleanString(payload.login_channel),
+      deliveryCustomer: cleanString(payload.customer_name) || deliveryCustomerName(),
+      deliveryChannel: deliveryChannel(),
       plan: DEPLOYMENT_TIER,
     })
   } catch {
@@ -1874,6 +2443,7 @@ app.get('/api/auth/status', (c) => {
     bound: isUserBound(),
     wechatConfigured: Boolean(WECHAT_APP_ID && WECHAT_APP_SECRET),
     accessCodeConfigured: customerAccessCodeConfigured(),
+    internalAccessCodeConfigured: internalAccessCodeConfigured(),
     plan: DEPLOYMENT_TIER,
   })
 })
@@ -1889,8 +2459,312 @@ function getCookieVal(c: any, name: string): string | null {
   return match ? match[1] : null
 }
 
+function normalizePortalExcerpt(value: unknown, maxLength = 180): string {
+  const text = cleanString(value).replace(/\s+/g, ' ')
+  if (!text) return ''
+  return text.length > maxLength ? `${text.slice(0, maxLength).trim()}...` : text
+}
+
+function portalAttachmentUrl(entityType: AttachmentEntityType, entityId: string, filename: string, preview = false): string {
+  const encodedEntityId = encodeURIComponent(entityId)
+  const encodedName = encodeURIComponent(filename)
+  const suffix = preview ? '/preview' : ''
+  return `/api/customer/portal/attachments/${entityType}/${encodedEntityId}/${encodedName}${suffix}`
+}
+
+function mapCustomerPortalAttachment(entityType: AttachmentEntityType, entityId: string, attachment: Record<string, any>) {
+  const filename = cleanString(attachment?.filename)
+  return {
+    ...attachment,
+    download_url: filename ? portalAttachmentUrl(entityType, entityId, filename, false) : '',
+    preview_url: filename && attachment?.can_preview ? portalAttachmentUrl(entityType, entityId, filename, true) : '',
+  }
+}
+
+function listCustomerPortalNotes(contactId: string) {
+  const notes = docTree.listNotesByContact('knowledge', contactId)
+  return notes
+    .map((note: any) => {
+      const detail = docTree.getNote(note.id)
+      if (!detail) return null
+      return {
+        id: detail.id,
+        title: detail.title,
+        folder_id: detail.folder_id,
+        created_at: detail.created_at,
+        updated_at: detail.updated_at,
+        excerpt: normalizePortalExcerpt(detail.content),
+      }
+    })
+    .filter(Boolean)
+    .sort((a: any, b: any) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
+}
+
+function buildCustomerPortalPayload() {
+  const customer = {
+    name: deliveryCustomerName(),
+    channel: deliveryChannel(),
+    publicBaseUrl: publicBaseUrl(),
+    protocolVersion: cleanString(CRAZOR_DELIVERY_PROTOCOL_VERSION),
+    releaseId: cleanString(CRAZOR_RELEASE_ID),
+    buildSha: cleanString(CRAZOR_BUILD_SHA),
+    buildTime: cleanString(CRAZOR_BUILD_TIME),
+    configuredContactId: deliveryContactId(),
+  }
+  const contact = resolveDeliveryBoundContact()
+
+  if (!contact) {
+    return {
+      portalMode: deliveryPortalEnabled(),
+      customer,
+      binding: {
+        status: 'unbound',
+        message: deliveryContactId()
+          ? `未找到联系人 ${deliveryContactId()}，请检查 CRAZOR_DELIVERY_CONTACT_ID`
+          : '当前未绑定客户联系人，请配置 CRAZOR_DELIVERY_CONTACT_ID，或让客户名称与联系人名称/公司名称一致',
+      },
+      contact: null,
+      projects: [],
+      deliveries: [],
+      tasks: [],
+      docs: [],
+      attachments: {
+        contact: [],
+        projects: [],
+        deliveries: [],
+      },
+      summary: {
+        deliveries: 0,
+        pendingAcceptance: 0,
+        accepted: 0,
+        tasksOpen: 0,
+        docs: 0,
+        attachments: 0,
+      },
+    }
+  }
+
+  const deliveries = listDeliveries({ contact_id: contact.id })
+  const activeProjects = listProjects().filter((project: any) => project.contact_id === contact.id)
+  const projectIds = new Set<string>()
+  for (const project of activeProjects) projectIds.add(cleanString(project.id))
+  for (const delivery of deliveries) {
+    const projectId = cleanString(delivery.project_id)
+    if (projectId) projectIds.add(projectId)
+  }
+
+  const projects = Array.from(projectIds)
+    .map((projectId) => getProject(projectId))
+    .filter(Boolean)
+    .sort((a: any, b: any) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
+
+  const notes = listCustomerPortalNotes(contact.id)
+  const noteMap = new Map(notes.map((note: any) => [note.id, note]))
+  const tasks = listTasksByContact(contact.id)
+  const contactAttachments = listContactAttachments(contact.id).map((attachment: any) =>
+    mapCustomerPortalAttachment('contacts', contact.id, attachment),
+  )
+  const projectAttachments = projects
+    .map((project: any) => ({
+      project_id: project.id,
+      project_name: cleanString(project.name),
+      items: listEntityAttachments('projects', project.id).map((attachment: any) =>
+        mapCustomerPortalAttachment('projects', project.id, attachment),
+      ),
+    }))
+    .filter((group: any) => group.items.length > 0)
+  const deliveryAttachments = deliveries
+    .map((delivery: any) => ({
+      delivery_id: delivery.id,
+      delivery_title: cleanString(delivery.title),
+      items: listEntityAttachments('deliveries', delivery.id).map((attachment: any) =>
+        mapCustomerPortalAttachment('deliveries', delivery.id, attachment),
+      ),
+    }))
+    .filter((group: any) => group.items.length > 0)
+
+  const totalAttachments = contactAttachments.length +
+    projectAttachments.reduce((sum: number, group: any) => sum + group.items.length, 0) +
+    deliveryAttachments.reduce((sum: number, group: any) => sum + group.items.length, 0)
+
+  return {
+    portalMode: deliveryPortalEnabled(),
+    customer,
+    binding: {
+      status: 'bound',
+      message: '',
+    },
+    contact: {
+      id: contact.id,
+      name: cleanString(contact.name),
+      company: cleanString(contact.company),
+      role: cleanString(contact.role),
+      status: cleanString(contact.status),
+      stage: cleanString(contact.stage),
+      sales_person: cleanString(contact.sales_person),
+      project_type: cleanString(contact.project_type),
+      budget_range: cleanString(contact.budget_range),
+      phone: cleanString(contact.phone),
+      email: cleanString(contact.email),
+      wechat: cleanString(contact.wechat),
+      next_follow_up: cleanString(contact.next_follow_up),
+      remark: cleanString(contact.remark),
+      updated_at: cleanString(contact.updated_at),
+    },
+    projects: projects.map((project: any) => ({
+      id: project.id,
+      name: cleanString(project.name),
+      status: cleanString(project.status),
+      team: cleanString(project.team),
+      budget: Number(project.budget || 0),
+      start_date: cleanString(project.start_date),
+      deadline: cleanString(project.deadline),
+      updated_at: cleanString(project.updated_at),
+    })),
+    deliveries: deliveries.map((delivery: any) => ({
+      ...delivery,
+      handover_doc: noteMap.get(cleanString(delivery.handover_doc_id)) || null,
+      attachments: (deliveryAttachments.find((group: any) => group.delivery_id === delivery.id)?.items) || [],
+    })),
+    tasks: tasks.map((task: any) => ({
+      ...task,
+      project_name: cleanString(task.project_name),
+    })),
+    docs: notes,
+    attachments: {
+      contact: contactAttachments,
+      projects: projectAttachments,
+      deliveries: deliveryAttachments,
+    },
+    summary: {
+      deliveries: deliveries.length,
+      pendingAcceptance: deliveries.filter((delivery: any) => cleanString(delivery.acceptance_status) !== '已验收').length,
+      accepted: deliveries.filter((delivery: any) => cleanString(delivery.acceptance_status) === '已验收').length,
+      tasksOpen: tasks.filter((task: any) => cleanString(task.status) !== 'done').length,
+      docs: notes.length,
+      attachments: totalAttachments,
+    },
+  }
+}
+
+function customerPortalContactOrNull() {
+  return resolveDeliveryBoundContact()
+}
+
+function customerPortalAllowsAttachment(entityType: AttachmentEntityType, entityId: string): boolean {
+  const contact = customerPortalContactOrNull()
+  if (!contact?.id) return false
+  if (entityType === 'contacts') return entityId === contact.id
+  if (entityType === 'deliveries') return getDelivery(entityId)?.contact_id === contact.id
+
+  const project = getProject(entityId)
+  if (project?.contact_id === contact.id) return true
+  return listDeliveries({ contact_id: contact.id }).some((delivery: any) => cleanString(delivery.project_id) === entityId)
+}
+
+function customerPortalNoteAllowed(noteId: string): boolean {
+  const contact = customerPortalContactOrNull()
+  if (!contact?.id) return false
+  return docTree.listNotesByContact('knowledge', contact.id).some((note: any) => note.id === noteId)
+}
+
 // --- Auth middleware (applied after auth routes, before business routes) ---
 app.use('*', authMiddleware)
+
+app.use('*', async (c, next) => {
+  const payload = resolveAuthenticatedLoginPayload(c)
+  if (!isCustomerPortalSessionPayload(payload)) {
+    await next()
+    return
+  }
+
+  const pathname = new URL(c.req.url).pathname
+  if (customerPortalRouteAllowed(pathname)) {
+    await next()
+    return
+  }
+
+  return c.json({
+    error: 'customer portal sessions cannot access internal workspace routes',
+    portal_only: true,
+    blocked_path: pathname,
+  }, 403)
+})
+
+app.get('/api/customer/portal', (c) => {
+  return c.json(buildCustomerPortalPayload())
+})
+
+app.get('/api/customer/portal/docs', (c) => {
+  const noteId = cleanString(c.req.query('id'))
+  if (!noteId || !customerPortalNoteAllowed(noteId)) return c.json({ error: 'not found' }, 404)
+  const note = docTree.getNote(noteId)
+  if (!note) return c.json({ error: 'not found' }, 404)
+  return c.json({
+    id: note.id,
+    title: note.title,
+    folder_id: note.folder_id,
+    created_at: note.created_at,
+    updated_at: note.updated_at,
+    content: note.content,
+  })
+})
+
+app.post('/api/customer/portal/deliveries/:id/acceptance', async (c) => {
+  const deliveryId = c.req.param('id')
+  const portal = buildCustomerPortalPayload()
+  if (portal.binding?.status !== 'bound' || !portal.contact?.id) {
+    return c.json({ error: 'customer portal is not bound to a contact' }, 409)
+  }
+
+  const delivery = getDelivery(deliveryId)
+  if (!delivery || delivery.contact_id !== portal.contact.id) return c.json({ error: 'not found' }, 404)
+
+  const body = await c.req.json().catch(() => ({}))
+  const nextStatus = cleanString(body.status) === 'need-rework' ? '需返工' : '已验收'
+  const feedback = cleanString(body.feedback)
+  const feedbackLine = feedback ? `\n[客户${nextStatus} ${new Date().toISOString()}] ${feedback}` : ''
+  const updated = updateDelivery(deliveryId, {
+    acceptance_status: nextStatus,
+    accepted_at: nextStatus === '已验收' ? new Date().toISOString() : '',
+    stage: nextStatus === '已验收' ? '已验收' : '返工中',
+    remark: `${cleanString(delivery.remark)}${feedbackLine}`.trim(),
+  })
+
+  try {
+    const actor = resolveLoginJwtActor(c)
+    createAuditLog({
+      actor_type: actor?.actor_type || 'human',
+      actor_id: actor?.actor_id || 'customer-portal',
+      source: 'customer-portal',
+      action: nextStatus === '已验收' ? 'acceptance_accept' : 'acceptance_rework',
+      entity: 'delivery',
+      entity_id: deliveryId,
+      payload: JSON.stringify({ status: nextStatus, feedback }),
+      summary: `${portal.contact.name || portal.contact.company || portal.contact.id} ${nextStatus} ${cleanString(delivery.title)}`,
+    })
+  } catch (error) {
+    console.error('[audit] failed to record customer portal acceptance:', error)
+  }
+
+  return c.json(updated || getDelivery(deliveryId))
+})
+
+app.get('/api/customer/portal/attachments/:entityType/:entityId/:filename/preview', (c) => {
+  const entityType = c.req.param('entityType') as AttachmentEntityType
+  const entityId = c.req.param('entityId')
+  if (!['contacts', 'projects', 'deliveries'].includes(entityType)) return c.json({ error: 'invalid entity type' }, 400)
+  if (!customerPortalAllowsAttachment(entityType, entityId)) return c.json({ error: 'not found' }, 404)
+  return previewEntityAttachment(c, entityType, entityId, c.req.param('filename'))
+})
+
+app.get('/api/customer/portal/attachments/:entityType/:entityId/:filename', (c) => {
+  const entityType = c.req.param('entityType') as AttachmentEntityType
+  const entityId = c.req.param('entityId')
+  if (!['contacts', 'projects', 'deliveries'].includes(entityType)) return c.json({ error: 'invalid entity type' }, 400)
+  if (!customerPortalAllowsAttachment(entityType, entityId)) return c.json({ error: 'not found' }, 404)
+  return downloadEntityAttachment(c, entityType, entityId, c.req.param('filename'))
+})
 
 // --- MCP SSE endpoint (legacy, for SSE-only clients) ---
 app.get('/mcp/sse', (c) => {
@@ -2143,18 +3017,24 @@ app.delete('/api/sessions/:id', async (c) => {
 
 // Config
 app.get('/api/config', async (c) => {
+  const actor = requireScopedActorToken(c, 'dashboard_config:read')
+  if (actor instanceof Response) return actor
   const resp = await dashboardFetch(`/api/config`)
   const data = await resp.json()
   return c.json(data)
 })
 
 app.get('/api/config/raw', async (c) => {
+  const actor = requireScopedActorToken(c, 'dashboard_config:read')
+  if (actor instanceof Response) return actor
   const resp = await dashboardFetch(`/api/config/raw`)
   const data = await resp.json()
   return c.json(data)
 })
 
 app.patch('/api/config', async (c) => {
+  const actor = requireScopedActorToken(c, 'dashboard_config:write')
+  if (actor instanceof Response) return actor
   const body = asRecord(await c.req.json())
 
   if (body.config && typeof body.config === 'object' && !Array.isArray(body.config)) {
@@ -2266,6 +3146,8 @@ app.get('/api/tools/toolsets', async (c) => {
 
 // Models
 app.get('/api/model/info', async (c) => {
+  const actor = requireScopedActorToken(c, 'dashboard_model:read')
+  if (actor instanceof Response) return actor
   let resp: Response
   try {
     resp = await dashboardFetch(`/api/model/info`)
@@ -2287,10 +3169,14 @@ app.get('/api/model/info', async (c) => {
 })
 
 app.get('/api/model/options', async (c) => {
+  const actor = requireScopedActorToken(c, 'dashboard_model:read')
+  if (actor instanceof Response) return actor
   return proxyDashboardJsonResponse(c, `/api/model/options`)
 })
 
 app.post('/api/model/set', async (c) => {
+  const actor = requireScopedActorToken(c, 'dashboard_model:write')
+  if (actor instanceof Response) return actor
   const body = asRecord(await c.req.json())
   if (!cleanString(body.scope)) body.scope = 'main'
   return proxyDashboardJsonResponse(c, `/api/model/set`, {
@@ -2302,12 +3188,16 @@ app.post('/api/model/set', async (c) => {
 
 // Env vars
 app.get('/api/env', async (c) => {
+  const actor = requireScopedActorToken(c, 'dashboard_env:read')
+  if (actor instanceof Response) return actor
   const resp = await dashboardFetch(`/api/env`)
   const data = await resp.json()
   return c.json(data)
 })
 
 async function setDashboardEnvVar(c: any) {
+  const actor = requireScopedActorToken(c, 'dashboard_env:write')
+  if (actor instanceof Response) return actor
   const body = await c.req.json()
   const resp = await dashboardFetch(`/api/env`, {
     method: 'PUT',
@@ -2321,6 +3211,8 @@ app.post('/api/env', setDashboardEnvVar)
 app.put('/api/env', setDashboardEnvVar)
 
 app.delete('/api/env/:key', async (c) => {
+  const actor = requireScopedActorToken(c, 'dashboard_env:write')
+  if (actor instanceof Response) return actor
   const resp = await dashboardFetch(`/api/env`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
@@ -2618,12 +3510,193 @@ app.get('/api/logs', async (c) => {
 
 // --- Env reveal ---
 app.get('/api/env/:key/reveal', async (c) => {
+  const actor = requireScopedActorToken(c, 'dashboard_env:read')
+  if (actor instanceof Response) return actor
   const resp = await dashboardFetch(`/api/env/reveal`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key: c.req.param('key') }),
   })
   return proxyJsonResponse(c, resp)
+})
+
+app.get('/api/integrations/checks', (c) => {
+  const actor = requireScopedActorToken(c, 'integration_connector:read')
+  if (actor instanceof Response) return actor
+  const checks = listIntegrationChecks()
+  return c.json(Object.fromEntries(checks.map((item: any) => [item.connector_id, item])))
+})
+
+app.get('/api/integrations/:connector/status', (c) => {
+  const actor = requireScopedActorToken(c, 'integration_connector:read')
+  if (actor instanceof Response) return actor
+  const connectorId = cleanString(c.req.param('connector')).toLowerCase()
+  if (!connectorId) return c.json({ error: 'connector is required' }, 400)
+  return c.json(getIntegrationCheck(connectorId) || { connector_id: connectorId, status: 'idle', summary: '' })
+})
+
+app.post('/api/integrations/:connector/config', async (c) => {
+  const actor = requireScopedActorToken(c, 'integration_connector:write')
+  if (actor instanceof Response) return actor
+  const connectorId = cleanString(c.req.param('connector')).toLowerCase()
+  if (connectorId !== 'feishu') return c.json({ error: 'connector not supported' }, 404)
+
+  const body = asRecord(await c.req.json().catch(() => ({})))
+  const appId = readFirstString(body, ['FEISHU_APP_ID', 'appId', 'app_id'])
+  const appSecret = readFirstString(body, ['FEISHU_APP_SECRET', 'appSecret', 'app_secret'])
+
+  try {
+    const result = await syncFeishuConnectorToHermes({ appId, appSecret }, { restartGateway: true })
+    return c.json({
+      connector_id: connectorId,
+      env_configured: result.env_configured,
+      hermes_configured: result.hermes_configured,
+      channel_configured: result.channel_configured,
+      synchronized: result.synchronized,
+      restart_requested: result.restart_requested,
+      restart_succeeded: result.restart_succeeded,
+      restart_error: result.restart_error,
+      runtime_connected: result.runtime_connected,
+      runtime_state: result.runtime_state,
+      runtime_error_code: result.runtime_error_code,
+      runtime_error_message: result.runtime_error_message,
+      runtime_updated_at: result.runtime_updated_at,
+      gateway_state: result.gateway_state,
+      gateway_running: result.gateway_running,
+      summary: result.hermes_configured
+        ? result.runtime_connected
+          ? '飞书配置已写入 Hermes，运行时已连接'
+          : result.restart_requested
+            ? result.restart_succeeded
+              ? '飞书配置已写入 Hermes，Gateway 正在重启并加载配置'
+              : `飞书配置已写入 Hermes，但 Gateway 重启失败：${result.restart_error || '未知错误'}`
+            : '飞书配置已写入 Hermes，运行时监听待确认'
+        : result.env_configured
+          ? '飞书配置已保存，Hermes 同步仍需确认'
+          : '飞书配置尚未完整保存',
+    })
+  } catch (error) {
+    return c.json({
+      error: error instanceof Error ? error.message : String(error || '保存飞书配置失败'),
+    }, 502)
+  }
+})
+
+app.post('/api/integrations/:connector/test', async (c) => {
+  const actor = requireScopedActorToken(c, 'integration_connector:run')
+  if (actor instanceof Response) return actor
+  const connectorId = cleanString(c.req.param('connector')).toLowerCase()
+  if (connectorId !== 'feishu') return c.json({ error: 'connector not supported' }, 404)
+
+  const synced = await syncFeishuConnectorToHermes().catch(() => null)
+  const state = synced
+    ? {
+        effectiveAppId: { value: synced.appId, source: synced.app_id_source },
+        effectiveAppSecret: { value: synced.appSecret, source: synced.app_secret_source },
+        envConfigured: synced.env_configured,
+        hermesConfigured: synced.hermes_configured,
+        synchronized: synced.synchronized,
+        restartRequested: synced.restart_requested,
+        restartSucceeded: synced.restart_succeeded,
+        restartError: synced.restart_error,
+        runtimeConnected: synced.runtime_connected,
+        runtimeState: synced.runtime_state,
+        runtimeErrorCode: synced.runtime_error_code,
+        runtimeErrorMessage: synced.runtime_error_message,
+        runtimeUpdatedAt: synced.runtime_updated_at,
+        gatewayState: synced.gateway_state,
+        gatewayRunning: synced.gateway_running,
+      }
+    : await resolveFeishuConnectorState().then((result) => ({
+        effectiveAppId: result.effectiveAppId,
+        effectiveAppSecret: result.effectiveAppSecret,
+        envConfigured: Boolean(cleanString(result.envAppId) && cleanString(result.envAppSecret)),
+        hermesConfigured: Boolean(cleanString(result.envAppId) && cleanString(result.envAppSecret)),
+        synchronized: Boolean(cleanString(result.envAppId) && cleanString(result.envAppSecret)),
+        restartRequested: false,
+        restartSucceeded: false,
+        restartError: '',
+        runtimeConnected: false,
+        runtimeState: 'unknown',
+        runtimeErrorCode: '',
+        runtimeErrorMessage: '',
+        runtimeUpdatedAt: '',
+        gatewayState: '',
+        gatewayRunning: false,
+      }))
+
+  const result = await testFeishuConnector({
+    appId: state.effectiveAppId.value,
+    appSecret: state.effectiveAppSecret.value,
+  })
+
+  const baseDetails = asRecord(result.details)
+  const bindingSummary = {
+    env_configured: state.envConfigured,
+    hermes_configured: state.hermesConfigured,
+    synchronized: state.synchronized,
+    restart_requested: state.restartRequested,
+    restart_succeeded: state.restartSucceeded,
+    restart_error: state.restartError,
+    runtime_connected: state.runtimeConnected,
+    runtime_state: state.runtimeState,
+    runtime_error_code: state.runtimeErrorCode,
+    runtime_error_message: state.runtimeErrorMessage,
+    runtime_updated_at: state.runtimeUpdatedAt,
+    gateway_state: state.gatewayState,
+    gateway_running: state.gatewayRunning,
+    app_id_source: state.effectiveAppId.source,
+    app_secret_source: state.effectiveAppSecret.source,
+  }
+
+  let finalStatus = result.status
+  let finalSummary = result.summary
+
+  if (result.status === 'ok') {
+    if (!state.hermesConfigured) {
+      finalStatus = 'warning'
+      finalSummary = '飞书认证通过，但 Hermes 配置尚未写入'
+    } else if (!state.envConfigured) {
+      finalStatus = 'warning'
+      finalSummary = '飞书认证通过，但统一连接器凭证尚未保存'
+    } else if (!state.synchronized) {
+      finalStatus = 'warning'
+      finalSummary = '飞书认证通过，但 Hermes 与连接器凭证不一致'
+    }
+  }
+
+  const persisted = upsertIntegrationCheck({
+    connector_id: connectorId,
+    status: finalStatus,
+    summary: finalSummary,
+    details: {
+      ...baseDetails,
+      hermes_binding: bindingSummary,
+    },
+    checked_at: result.checked_at,
+  })
+
+  try {
+    createAuditLog({
+      actor_type: actor?.actor_type || 'dashboard',
+      actor_id: actor?.actor_id || 'integrations',
+      source: actor?.source || 'integrations',
+      action: 'test',
+      entity: 'integration_connector',
+      entity_id: connectorId,
+      payload: {
+        connector_id: connectorId,
+        status: finalStatus,
+        summary: finalSummary,
+        hermes_binding: bindingSummary,
+      },
+      summary: `连接器测试 ${connectorId}: ${finalSummary}`,
+    })
+  } catch (error) {
+    console.error('[audit] failed to record integration check:', error)
+  }
+
+  return c.json(persisted)
 })
 
 // --- Memories (Dashboard :9119) ---
@@ -2718,17 +3791,21 @@ app.get('/api/agents', async (c) => {
 
 // --- Channels (Dashboard :9119) ---
 app.get('/api/channels', async (c) => {
+  const actor = requireScopedActorToken(c, 'integration_connector:read')
+  if (actor instanceof Response) return actor
   return c.json(await safeDashboardJson(c, '/api/channels', {}, {}))
 })
 
 app.patch('/api/channels', async (c) => {
+  const actor = requireScopedActorToken(c, 'integration_connector:write')
+  if (actor instanceof Response) return actor
   const body = await c.req.json()
   const resp = await dashboardFetch(`/api/channels`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return c.json({ ok: true })
+  return proxyJsonResponse(c, resp)
 })
 
 app.post('/api/channels/weixin/qrcode', async (c) => {

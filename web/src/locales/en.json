@@ -140,6 +140,8 @@
     "projects": "Projects",
     "deliveries": "Delivery",
     "deliveriesDescription": "Track delivery stages, acceptance status, and deliverables",
+    "customerPortal": "Customer Portal",
+    "customerPortalDescription": "Review the customer's deliveries, materials, and acceptance actions",
     "knowledge": "Knowledge Base",
     "analytics": "Analytics",
     "hermesAnalytics": "Analytics",
@@ -174,7 +176,8 @@
     "sidebar": {
       "group": {
         "ai": "AI",
-        "business": "Enterprise Data"
+        "business": "Enterprise Data",
+        "customer": "Customer Delivery"
       }
     }
   },

@@ -37,6 +37,30 @@ test("login token callback preserves path-prefixed customer web entrypoints", ()
   assert.deepEqual(replacements, [{ state: {}, title: "", url: "/crazor?from=wechat#ready" }])
 })
 
+test("login token callback keeps internal workspace routing parameters", () => {
+  const replacements = []
+
+  const token = consumeLoginTokenFromLocation({
+    location: {
+      pathname: "/",
+      search: "?workspace=internal&token=login.jwt",
+      hash: "",
+    },
+    storage: {
+      setItem() {},
+      removeItem() {},
+    },
+    history: {
+      replaceState(state, title, url) {
+        replacements.push({ state, title, url })
+      },
+    },
+  })
+
+  assert.equal(token, "login.jwt")
+  assert.deepEqual(replacements, [{ state: {}, title: "", url: "/?workspace=internal" }])
+})
+
 test("login token callback leaves the URL untouched when no token exists", () => {
   let wrote = false
   let replaced = false

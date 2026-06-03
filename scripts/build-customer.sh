@@ -126,6 +126,8 @@ if [ -n "$ENV_FILE" ]; then
     SERVER_URL="${SERVER_URL:-$(read_customer_env_value CRAZOR_PUBLIC_BASE_URL)}"
     ENV_DELIVERY_PROTOCOL_VERSION="$(read_customer_env_value CRAZOR_DELIVERY_PROTOCOL_VERSION)"
     ENV_SERVER_PREFLIGHT_MODE="$(read_customer_env_value CRAZOR_CUSTOMER_SERVER_PREFLIGHT)"
+    ENV_INTERNAL_ACCESS_CODE="$(read_customer_env_value CRAZOR_INTERNAL_ACCESS_CODE)"
+    ENV_DEFAULT_WORKSPACE="$(read_customer_env_value CRAZOR_DEFAULT_WORKSPACE)"
 else
     CUSTOMER="${CUSTOMER:-${POSITIONAL[0]:-}}"
     SERVER_URL="${SERVER_URL:-${POSITIONAL[1]:-}}"
@@ -191,6 +193,11 @@ export PATH="$HOME/.cargo/bin:$PATH"
 if [ -n "$ENV_FILE" ]; then
     node "$PROJECT_ROOT/scripts/customer-backend-env.mjs" --check "$ENV_FILE" --customer "$CUSTOMER" --server-url "$SERVER_URL"
 fi
+INTERNAL_ENTRY_ENABLED=0
+if [ -n "${ENV_INTERNAL_ACCESS_CODE:-}" ]; then
+    INTERNAL_ENTRY_ENABLED=1
+fi
+INTERNAL_ENTRY_URL="${SERVER_URL}?workspace=internal"
 DELIVERY_PROTOCOL_VERSION="${CRAZOR_DELIVERY_PROTOCOL_VERSION:-${ENV_DELIVERY_PROTOCOL_VERSION:-1}}"
 export CRAZOR_DELIVERY_PROTOCOL_VERSION="$DELIVERY_PROTOCOL_VERSION"
 
@@ -320,6 +327,7 @@ write_web_env "VITE_CRAZOR_DELIVERY_FINGERPRINT" "$DELIVERY_IDENTITY_FINGERPRINT
 write_web_env "VITE_CRAZOR_RELEASE_ID" "$BUILD_RELEASE_ID"
 write_web_env "VITE_CRAZOR_BUILD_SHA" "$BUILD_SHA"
 write_web_env "VITE_CRAZOR_BUILD_TIME" "$BUILD_TIME"
+write_web_env "VITE_CRAZOR_DEFAULT_WORKSPACE" "${ENV_DEFAULT_WORKSPACE:-customer}"
 
 echo ""
 echo "✅ 客户端远程服务地址已写入: $SERVER_URL"
@@ -407,7 +415,7 @@ case "$PLATFORM" in
 esac
 
 mkdir -p "$BUNDLE_DIR"
-export CUSTOMER SERVER_URL PLATFORM DELIVERY_PROTOCOL_VERSION DELIVERY_IDENTITY_FINGERPRINT BUILD_SHA BUILD_TIME BUNDLE_DIR DELIVERY_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS DELIVERY_START_GUIDE SERVER_PREFLIGHT_MODE SERVER_PREFLIGHT_RESULT
+export CUSTOMER SERVER_URL PLATFORM DELIVERY_PROTOCOL_VERSION DELIVERY_IDENTITY_FINGERPRINT BUILD_SHA BUILD_TIME BUNDLE_DIR DELIVERY_DIR DELIVERY_MANIFEST DELIVERY_CHECKSUMS DELIVERY_START_GUIDE SERVER_PREFLIGHT_MODE SERVER_PREFLIGHT_RESULT INTERNAL_ENTRY_ENABLED INTERNAL_ENTRY_URL
 node <<'NODE'
 const { createHash } = require("node:crypto")
 const { copyFileSync, createReadStream, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs")
@@ -496,7 +504,13 @@ ${installerLines}
 3. 首次打开后按页面提示使用客户访问码或微信登录；访问码不写入交付包，请由交付负责人通过安全渠道单独发送。
 4. 如果客户端提示托管服务不可用，先访问 ${manifest.serverUrl}/api/delivery/readiness 查看后端自检结果。
 
-## 验收文件
+${manifest.internalEntry?.enabled ? `## 团队内部演示入口
+
+- 入口地址: ${manifest.internalEntry.url}
+- 说明: 仅供 CRAZYAIGC 团队成员演示后台、连接器和现场配置时使用。
+- 凭证: 内部演示码不写入交付包，请由交付负责人单独保管和分发。
+
+` : ""}## 验收文件
 
 - crazor-delivery-manifest.json: 交付清单。
 - crazor-delivery-checksums.txt: 安装包 SHA256 校验和。
@@ -554,6 +568,10 @@ async function main() {
     workflowSha: process.env.GITHUB_SHA || "",
     githubRunId: process.env.GITHUB_RUN_ID || "",
     builtAt,
+    internalEntry: {
+      enabled: process.env.INTERNAL_ENTRY_ENABLED === "1",
+      url: process.env.INTERNAL_ENTRY_URL || "",
+    },
     clientRuntime: {
       apiBase: process.env.SERVER_URL,
       customerName: process.env.CUSTOMER,

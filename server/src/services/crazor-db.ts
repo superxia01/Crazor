@@ -215,6 +215,17 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity, entity_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_type, actor_id, created_at);
 
+  CREATE TABLE IF NOT EXISTS integration_checks (
+    connector_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'idle',
+    summary TEXT DEFAULT '',
+    details_json TEXT DEFAULT '{}',
+    checked_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_integration_checks_updated ON integration_checks(updated_at);
+
   CREATE TABLE IF NOT EXISTS team_members (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -664,6 +675,10 @@ export function getMonthlyRevenue(months: number = 6) {
 export function listProjects(status?: string) {
   if (status) return db.prepare("SELECT * FROM projects WHERE status = ? ORDER BY updated_at DESC").all(status)
   return db.prepare("SELECT * FROM projects WHERE status = 'active' ORDER BY updated_at DESC").all()
+}
+
+export function getProject(id: string) {
+  return db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as any
 }
 
 export function createProject(data: Partial<any>) {
@@ -1258,6 +1273,14 @@ type AuditLogInput = {
   summary?: string
 }
 
+type IntegrationCheckInput = {
+  connector_id: string
+  status: string
+  summary?: string
+  details?: unknown
+  checked_at?: string
+}
+
 export function createAuditLog(data: AuditLogInput) {
   const row = {
     id: id(),
@@ -1287,6 +1310,83 @@ export function listAuditLogs(filter?: { entity?: string; entity_id?: string; ac
   sql += " ORDER BY created_at DESC LIMIT ?"
   params.push(limit)
   return db.prepare(sql).all(...params)
+}
+
+function parseIntegrationDetails(detailsJson: string) {
+  try {
+    const parsed = JSON.parse(detailsJson || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function mapIntegrationCheck(row: any) {
+  if (!row) return null
+  return {
+    connector_id: row.connector_id,
+    status: row.status || 'idle',
+    summary: row.summary || '',
+    details: parseIntegrationDetails(row.details_json),
+    checked_at: row.checked_at || '',
+    updated_at: row.updated_at || '',
+  }
+}
+
+export function getIntegrationCheck(connectorId: string) {
+  return mapIntegrationCheck(
+    db.prepare("SELECT * FROM integration_checks WHERE connector_id = ?").get(connectorId)
+  )
+}
+
+export function listIntegrationChecks(connectorIds?: string[]) {
+  if (Array.isArray(connectorIds) && connectorIds.length > 0) {
+    const cleaned = connectorIds.map((value) => String(value || '').trim()).filter(Boolean)
+    if (cleaned.length === 0) return []
+    const placeholders = cleaned.map(() => '?').join(',')
+    return db
+      .prepare(`SELECT * FROM integration_checks WHERE connector_id IN (${placeholders}) ORDER BY updated_at DESC`)
+      .all(...cleaned)
+      .map(mapIntegrationCheck)
+      .filter(Boolean)
+  }
+
+  return db
+    .prepare("SELECT * FROM integration_checks ORDER BY updated_at DESC")
+    .all()
+    .map(mapIntegrationCheck)
+    .filter(Boolean)
+}
+
+export function upsertIntegrationCheck(data: IntegrationCheckInput) {
+  const connectorId = String(data.connector_id || '').trim()
+  if (!connectorId) throw new Error('connector_id is required')
+
+  const checkedAt = data.checked_at || now()
+  const updatedAt = now()
+  const detailsJson = JSON.stringify(
+    data.details && typeof data.details === 'object' ? data.details : {}
+  )
+
+  db.prepare(`
+    INSERT INTO integration_checks (connector_id,status,summary,details_json,checked_at,updated_at)
+    VALUES (?,?,?,?,?,?)
+    ON CONFLICT(connector_id) DO UPDATE SET
+      status = excluded.status,
+      summary = excluded.summary,
+      details_json = excluded.details_json,
+      checked_at = excluded.checked_at,
+      updated_at = excluded.updated_at
+  `).run(
+    connectorId,
+    String(data.status || 'idle').trim() || 'idle',
+    String(data.summary || '').trim(),
+    detailsJson,
+    checkedAt,
+    updatedAt,
+  )
+
+  return getIntegrationCheck(connectorId)
 }
 
 // ── Identity / actor tokens ─────────────────────────────────

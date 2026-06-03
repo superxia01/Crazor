@@ -54,6 +54,7 @@ test("customer desktop build embeds the configured backend API base", () => {
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_RELEASE_ID" "$BUILD_RELEASE_ID"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_BUILD_SHA" "$BUILD_SHA"') &&
       buildCustomerScript.includes('write_web_env "VITE_CRAZOR_BUILD_TIME" "$BUILD_TIME"') &&
+      buildCustomerScript.includes('write_web_env "VITE_CRAZOR_DEFAULT_WORKSPACE" "${ENV_DEFAULT_WORKSPACE:-customer}"') &&
       buildCustomerScript.includes("npm run build:tauri") &&
       buildCustomerScript.includes('grep -R -F "$SERVER_URL" "$PROJECT_ROOT/web/dist"') &&
       buildCustomerScript.includes('grep -R -F "$CUSTOMER" "$PROJECT_ROOT/web/dist"') &&
@@ -313,6 +314,7 @@ test("backend exposes a public delivery readiness self-check for installed clien
     serverIndex.includes("app.get('/api/delivery/readiness'") &&
       serverIndex.includes("buildDeliveryReadiness") &&
       serverIndex.includes("'delivery-identity'") &&
+      serverIndex.includes("'connector-feishu'") &&
       serverIndex.includes("'agent-gateway'") &&
       serverIndex.includes("'chat-api'") &&
       serverIndex.includes("'model-config'") &&
@@ -322,6 +324,13 @@ test("backend exposes a public delivery readiness self-check for installed clien
   )
   assert.ok(
     serverIndex.includes("readModelConfigReadiness") &&
+      serverIndex.includes("readFeishuConnectorReadiness") &&
+      serverIndex.includes("readFeishuReadinessState") &&
+      serverIndex.includes("resolveFeishuConnectorState") &&
+      serverIndex.includes("Hermes 配置") &&
+      serverIndex.includes("getIntegrationCheck('feishu')") &&
+      serverIndex.includes("尚未执行真实连通测试") &&
+      serverIndex.includes("建议重新验证") &&
       serverIndex.includes("normalizeModelReadinessCheck") &&
       serverIndex.includes("CRAZOR_DELIVERY_MODEL_READINESS") &&
       serverIndex.includes("允许先验收 Web、登录和业务链路") &&
@@ -382,17 +391,31 @@ test("desktop WeChat login uses backend callback plus client polling", () => {
     "desktop client should poll the backend login session and store the returned customer login credentials"
   )
   assert.ok(
-    loginDialogSource.includes("/api/auth/access-code") &&
+      loginDialogSource.includes("/api/auth/access-code") &&
+      loginDialogSource.includes("/api/auth/internal-access-code") &&
+      loginDialogSource.includes("buildWorkspaceEntryHref") &&
       loginDialogSource.includes("AccessCodeLoginCard") &&
       loginDialogSource.includes("status.accessCodeConfigured") &&
+      loginDialogSource.includes("status.internalAccessCodeConfigured") &&
+      loginDialogSource.includes("团队内部入口") &&
+      loginDialogSource.includes("返回客户入口") &&
       loginDialogSource.includes("storeCustomerLoginCredentials(data)") &&
       loginPageSource.includes("storeCustomerLoginCredentials(data)") &&
       loginPageSource.includes("AccessCodeLoginCard") &&
+      loginPageSource.includes("buildWorkspaceEntryHref") &&
+      loginPageSource.includes("resolveRequestedWorkspace") &&
+      loginPageSource.includes("internalEntryRequested") &&
+      loginPageSource.includes("/api/auth/internal-access-code") &&
+      loginPageSource.includes("团队内部入口") &&
+      loginPageSource.includes("返回客户入口") &&
       authFetchSource.includes("storeCustomerLoginCredentials") &&
       authFetchSource.includes("window.localStorage.setItem(LOGIN_TOKEN_STORAGE_KEY, token)") &&
       authFetchSource.includes("setCrazorAuthToken(data?.actor_token || data?.actorToken || \"\")") &&
       authFetchSource.includes("clearCustomerLoginCredentials") &&
       authFetchSource.includes("window.localStorage.removeItem(LOGIN_TOKEN_STORAGE_KEY)") &&
+      appSource.includes("resolveRequestedWorkspace") &&
+      appSource.includes("isWorkspaceSessionCompatible") &&
+      appSource.includes("workspaceMismatch") &&
       apiClientSource.includes("clearCustomerLoginCredentials()") &&
       apiClientSource.includes("data.needLogin") &&
       appSource.includes("clearCustomerLoginCredentials()") &&
@@ -405,8 +428,10 @@ test("desktop WeChat login uses backend callback plus client polling", () => {
       accessCodeLoginCardSource.includes("隐藏访问码") &&
       accessCodeLoginCardSource.includes("显示访问码") &&
       accessCodeLoginCardSource.includes("KeyRoundIcon") &&
+      accessCodeLoginCardSource.includes("内部演示码") &&
+      accessCodeLoginCardSource.includes("进入内部工作台") &&
       !appInnerSource.includes("微信扫码登录"),
-    "desktop login should also support access-code customer handoff and store the issued actor token instead of assuming WeChat-only login"
+    "desktop login should support customer and internal access-code entrypoints without relying on WeChat-only flows"
   )
 })
 
@@ -414,11 +439,17 @@ test("customer desktop requires login before entering workspace when backend enf
   assert.ok(
     serverIndex.includes("app.get('/api/auth/status'") &&
       serverIndex.includes("app.post('/api/auth/access-code'") &&
+      serverIndex.includes("app.post('/api/auth/internal-access-code'") &&
       serverIndex.includes("loginRequired") &&
       serverIndex.includes("loginRequiredByEnv") &&
       serverIndex.includes("accessCodeConfigured") &&
-      serverIndex.includes("Boolean(process.env.JWT_SECRET || process.env.WECHAT_APP_ID || process.env.CRAZOR_CUSTOMER_ACCESS_CODE)"),
+      serverIndex.includes("internalAccessCodeConfigured") &&
+      serverIndex.includes("process.env.CRAZOR_INTERNAL_ACCESS_CODE"),
     "backend auth status should tell packaged clients whether login is required"
+  )
+  assert.ok(
+    authMiddlewareSource.includes("!process.env.CRAZOR_INTERNAL_ACCESS_CODE"),
+    "generic auth middleware should also respect internal access-code protected environments"
   )
   assert.ok(
     appSource.includes("LoginPage") &&
@@ -433,11 +464,18 @@ test("customer desktop requires login before entering workspace when backend enf
     loginPageSource.includes("allowSkip = true") &&
       loginPageSource.includes("!loading && allowSkip") &&
       loginPageSource.includes("/api/auth/access-code") &&
+      loginPageSource.includes("/api/auth/internal-access-code") &&
       loginPageSource.includes("status.accessCodeConfigured") &&
+      loginPageSource.includes("status.internalAccessCodeConfigured") &&
+      loginPageSource.includes("buildWorkspaceEntryHref") &&
       loginPageSource.includes("CRAZOR_CUSTOMER_ACCESS_CODE") &&
+      loginPageSource.includes("CRAZOR_INTERNAL_ACCESS_CODE") &&
       loginPageSource.includes("客户认证") &&
-      loginPageSource.includes("交付负责人单独发放的客户访问码"),
-    "login page should keep dev skip optional but expose customer access-code login for auth-gated clients"
+      loginPageSource.includes("团队内部入口") &&
+      loginPageSource.includes("返回客户入口") &&
+      loginPageSource.includes("交付负责人单独发放的客户访问码") &&
+      loginPageSource.includes("当前环境未启用内部演示入口"),
+    "login page should keep dev skip optional while separating customer and internal access-code entrypoints"
   )
   assert.ok(
     indexCssSource.includes("#root {\n    position: relative;\n    z-index: 1;") &&
@@ -479,12 +517,36 @@ test("customer MCP endpoint is gated by login or Agent token when auth is enable
       serverIndex.includes("resolveMcpRequestActor"),
     "logged-in desktop users should be represented in MCP audit context instead of anonymous mcp-client"
   )
+  assert.ok(
+    serverIndex.includes("function requireScopedActorToken") &&
+      serverIndex.includes("integration_connector:read") &&
+      serverIndex.includes("integration_connector:run") &&
+      serverIndex.includes("dashboard_config:read") &&
+      serverIndex.includes("dashboard_config:write") &&
+      serverIndex.includes("dashboard_model:read") &&
+      serverIndex.includes("dashboard_model:write") &&
+      serverIndex.includes("app.get('/api/config', async (c) => {") &&
+      serverIndex.includes("app.get('/api/config/raw', async (c) => {") &&
+      serverIndex.includes("app.patch('/api/config', async (c) => {") &&
+      serverIndex.includes("app.get('/api/model/info', async (c) => {") &&
+      serverIndex.includes("app.get('/api/model/options', async (c) => {") &&
+      serverIndex.includes("app.post('/api/model/set', async (c) => {") &&
+      serverIndex.includes("dashboard_env:read") &&
+      serverIndex.includes("dashboard_env:write") &&
+      serverIndex.includes("app.get('/api/env', async (c) => {") &&
+      serverIndex.includes("app.get('/api/env/:key/reveal', async (c) => {") &&
+      serverIndex.includes("app.delete('/api/env/:key', async (c) => {") &&
+      serverIndex.includes("shouldBypassScopedActorRequirement") &&
+      serverIndex.includes("actor?.actor_id || 'integrations'"),
+    "integration, model, config, and env secret routes should require scoped actor tokens and preserve real audit actors"
+  )
 })
 
 test("docker customer backend receives hosted login and plan configuration", () => {
   assert.ok(
     composeSource.includes("JWT_SECRET: ${JWT_SECRET:-}") &&
       composeSource.includes("CRAZOR_CUSTOMER_ACCESS_CODE: ${CRAZOR_CUSTOMER_ACCESS_CODE:-}") &&
+      composeSource.includes("CRAZOR_INTERNAL_ACCESS_CODE: ${CRAZOR_INTERNAL_ACCESS_CODE:-}") &&
       composeSource.includes("WECHAT_APP_ID: ${WECHAT_APP_ID:-}") &&
       composeSource.includes("WECHAT_APP_SECRET: ${WECHAT_APP_SECRET:-}") &&
       composeSource.includes("DEPLOYMENT_TIER: ${DEPLOYMENT_TIER:-free}") &&
@@ -497,6 +559,7 @@ test("docker customer backend receives hosted login and plan configuration", () 
       composeSource.includes("VITE_CRAZOR_RELEASE_ID: ${CRAZOR_RELEASE_ID:-}") &&
       composeSource.includes("VITE_CRAZOR_BUILD_SHA: ${CRAZOR_BUILD_SHA:-}") &&
       composeSource.includes("VITE_CRAZOR_BUILD_TIME: ${CRAZOR_BUILD_TIME:-}") &&
+      composeSource.includes("VITE_CRAZOR_DEFAULT_WORKSPACE: ${CRAZOR_DEFAULT_WORKSPACE:-customer}") &&
       composeSource.includes("CRAZOR_DELIVERY_MODEL_READINESS: ${CRAZOR_DELIVERY_MODEL_READINESS:-strict}") &&
       composeSource.includes("HERMES_DASHBOARD_INSECURE: ${HERMES_DASHBOARD_INSECURE:-1}") &&
       composeSource.includes("${HERMES_DASHBOARD_BIND:-127.0.0.1}:9119:9119") &&
@@ -508,6 +571,11 @@ test("docker customer backend receives hosted login and plan configuration", () 
   )
   assert.ok(
     customerBackendDeployScript.includes('set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_BUILD_SHA "$BUILD_SHA"') &&
+      customerBackendDeployScript.includes("--internal-access-code") &&
+      customerBackendDeployScript.includes("--default-workspace") &&
+      customerBackendEnvScript.includes("CRAZOR_DEFAULT_WORKSPACE") &&
+      customerBackendDeployScript.includes("CRAZOR_INTERNAL_ACCESS_CODE") &&
+      customerBackendEnvScript.includes("CRAZOR_INTERNAL_ACCESS_CODE") &&
       customerBackendDeployScript.includes('set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_BUILD_TIME "$BUILD_TIME"') &&
       customerBackendDeployScript.includes('set_env_value_in_file "$LOCAL_ENV_FILE" CRAZOR_RELEASE_ID "$RELEASE_ID"'),
     "customer backend deploy should stamp each hosted release with build metadata for version identification"
@@ -722,6 +790,13 @@ test("customer desktop hosted backend chain can be smoke-tested before handoff",
       customerHandoffCheckScript.includes("renderCustomerHandoffReport") &&
       customerHandoffCheckScript.includes("## 业务入口自检") &&
       customerHandoffCheckScript.includes("## 后端自检项") &&
+      customerHandoffCheckScript.includes("verifyFeishu: env.feishuConfigured") &&
+      customerHandoffCheckScript.includes("/api/integrations/feishu/test") &&
+      customerHandoffCheckScript.includes("actorToken: issuedActorToken") &&
+      customerHandoffCheckScript.includes('server.readinessChecks.find((check) => check.id === "connector-feishu")') &&
+      customerHandoffCheckScript.includes("飞书已通过内部演示入口验收，但 /api/delivery/readiness 尚未暴露 connector-feishu 状态") &&
+      customerHandoffCheckScript.includes("飞书连接器:") &&
+      customerHandoffCheckScript.includes("飞书结果:") &&
       customerHandoffCheckScript.includes("后端要求登录，但未提供可自动验证的客户访问码或登录 token"),
     "handoff check should compose artifact, backend env, hosted server, login, and desktop chat verification"
   )

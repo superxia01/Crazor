@@ -55,6 +55,7 @@ export { getCronJobs, createCronJob, checkCronDependency, installCronDependency,
 
 // Dashboard APIs
 export { getLogs, getEnvVars, getPrimaryModelConfig, getConfiguredModelCandidates, getModelOptions, savePrimaryModelConfig, setDefaultModel, setEnvVar, deleteEnvVar, revealEnvVar, checkDashboardRunning, checkGatewayRunning, restartHermesGateway, stopHermesGateway, stopHermesDashboard } from './dashboard.js'
+export { getIntegrationChecks, getIntegrationStatus, testIntegrationConnector } from './integrations.js'
 
 // Skills APIs
 export { getSkills, getSkillDetail, toggleSkill, getToolsets, getMarketSkills, installSkill, uninstallSkill, checkSkillUpdates, updateSkill, inspectMarketSkill } from './skills.js'

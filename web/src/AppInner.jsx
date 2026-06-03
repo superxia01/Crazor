@@ -224,6 +224,7 @@ const KnowledgeBaseView = lazy(() => import("@/KnowledgeBaseView"))
 const DataAnalyticsView = lazy(() => import("@/DataAnalyticsView"))
 const IntegrationsView = lazy(() => import("@/IntegrationsView"))
 const TeamOpsView = lazy(() => import("@/TeamOpsView"))
+const CustomerPortalView = lazy(() => import("@/CustomerPortalView"))
 import { MainViewHeader } from "@/components/layout/MainViewHeader"
 import { HermesSubmenu } from "@/components/layout/HermesSubmenu"
 import { SessionsList } from "@/components/layout/SessionsList"
@@ -317,6 +318,17 @@ const SIDEBAR_GROUPS = [
       { id: "knowledge", labelKey: "nav.knowledge", descriptionKey: "nav.knowledge", icon: FileTextIcon },
       { id: "notebook", labelKey: "nav.notebook", descriptionKey: "nav.chatDescription", icon: BookIcon, badge: "beta" },
       { id: "files", labelKey: "nav.files", descriptionKey: "nav.filesDescription", icon: FolderOpenIcon },
+    ],
+  },
+]
+
+const CUSTOMER_PORTAL_SIDEBAR_GROUPS = [
+  {
+    group: "customer",
+    labelKey: "nav.sidebar.group.customer",
+    items: [
+      { id: "customer-portal", labelKey: "nav.customerPortal", descriptionKey: "nav.customerPortalDescription", icon: PackageIcon },
+      { id: "sessions", labelKey: "nav.sessions", descriptionKey: "nav.sessionsDescription", icon: MessageSquareIcon },
     ],
   },
 ]
@@ -642,6 +654,7 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     () => normalizeCapabilityIds(agentProviderDescriptor?.capability_ids),
     [agentProviderDescriptor]
   )
+  const customerPortalMode = Boolean(userInfo?.portalMode)
   const sessionsCapabilitySupported = useMemo(
     () => supportsViewCapability("sessions", providerCapabilityIds),
     [providerCapabilityIds]
@@ -667,8 +680,11 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     [providerCapabilityIds]
   )
   const availableSidebarGroups = useMemo(
-    () => filterSidebarGroups(SIDEBAR_GROUPS, providerCapabilityIds),
-    [providerCapabilityIds]
+    () =>
+      customerPortalMode
+        ? CUSTOMER_PORTAL_SIDEBAR_GROUPS
+        : filterSidebarGroups(SIDEBAR_GROUPS, providerCapabilityIds),
+    [customerPortalMode, providerCapabilityIds]
   )
   const defaultConversationModel = selectorPrimaryModelConfig.model || ""
   const activeGlobalModel = selectorPrimaryModelConfig.model || ""
@@ -2370,6 +2386,15 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
     view,
   ])
 
+  useEffect(() => {
+    if (!customerPortalMode) return
+    if (view === "customer-portal" || view === "chat") return
+    setView("customer-portal")
+    setActiveMiddleView(null)
+    setHermesSubmenuView(null)
+    setMiddleColumnOpen(false)
+  }, [customerPortalMode, view])
+
   const handleToggleTerminalDock = useCallback(() => {
     setTerminalDockOpen((current) => !current)
   }, [])
@@ -2529,6 +2554,7 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
   )
   const currentViewItem =
     viewItems.find((item) => {
+      if (view === "chat") return item.id === "sessions"
       if (item.id === view) return true
       if (item.id !== "hermes") return false
       return HERMES_SIDEBAR_VIEWS.includes(view)
@@ -2597,6 +2623,8 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
   const activeSidebarItemId =
     activeMiddleView === "sessions" || view === "chat"
       ? "sessions"
+      : view === "customer-portal"
+        ? "customer-portal"
       : activeMiddleView === "notebook" || view === "notebook"
         ? "notebook"
         : activeMiddleView === "knowledge" || view === "knowledge"
@@ -2766,8 +2794,10 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
 
           <SidebarFooter className="px-2 pb-2 pt-1 group-data-[collapsible=icon]:hidden">
             <div className="space-y-1.5 px-1">
-              <OfficeToggle onNavigate={() => setView("office")} onLeave={() => setView("home")} isActive={view === "office"} />
-              {modelConfigSupported ? (
+              {!customerPortalMode ? (
+                <OfficeToggle onNavigate={() => setView("office")} onLeave={() => setView("home")} isActive={view === "office"} />
+              ) : null}
+              {!customerPortalMode && modelConfigSupported ? (
                 <>
                   <div
                     data-sidebar-model-switcher="true"
@@ -2860,7 +2890,7 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
                 />
               </div>
 
-              {hasHermesUpgrade ? (
+              {!customerPortalMode && hasHermesUpgrade ? (
                 <div className="flex justify-center">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -3349,6 +3379,7 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
                         {view === "channels" && <ChannelsView />}
                         {view === "projects" && <ProjectsView />}
                         {view === "deliveries" && <DeliveriesView />}
+                        {view === "customer-portal" && <CustomerPortalView />}
                         {view === "knowledge" && (
                           <KnowledgeBaseView
                             selectedNote={knowledge.selectedNote}

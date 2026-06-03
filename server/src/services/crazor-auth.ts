@@ -1,7 +1,7 @@
 // Crazor Authentication — WeChat OAuth2 + JWT
 
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
-import { WECHAT_APP_ID, WECHAT_APP_SECRET, JWT_SECRET, CRAZOR_CUSTOMER_ACCESS_CODE } from './crazor-config'
+import { WECHAT_APP_ID, WECHAT_APP_SECRET, JWT_SECRET, CRAZOR_CUSTOMER_ACCESS_CODE, CRAZOR_INTERNAL_ACCESS_CODE } from './crazor-config'
 import { db } from './crazor-db'
 
 // ── JWT (simple implementation, no external deps) ────────────
@@ -19,11 +19,20 @@ function base64urlDecode(str: string): string {
 interface JWTPayload {
   openid: string
   nickname: string
+  portal_mode?: boolean
+  login_channel?: string
+  customer_name?: string
   iat: number
   exp: number
 }
 
-export function signJWT(payload: { openid: string; nickname: string }, expiresInDays = 7): string {
+export function signJWT(payload: {
+  openid: string
+  nickname: string
+  portal_mode?: boolean
+  login_channel?: string
+  customer_name?: string
+}, expiresInDays = 7): string {
   const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
   const now = Math.floor(Date.now() / 1000)
   const body = base64url(JSON.stringify({
@@ -60,6 +69,19 @@ export function customerAccessCodeConfigured(): boolean {
 
 export function verifyCustomerAccessCode(code: string): boolean {
   const expected = CRAZOR_CUSTOMER_ACCESS_CODE.trim()
+  const actual = String(code || '').trim()
+  if (!expected || !actual) return false
+  const expectedHash = createHash('sha256').update(expected).digest()
+  const actualHash = createHash('sha256').update(actual).digest()
+  return timingSafeEqual(expectedHash, actualHash)
+}
+
+export function internalAccessCodeConfigured(): boolean {
+  return CRAZOR_INTERNAL_ACCESS_CODE.trim().length > 0
+}
+
+export function verifyInternalAccessCode(code: string): boolean {
+  const expected = CRAZOR_INTERNAL_ACCESS_CODE.trim()
   const actual = String(code || '').trim()
   if (!expected || !actual) return false
   const expectedHash = createHash('sha256').update(expected).digest()

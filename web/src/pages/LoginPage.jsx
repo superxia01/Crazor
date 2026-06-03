@@ -1,17 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { storeCustomerLoginCredentials } from '@/api/crazor-auth'
+import { buildWorkspaceEntryHref, resolveRequestedWorkspace } from '@/api/login-entry'
 import { consumeLoginTokenFromLocation } from '@/api/login-token-redirect'
 import { AccessCodeLoginCard } from '@/components/AccessCodeLoginCard'
 
 export function LoginPage({ onLogin, allowSkip = true }) {
+  const requestedWorkspace = resolveRequestedWorkspace()
+  const internalEntryRequested = requestedWorkspace === "internal"
   const [qrUrl, setQrUrl] = useState(null)
   const [loginState, setLoginState] = useState("")
   const [loading, setLoading] = useState(true)
   const [accessLoading, setAccessLoading] = useState(false)
+  const [internalAccessLoading, setInternalAccessLoading] = useState(false)
   const [error, setError] = useState(null)
   const [polling, setPolling] = useState(false)
   const [authStatus, setAuthStatus] = useState(null)
   const [accessCode, setAccessCode] = useState("")
+  const [internalAccessCode, setInternalAccessCode] = useState("")
 
   // Check URL for token (callback redirect)
   useEffect(() => {
@@ -29,6 +34,15 @@ export function LoginPage({ onLogin, allowSkip = true }) {
       const resp = await fetch('/api/auth/status')
       const status = await resp.json()
       setAuthStatus(status)
+
+      if (internalEntryRequested) {
+        if (!status.internalAccessCodeConfigured) {
+          setError('当前环境未启用内部演示入口，请确认 CRAZOR_INTERNAL_ACCESS_CODE 已配置')
+          setLoading(false)
+          return
+        }
+        return
+      }
 
       if (!status.wechatConfigured && !status.accessCodeConfigured) {
         setError('登录方式未配置，请设置 WECHAT_APP_ID / WECHAT_APP_SECRET 或 CRAZOR_CUSTOMER_ACCESS_CODE')
@@ -52,7 +66,7 @@ export function LoginPage({ onLogin, allowSkip = true }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [internalEntryRequested])
 
   useEffect(() => {
     fetchLoginUrl()
@@ -115,16 +129,53 @@ export function LoginPage({ onLogin, allowSkip = true }) {
     }
   }
 
-  const canUseWechat = Boolean(authStatus?.wechatConfigured && qrUrl)
-  const canUseAccessCode = Boolean(authStatus?.accessCodeConfigured)
-  const pageSubtitle = canUseWechat
+  const handleInternalAccessLogin = async (event) => {
+    event.preventDefault()
+    const code = internalAccessCode.trim()
+    if (!code) {
+      setError('请输入内部演示码')
+      return
+    }
+    try {
+      setInternalAccessLoading(true)
+      setError(null)
+      const resp = await fetch('/api/auth/internal-access-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok || !data.token) {
+        setError(data.error || '内部演示码验证失败')
+        return
+      }
+      storeCustomerLoginCredentials(data)
+      onLogin()
+    } catch {
+      setError('网络错误，请重试')
+    } finally {
+      setInternalAccessLoading(false)
+    }
+  }
+
+  const canUseWechat = !internalEntryRequested && Boolean(authStatus?.wechatConfigured && qrUrl)
+  const canUseAccessCode = !internalEntryRequested && Boolean(authStatus?.accessCodeConfigured)
+  const canUseInternalAccessCode = internalEntryRequested && Boolean(authStatus?.internalAccessCodeConfigured)
+  const canSwitchToInternalEntry = !internalEntryRequested && Boolean(authStatus?.internalAccessCodeConfigured)
+  const internalEntryHref = buildWorkspaceEntryHref('internal')
+  const customerEntryHref = buildWorkspaceEntryHref('customer')
+  const pageSubtitle = internalEntryRequested
+    ? '使用内部演示码进入完整后台'
+    : canUseWechat
     ? canUseAccessCode
       ? '微信扫码或客户访问码均可登录'
       : '扫码即可开始使用'
     : canUseAccessCode
       ? '输入客户访问码后继续进入工作台'
       : '正在确认可用的登录方式'
-  const pageHint = canUseWechat
+  const pageHint = internalEntryRequested
+    ? '这个入口仅供 CRAZYAIGC 团队成员演示后台、连接器和现场配置使用。'
+    : canUseWechat
     ? '推荐先使用微信扫码；如交付负责人已提供访问码，也可以直接登录。'
     : canUseAccessCode
       ? '本次交付未启用微信扫码，请使用交付负责人单独发放的客户访问码。'
@@ -137,7 +188,7 @@ export function LoginPage({ onLogin, allowSkip = true }) {
           {/* Logo / Title */}
           <div className="mb-8">
             <div className="mx-auto mb-3 inline-flex rounded-full border border-primary/16 bg-primary/8 px-3 py-1 text-[11px] font-semibold tracking-[0.08em] text-primary">
-              客户认证
+              {internalEntryRequested ? '内部演示入口' : '客户认证'}
             </div>
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200/80 bg-primary/10 dark:border-slate-700/72 dark:bg-primary/14">
               <svg className="h-8 w-8 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -147,6 +198,26 @@ export function LoginPage({ onLogin, allowSkip = true }) {
             <h1 className="text-2xl font-bold text-foreground">Crazor 数字员工系统</h1>
             <p className="mt-2 text-sm text-muted-foreground">{pageSubtitle}</p>
             <p className="mx-auto mt-3 max-w-md text-xs leading-6 text-muted-foreground">{pageHint}</p>
+            {(canSwitchToInternalEntry || internalEntryRequested) && (
+              <div className="mt-5 flex items-center justify-center gap-3 text-xs">
+                {canSwitchToInternalEntry && (
+                  <a
+                    href={internalEntryHref}
+                    className="inline-flex items-center rounded-full border border-slate-300/88 bg-white/92 px-3 py-1.5 font-medium text-slate-700 transition hover:border-primary/48 hover:text-primary dark:border-slate-600/82 dark:bg-slate-900/72 dark:text-slate-200 dark:hover:border-primary/44 dark:hover:text-primary"
+                  >
+                    团队内部入口
+                  </a>
+                )}
+                {internalEntryRequested && (
+                  <a
+                    href={customerEntryHref}
+                    className="inline-flex items-center rounded-full border border-slate-300/88 bg-white/92 px-3 py-1.5 font-medium text-slate-700 transition hover:border-primary/48 hover:text-primary dark:border-slate-600/82 dark:bg-slate-900/72 dark:text-slate-200 dark:hover:border-primary/44 dark:hover:text-primary"
+                  >
+                    返回客户入口
+                  </a>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Error state */}
@@ -189,11 +260,24 @@ export function LoginPage({ onLogin, allowSkip = true }) {
           {!loading && canUseAccessCode && (
             <AccessCodeLoginCard
               context="page"
+              mode="customer"
               value={accessCode}
               onChange={setAccessCode}
               onSubmit={handleAccessCodeLogin}
               loading={accessLoading}
               className={canUseWechat ? "mt-0" : "mt-2"}
+            />
+          )}
+
+          {!loading && canUseInternalAccessCode && (
+            <AccessCodeLoginCard
+              context="page"
+              mode="internal"
+              value={internalAccessCode}
+              onChange={setInternalAccessCode}
+              onSubmit={handleInternalAccessLogin}
+              loading={internalAccessLoading}
+              className="mt-2"
             />
           )}
 
