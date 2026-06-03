@@ -43,6 +43,8 @@ export const LOCAL_MODEL_PRESETS = [
 const CUSTOM_ENDPOINT_DOCS_URL =
   "https://hermes-agent.nousresearch.com/docs/integrations/providers/custom-endpoints"
 const LOCAL_MODELS_DOCS_URL = "https://hermes-agent.nousresearch.com/docs/faq/general"
+const IMAGE_ONLY_MODEL_IDS = new Set(["chatgpt-image-latest"])
+const IMAGE_ONLY_MODEL_PREFIXES = ["gpt-image-", "dall-e-"]
 
 function normalizeEnvValue(info) {
   return info?.value ?? info?.redacted_value ?? ""
@@ -52,6 +54,20 @@ function normalizeString(value) {
   if (typeof value === "string") return value.trim()
   if (value === null || value === undefined) return ""
   return String(value).trim()
+}
+
+export function isImageOnlyPrimaryModel(value) {
+  const model = normalizeString(value).toLowerCase()
+  if (!model) return false
+  if (IMAGE_ONLY_MODEL_IDS.has(model)) return true
+  return IMAGE_ONLY_MODEL_PREFIXES.some((prefix) => model.startsWith(prefix))
+}
+
+export function getPrimaryModelValidationError(config) {
+  const model = normalizeString(typeof config === "string" ? config : config?.model)
+  if (!model || !isImageOnlyPrimaryModel(model)) return ""
+
+  return `主对话模型不能使用 ${model}。如果你要调用 OpenAI 图片接口，请改用 gpt-image-1.5、gpt-image-1 或 gpt-image-1-mini；如果你要在 Responses API 里对话式出图，请把主模型改成 gpt-5 或 gpt-4.1，并调用 image_generation 工具。`
 }
 
 export function getPrimaryModelConfig(config) {

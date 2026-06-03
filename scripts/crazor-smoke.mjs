@@ -498,6 +498,8 @@ async function main() {
   let task
   let delivery
   let deliveryPlan
+  let projectAttachment
+  let deliveryAttachment
   let channel
   let transaction
   let contentPiece
@@ -709,6 +711,37 @@ async function main() {
     const contactDocs = await request(`/api/crazor/contacts/${encodeURIComponent(contact.id)}/docs`)
     assert(contactDocs.data.some((item) => item.id === deliveryPlan.id), "客户详情未能反查交付计划文档", contactDocs.data)
 
+    const projectAttachmentForm = new FormData()
+    const projectAttachmentContent = `project contract ${marker}`
+    projectAttachmentForm.append("file", new Blob([projectAttachmentContent], { type: "text/plain" }), `contract-${marker}.txt`)
+    projectAttachmentForm.append("category", "合同")
+    projectAttachment = (await request(`/api/crazor/projects/${encodeURIComponent(project.id)}/attachments`, {
+      method: "POST",
+      body: projectAttachmentForm,
+    })).data
+    trackCleanup("烟测项目附件", () => deleteIfExists(`/api/crazor/projects/${encodeURIComponent(project.id)}/attachments/${encodeURIComponent(projectAttachment.name)}`))
+    assert(projectAttachment.category === "合同", "项目附件分类未保存", projectAttachment)
+
+    const deliveryAttachmentForm = new FormData()
+    const deliveryAttachmentContent = `delivery acceptance ${marker}`
+    deliveryAttachmentForm.append("file", new Blob([deliveryAttachmentContent], { type: "text/plain" }), `acceptance-${marker}.txt`)
+    deliveryAttachmentForm.append("category", "验收材料")
+    deliveryAttachment = (await request(`/api/crazor/deliveries/${encodeURIComponent(delivery.id)}/attachments`, {
+      method: "POST",
+      body: deliveryAttachmentForm,
+    })).data
+    trackCleanup("烟测交付附件", () => deleteIfExists(`/api/crazor/deliveries/${encodeURIComponent(delivery.id)}/attachments/${encodeURIComponent(deliveryAttachment.name)}`))
+    assert(deliveryAttachment.category === "验收材料", "交付附件分类未保存", deliveryAttachment)
+
+    const deliveryAttachments = await request(`/api/crazor/deliveries/${encodeURIComponent(delivery.id)}/attachments`)
+    assert(deliveryAttachments.data.some((item) => item.id === deliveryAttachment.id && item.category === "验收材料"), "交付附件列表未读回分类", deliveryAttachments.data)
+
+    const deliveryPreview = await request(deliveryAttachment.preview_url)
+    assert(deliveryPreview.data?.previewable === true && String(deliveryPreview.data?.content || "").includes(marker), "交付附件预览失败", deliveryPreview.data)
+
+    const deliveryDownload = await request(deliveryAttachment.download_url)
+    assert(String(deliveryDownload.text || "").includes(marker), "交付附件下载内容不一致", deliveryDownload.text)
+
     const patched = await request(`/api/crazor/deliveries/${encodeURIComponent(delivery.id)}`, {
       method: "PATCH",
       body: {
@@ -724,6 +757,12 @@ async function main() {
 
     const logs = await request(query("/api/crazor/audit-logs", { entity: "delivery", entity_id: delivery.id, limit: "20" }))
     assert(logs.data.some((item) => item.action === "create" && item.entity === "delivery"), "审计日志未记录交付创建", logs.data)
+
+    const deliveryAttachmentLogs = await request(query("/api/crazor/audit-logs", { entity: "delivery_attachment", entity_id: delivery.id, limit: "20" }))
+    assert(deliveryAttachmentLogs.data.some((item) => item.action === "create" && item.entity === "delivery_attachment"), "审计日志未记录交付附件创建", deliveryAttachmentLogs.data)
+
+    const projectAttachmentLogs = await request(query("/api/crazor/audit-logs", { entity: "project_attachment", entity_id: project.id, limit: "20" }))
+    assert(projectAttachmentLogs.data.some((item) => item.action === "create" && item.entity === "project_attachment"), "审计日志未记录项目附件创建", projectAttachmentLogs.data)
   })
 
   await step("内容发布、指标回收和知识正文链路", async () => {

@@ -312,6 +312,9 @@ test("backend exposes a public delivery readiness self-check for installed clien
       serverIndex.includes("firstGatewayModelId") &&
       serverIndex.includes("gatewayFetch('/v1/models')") &&
       serverIndex.includes("isLocalModelBaseUrl") &&
+      serverIndex.includes("isImageOnlyPrimaryModel") &&
+      serverIndex.includes("gpt-image-1.5") &&
+      serverIndex.includes("image_generation") &&
       serverIndex.includes("apiKeySet") &&
       serverIndex.includes("Base URL"),
     "delivery readiness should validate model configuration through Dashboard or fall back to Gateway models before customer handoff"

@@ -40,8 +40,8 @@ graph TD
 | 项目看板 | `projects` | `/api/crazor/projects`、`/api/crazor/tasks`、`/api/crazor/task-reminders` | `projects`、`tasks` | 项目/任务 MCP tools + `get_task_reminders` | 项目创建、任务创建、任务拖拽/删除、任务到期提醒读取和处理可用；可支撑客户交付协作 MVP；项目编辑归档和里程碑待补 |
 | 平台流量 | `content` | `/api/crazor/content-pieces`、`/api/crazor/content-pieces/:id/publish`、`/api/crazor/content-pieces/:id/metrics`、`/api/crazor/docs/knowledge/search`、`/api/crazor/docs/knowledge/notes`、`/api/crazor/docs/knowledge/notes-ops` | `content_pieces`、Markdown Vault | 内容 MCP tools + 文档 MCP tools | 内容作品新增/编辑/删除、发布、指标回收、正文创建/搜索/关联/打开/保存和复盘模板写入可用；默认不写入内容作品示例记录，演示记录需显式开启 `CRAZOR_SEED_DEMO_DATA=true`；外部平台回执和自动指标采集待补 |
 | 知识库 | `knowledge` | `/api/crazor/docs/knowledge/*` | Markdown Vault | 文档 MCP tools | 可读写，已补旧路径和空白文档兜底；MCP `list_docs` 可返回完整目录树，Agent 可自发现写入路径 |
-| 交付管理 | `deliveries` | `/api/crazor/deliveries`、`/api/crazor/contacts/:id/delivery-kickoff`、`/api/crazor/analytics/overview`、`/api/crazor/context` | `deliveries`、Markdown Vault | REST + Unified Context，MCP 交付写入待补 | 已有独立交付记录、交付阶段、验收状态、交付物、风险、负责人、客户/项目关联、审计日志、分析统计和交付页面；客户详情可一键启动交付并自动生成交付计划文档；交付附件归档和客户侧视图待补 |
-| 客户交付材料 | `knowledge` + `projects` + `tasks` + `deliveries` | `/api/crazor/docs/knowledge/*`、`/api/crazor/projects`、`/api/crazor/tasks`、`/api/crazor/deliveries`、`/api/crazor/contacts/:id/delivery-kickoff`、`/api/crazor/transactions` | Markdown Vault、`projects`、`tasks`、`deliveries`、`transactions` | 文档 MCP tools + 项目/任务 MCP tools + Unified Context | 有产品交付、报价、合同、交付标准等知识库指南，并可从客户生成项目、任务和交付计划；客户侧查看和交付包归档待补 |
+| 交付管理 | `deliveries` | `/api/crazor/deliveries`、`/api/crazor/deliveries/:id/attachments`、`/api/crazor/contacts/:id/delivery-kickoff`、`/api/crazor/analytics/overview`、`/api/crazor/context` | `deliveries`、Markdown Vault、`attachments/deliveries` | REST + Unified Context，MCP 交付写入待补 | 已有独立交付记录、交付阶段、验收状态、交付物、风险、负责人、客户/项目关联、审计日志、分析统计和交付页面；客户详情可一键启动交付并自动生成交付计划文档；交付附件归档可用，客户侧视图待补 |
+| 客户交付材料 | `knowledge` + `projects` + `tasks` + `deliveries` | `/api/crazor/docs/knowledge/*`、`/api/crazor/projects`、`/api/crazor/projects/:id/attachments`、`/api/crazor/tasks`、`/api/crazor/deliveries`、`/api/crazor/deliveries/:id/attachments`、`/api/crazor/contacts/:id/delivery-kickoff`、`/api/crazor/transactions` | Markdown Vault、`projects`、`tasks`、`deliveries`、`transactions`、`attachments/projects`、`attachments/deliveries` | 文档 MCP tools + 项目/任务 MCP tools + Unified Context | 有产品交付、报价、合同、交付标准等知识库指南，并可从客户生成项目、任务、交付计划、项目附件和交付附件；客户侧查看、签收和导出包待补 |
 | AI 笔记 | `notebook` | `/api/crazor/docs/notebook/*` | Markdown Vault | 文档 MCP tools | 可读写，编辑体验需持续核验 |
 | 文件管理 | `files` | `/api/files/*` | Hermes workspace files | Provider 文件能力 | 依赖 workspace 配置 |
 | 终端 | `terminal` | `/api/terminal/sessions/*` | Hermes workspace | Provider 终端能力 | 可用性依赖 Hermes |
@@ -108,7 +108,7 @@ graph TD
 | 客户姓名、阶段、来源、预算、成交金额 | 是 | 否 |
 | 客户背景长文、访谈纪要、复盘 | 可存摘要 | 是 |
 | 跟进记录日期、方式、下一步 | 是 | 重要长文可同步 |
-| 客户附件文件、合同、课件、访谈录音 | 元数据可进 DB，当前用文件系统列表 | 原文件进入 `CRAZOR_HOME/attachments/contacts/:id` |
+| 客户附件文件、合同、课件、访谈录音、交付包、验收材料 | 元数据可进 DB，当前用文件系统列表 | 原文件进入 `CRAZOR_HOME/attachments/contacts/:id`、`CRAZOR_HOME/attachments/projects/:id` 或 `CRAZOR_HOME/attachments/deliveries/:id` |
 | 交易金额、回款状态、发票状态 | 是 | 否 |
 | 项目状态、任务、负责人、截止日期 | 是 | 项目方案正文可进文档 |
 | 内容标题、平台、状态、数据指标 | 是 | 正文、脚本、素材进入文档 |
@@ -168,6 +168,7 @@ graph TD
 | 客户文档搜索跳转 | `/api/crazor/contacts/:id/docs/search` + `/api/crazor/docs/knowledge/notes-ops` | 通过 | 客户详情可搜索需求文档正文，并直接打开编辑结果 |
 | 客户附件归档 | `/api/crazor/contacts/:id/attachments` | 通过 | 客户详情可上传、列表、下载、删除附件，并记录 `contact_attachment` 审计 |
 | 客户附件策略与预览 | `/api/crazor/attachments/policy` + `/api/crazor/contacts/:id/attachments/:filename/preview` | 通过 | 可配置扩展名/大小限制，文本和图片可在客户详情预览，非法类型与超大文件被拒绝 |
+| 项目/交付附件归档 | `/api/crazor/projects/:id/attachments` + `/api/crazor/deliveries/:id/attachments` | 通过 | 项目和交付记录可按需求材料、合同、课件、交付包、验收材料等分类归档，并记录 `project_attachment` / `delivery_attachment` 审计 |
 | 内容发布与指标回收 | `/api/crazor/content-pieces/:id/publish` + `/api/crazor/content-pieces/:id/metrics` | 通过 | 内容详情可标记发布并回收阅读/点赞/评论/转发指标，审计记录 `publish` 和 `update_metrics` |
 | 内容正文关联与复盘 | `/api/crazor/content-pieces` + `/api/crazor/docs/knowledge/search` + `/api/crazor/docs/knowledge/notes-ops` | 通过 | 内容详情可创建或搜索关联正文、回填 `doc_id`、打开保存正文，并写入发布复盘模板 |
 | 团队成员 | `/api/crazor/identity/members` | 通过 | 创建、查询、删除临时成员 |
@@ -179,7 +180,7 @@ graph TD
 | 敏感只读保护 | `CRAZOR_REQUIRE_WRITE_TOKEN=true` + `/api/crazor/audit-logs` + `/api/crazor/identity/*` | 通过 | 无 token/无效 token/非 admin 读取敏感接口被拒绝；拒绝记录 `deny_read`；普通业务只读保持可读 |
 | 业务只读保护 | `CRAZOR_REQUIRE_BUSINESS_READ_TOKEN=true` + `/api/crazor/contacts` + `/api/crazor/analytics/overview` | 通过 | 无 token 读取业务数据被拒绝；viewer + `read:*` token 可读客户和分析；拒绝记录 `deny_read contact` |
 | 协作审计页面 | `teamops` | 通过 | 侧边栏入口、身份列表、当前访问 token、token 列表、审计日志查看 |
-| 自动交付烟测 | `./scripts/hermes smoke`、`./scripts/hermes smoke-strict` | 通过 | 脚本化验证健康、Hermes 状态、MCP StreamableHTTP、身份 token、严格认证边界、客户 Case、文档附件、渠道流水、项目任务、内容发布、分析和审计日志，并自动清理临时数据 |
+| 自动交付烟测 | `./scripts/hermes smoke`、`./scripts/hermes smoke-strict` | 通过 | 脚本化验证健康、Hermes 状态、MCP StreamableHTTP、身份 token、严格认证边界、客户 Case、文档附件、渠道流水、项目任务、交付记录、项目/交付附件、内容发布、分析和审计日志，并自动清理临时数据 |
 | REST 操作审计 | `/api/crazor/audit-logs` | 通过 | API token 写入记录 actor/source/action/entity/payload_hash |
 | MCP SSE 操作审计 | `/mcp/sse` + `/api/crazor/audit-logs` | 通过 | Agent token 工具写入记录 actor/source/action/entity/payload_hash |
 | MCP StreamableHTTP 操作审计 | `POST /mcp` + `/api/crazor/audit-logs` | 通过 | Agent token 工具写入记录 actor/source/action/entity/payload_hash |

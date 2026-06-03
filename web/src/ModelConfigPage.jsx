@@ -37,7 +37,7 @@ import {
  import { ViewFrame } from "@/components/view-frame"
  import { useI18n } from "@/i18n"
  import { cn } from "@/lib/utils"
- import { LOCAL_MODEL_PRESETS, buildModelConfigState } from "@/components/model-config-utils"
+ import { LOCAL_MODEL_PRESETS, buildModelConfigState, getPrimaryModelValidationError } from "@/components/model-config-utils"
 
 function StatCard({ label, value, hint, accentClass = "" }) {
   return (
@@ -386,6 +386,11 @@ export default function ModelConfigPage() {
       apiMode: String(overrides?.apiMode ?? (primaryModelConfig.apiMode || "")).trim(),
       contextLength: primaryModelConfig.contextLength ?? null,
       clearFields,
+    }
+
+    const validationError = getPrimaryModelValidationError(nextConfig)
+    if (validationError) {
+      throw new Error(validationError)
     }
 
     await savePrimaryModelConfig(nextConfig)

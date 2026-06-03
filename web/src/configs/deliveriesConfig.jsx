@@ -1,12 +1,22 @@
 // Copyright (c) 2026 MeeJoy
 
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   AlertTriangleIcon,
   CalendarClockIcon,
   CheckCircle2Icon,
+  DownloadIcon,
+  EyeIcon,
+  FileTextIcon,
   PackageIcon,
+  PaperclipIcon,
+  Trash2Icon,
+  UploadIcon,
+  XIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 import { BadgeCell } from "@/components/data-view/DataGrid"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 const DELIVERY_TYPES = ["企业培训", "课程二开", "软件开发", "AI系统部署", "咨询服务", "资料交付"]
@@ -219,6 +229,7 @@ export default {
     detailTitleKey: "title",
     detailIcon: PackageIcon,
     detailIconBg: "bg-blue-500/10 text-blue-600",
+    detailMaxWidth: "max-w-2xl",
     detailSubtitle: (item) => [item.contact_name, item.project_name, item.delivery_type].filter(Boolean).join(" · "),
     detailBadges: (item) => [
       { label: item.stage, cls: STAGE_COLORS[item.stage] || "bg-zinc-100 text-zinc-600" },
@@ -235,5 +246,262 @@ export default {
       { key: "risks", label: "风险" , render: formatList },
       { key: "remark", label: "备注" },
     ],
+    detailExtra: DeliveryAttachmentsPanel,
   },
+}
+
+function DeliveryAttachmentsPanel({ item }) {
+  const [attachments, setAttachments] = useState([])
+  const [policy, setPolicy] = useState(null)
+  const [category, setCategory] = useState("交付材料")
+  const [activePreview, setActivePreview] = useState(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef(null)
+
+  const load = useCallback(async () => {
+    try {
+      const [attachmentsResp, policyResp] = await Promise.all([
+        fetch(`/api/crazor/deliveries/${encodeURIComponent(item.id)}/attachments`),
+        fetch("/api/crazor/attachments/policy"),
+      ])
+      setAttachments(attachmentsResp.ok ? await attachmentsResp.json() : [])
+      setPolicy(policyResp.ok ? await policyResp.json() : null)
+    } catch {
+      setAttachments([])
+    }
+  }, [item.id])
+
+  useEffect(() => { load() }, [load])
+
+  const handleUpload = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const policyError = validateAttachmentFile(file, policy)
+    if (policyError) {
+      toast.error(policyError)
+      event.target.value = ""
+      return
+    }
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+      formData.append("category", category || "交付材料")
+      const resp = await fetch(`/api/crazor/deliveries/${encodeURIComponent(item.id)}/attachments`, {
+        method: "POST",
+        body: formData,
+      })
+      await parseJsonResponse(resp)
+      toast.success("交付附件已归档")
+      await load()
+    } catch (error) {
+      toast.error("交付附件上传失败", { description: String(error?.message || error) })
+    } finally {
+      setUploading(false)
+      event.target.value = ""
+    }
+  }
+
+  const handlePreview = async (attachment) => {
+    if (!attachment?.preview_url) return
+    setPreviewLoading(true)
+    try {
+      const preview = await getJson(attachment.preview_url)
+      setActivePreview({ ...preview, attachment })
+    } catch (error) {
+      toast.error("附件预览失败", { description: String(error?.message || error) })
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  const handleDelete = async (attachment) => {
+    if (!attachment?.download_url) return
+    try {
+      const resp = await fetch(attachment.download_url, { method: "DELETE" })
+      await parseJsonResponse(resp)
+      toast.success("交付附件已删除")
+      if (activePreview?.attachment?.id === attachment.id) setActivePreview(null)
+      await load()
+    } catch (error) {
+      toast.error("附件删除失败", { description: String(error?.message || error) })
+    }
+  }
+
+  const categories = policy?.categories?.length ? policy.categories : ["交付材料", "合同", "课件", "交付包", "验收材料"]
+
+  return (
+    <div className="border-t pt-3">
+      <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-[11px] font-medium text-muted-foreground">交付附件 ({attachments.length})</div>
+          {policy && (
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              单个附件不超过 {formatFileSize(policy.max_bytes)}，允许 {formatAttachmentExtensions(policy.allowed_extensions)}
+            </div>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <select
+            value={category}
+            onChange={(event) => setCategory(event.target.value)}
+            className="h-7 rounded-md border bg-background px-2 text-[11px]"
+          >
+            {categories.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploading} className="h-7">
+            <UploadIcon className="size-3" />
+            {uploading ? "上传中" : "上传"}
+          </Button>
+          <input ref={fileInputRef} type="file" accept={policy?.accept || undefined} className="hidden" onChange={handleUpload} />
+        </div>
+      </div>
+
+      {attachments.length === 0 ? (
+        <EmptyLine>暂无交付附件</EmptyLine>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {attachments.map((attachment) => (
+            <div key={attachment.id || attachment.name} className="rounded-md border px-2.5 py-2 text-[12px]">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 items-start gap-1.5">
+                  <PaperclipIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span className="truncate font-medium">{attachment.name}</span>
+                      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{attachment.category || "交付材料"}</span>
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      {formatFileSize(attachment.size)} · {formatDateTime(attachment.updated_at)}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {attachment.can_preview && (
+                    <Button size="icon-xs" variant="ghost" onClick={() => void handlePreview(attachment)} disabled={previewLoading} aria-label="预览交付附件">
+                      <EyeIcon className="size-3" />
+                    </Button>
+                  )}
+                  <Button asChild size="icon-xs" variant="ghost" aria-label="下载交付附件">
+                    <a href={attachment.download_url} download={attachment.name}>
+                      <DownloadIcon className="size-3" />
+                    </a>
+                  </Button>
+                  <Button size="icon-xs" variant="ghost" onClick={() => void handleDelete(attachment)} aria-label="删除交付附件">
+                    <Trash2Icon className="size-3" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activePreview && (
+        <AttachmentPreviewPanel preview={activePreview} onClose={() => setActivePreview(null)} />
+      )}
+    </div>
+  )
+}
+
+async function getJson(url) {
+  const resp = await fetch(url)
+  return parseJsonResponse(resp)
+}
+
+async function parseJsonResponse(resp) {
+  const body = await resp.json().catch(() => null)
+  if (!resp.ok) {
+    throw new Error(body?.error || body?.message || `请求失败：${resp.status}`)
+  }
+  return body
+}
+
+function formatFileSize(value) {
+  const size = Number(value || 0)
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+function formatDateTime(value) {
+  if (!value) return "-"
+  try {
+    return new Date(value).toLocaleString("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  } catch {
+    return String(value)
+  }
+}
+
+function formatAttachmentExtensions(extensions) {
+  const list = Array.isArray(extensions) ? extensions : []
+  if (list.includes("*")) return "全部类型"
+  if (list.length === 0) return "默认类型"
+  return list.map((ext) => `.${ext}`).join("、")
+}
+
+function attachmentExtension(filename) {
+  const name = String(filename || "")
+  const dotIndex = name.lastIndexOf(".")
+  if (dotIndex <= 0 || dotIndex === name.length - 1) return ""
+  return name.slice(dotIndex + 1).toLowerCase()
+}
+
+function validateAttachmentFile(file, policy) {
+  if (!policy) return ""
+  if (policy.max_bytes && file.size > Number(policy.max_bytes)) {
+    return `附件不能超过 ${formatFileSize(policy.max_bytes)}`
+  }
+  const allowed = Array.isArray(policy.allowed_extensions) ? policy.allowed_extensions : []
+  if (allowed.length > 0 && !allowed.includes("*")) {
+    const ext = attachmentExtension(file.name)
+    if (!ext || !allowed.includes(ext)) {
+      return `不支持 .${ext || "无扩展名"} 文件`
+    }
+  }
+  return ""
+}
+
+function AttachmentPreviewPanel({ preview, onClose }) {
+  return (
+    <div className="mt-2 rounded-md border bg-muted/20 p-2.5 text-[12px]">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-1.5 font-medium">
+            <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{preview.name || preview.attachment?.name || "附件预览"}</span>
+          </div>
+          <div className="text-[11px] text-muted-foreground">{formatFileSize(preview.size)} · {preview.mime_type || preview.kind || "file"}</div>
+        </div>
+        <Button size="icon-xs" variant="ghost" onClick={onClose} aria-label="关闭附件预览">
+          <XIcon className="size-3" />
+        </Button>
+      </div>
+      {!preview.previewable ? (
+        <EmptyLine>{preview.reason || "该附件暂不支持预览，请下载查看"}</EmptyLine>
+      ) : preview.kind === "image" ? (
+        <div className="overflow-hidden rounded-md border bg-background">
+          <img
+            src={`data:${preview.mime_type || "image/png"};base64,${preview.content_base64 || ""}`}
+            alt={preview.name || "附件预览"}
+            className="max-h-64 w-full object-contain"
+          />
+        </div>
+      ) : (
+        <pre className="max-h-64 overflow-auto rounded-md border bg-background p-2 text-[11px] leading-5 whitespace-pre-wrap break-words">
+          {preview.content || ""}
+        </pre>
+      )}
+    </div>
+  )
+}
+
+function EmptyLine({ children }) {
+  return <div className="rounded-md border border-dashed px-2.5 py-2 text-[12px] text-muted-foreground">{children}</div>
 }

@@ -6,7 +6,9 @@ import assert from "node:assert/strict"
 import {
   buildModelConfigState,
   buildSelectableModelOptions,
+  getPrimaryModelValidationError,
   getPrimaryModelConfig,
+  isImageOnlyPrimaryModel,
 } from "./model-config-utils.js"
 
 test("buildModelConfigState groups provider credentials into provider cards", () => {
@@ -227,4 +229,15 @@ test("buildSelectableModelOptions collects configured provider and special model
   assert.equal(options[0].source, "provider")
   assert.equal(options[2].source, "local")
   assert.equal(options[3].source, "session")
+})
+
+test("image-only models are rejected as primary chat models", () => {
+  assert.equal(isImageOnlyPrimaryModel("gpt-image-1.5"), true)
+  assert.equal(isImageOnlyPrimaryModel("chatgpt-image-latest"), true)
+  assert.equal(isImageOnlyPrimaryModel("gpt-5"), false)
+  assert.match(
+    getPrimaryModelValidationError({ model: "gpt-image-1.5" }),
+    /主对话模型不能使用 gpt-image-1\.5/,
+  )
+  assert.equal(getPrimaryModelValidationError({ model: "gpt-5" }), "")
 })

@@ -74,7 +74,12 @@ const CRAZOR_REQUIRE_BUSINESS_READ_TOKEN = truthyEnv(
   process.env.CRAZOR_REQUIRE_READ_TOKEN ||
   process.env.CRAZOR_REQUIRE_TOKEN_AUTH,
 )
-const CRAZOR_CONTACT_ATTACHMENTS_ROOT = resolve(CRAZOR_HOME, 'attachments', 'contacts')
+const CRAZOR_ATTACHMENTS_ROOT = resolve(CRAZOR_HOME, 'attachments')
+const CRAZOR_CONTACT_ATTACHMENTS_ROOT = resolve(CRAZOR_ATTACHMENTS_ROOT, 'contacts')
+const CRAZOR_PROJECT_ATTACHMENTS_ROOT = resolve(CRAZOR_ATTACHMENTS_ROOT, 'projects')
+const CRAZOR_DELIVERY_ATTACHMENTS_ROOT = resolve(CRAZOR_ATTACHMENTS_ROOT, 'deliveries')
+const CRAZOR_ATTACHMENT_META_FILE = '_attachments.json'
+const CRAZOR_ATTACHMENT_CATEGORIES = ['需求材料', '合同', '课件', '交付包', '验收材料', '项目材料', '交付材料', '其他']
 const DEFAULT_ATTACHMENT_EXTENSIONS = [
   'txt', 'md', 'csv', 'json', 'pdf',
   'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
@@ -598,6 +603,17 @@ function isLocalModelBaseUrl(baseUrl: string): boolean {
   }
 }
 
+function isImageOnlyPrimaryModel(model: string): boolean {
+  const normalized = cleanString(model).toLowerCase()
+  if (!normalized) return false
+  if (normalized === 'chatgpt-image-latest') return true
+  return normalized.startsWith('gpt-image-') || normalized.startsWith('dall-e-')
+}
+
+function primaryModelReadinessError(model: string): string {
+  return `主对话模型 ${model} 属于图片生成模型，客户聊天会失败；OpenAI Images API 请改用 gpt-image-1.5、gpt-image-1 或 gpt-image-1-mini，Responses API 出图请使用 gpt-5 或 gpt-4.1 搭配 image_generation 工具`
+}
+
 function firstGatewayModelId(payload: unknown): string {
   const record = asRecord(payload)
   const models = Array.isArray(record.data) ? record.data : []
@@ -667,6 +683,9 @@ async function readModelConfigReadiness(): Promise<DeliveryReadinessCheck> {
 
     if (!model) {
       return deliveryCheck('model-config', '模型配置', 'error', '未配置默认模型，客户首次对话会失败')
+    }
+    if (isImageOnlyPrimaryModel(model)) {
+      return deliveryCheck('model-config', '模型配置', 'error', primaryModelReadinessError(model))
     }
     if (customProvider && !baseUrl) {
       return deliveryCheck('model-config', '模型配置', 'error', `模型 ${model} 使用自定义 Provider，但未配置 Base URL`)
@@ -1118,6 +1137,9 @@ function deriveRestEntityId(segments: string[], responseBody: any, searchParams:
   if (segments[0] === 'ai-employees' && segments[2] === 'runs') {
     return stringOrEmpty(segments[1])
   }
+  if (segments[2] === 'attachments') {
+    return stringOrEmpty(responseBody?.entity_id) || stringOrEmpty(segments[1])
+  }
   return (
     stringOrEmpty(responseBody?.id) ||
     stringOrEmpty(searchParams.get('id')) ||
@@ -1143,6 +1165,8 @@ function deriveAuditAction(method: string, lastSegment: string) {
 function deriveAuditEntity(segments: string[]) {
   if (segments[0] === 'contacts' && segments[2] === 'docs') return 'contact_doc'
   if (segments[0] === 'contacts' && segments[2] === 'attachments') return 'contact_attachment'
+  if (segments[0] === 'projects' && segments[2] === 'attachments') return 'project_attachment'
+  if (segments[0] === 'deliveries' && segments[2] === 'attachments') return 'delivery_attachment'
   if (segments[0] === 'contacts' && segments[2] === 'delivery-kickoff') return 'delivery'
   if (segments[0] === 'channels' && segments[2] === 'referrals') return 'channel_referral'
   if (segments[0] === 'doc-files') return 'doc_file'
@@ -1212,6 +1236,7 @@ function attachmentPolicy() {
     max_mb: Number((CRAZOR_ATTACHMENT_MAX_BYTES / 1024 / 1024).toFixed(1)),
     preview_max_bytes: CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES,
     allowed_extensions: allowed,
+    categories: CRAZOR_ATTACHMENT_CATEGORIES,
     accept: allowed.includes('*') ? '' : allowed.map((ext) => `.${ext}`).join(','),
   }
 }
@@ -1221,15 +1246,6 @@ function isAttachmentExtensionAllowed(filename: string): boolean {
   if (allowed.includes('*')) return true
   const ext = attachmentExtension(filename)
   return Boolean(ext && allowed.includes(ext))
-}
-
-function contactAttachmentsDir(contactId: string): string {
-  const safeContactId = sanitizePathSegment(contactId)
-  const dir = resolve(CRAZOR_CONTACT_ATTACHMENTS_ROOT, safeContactId)
-  if (!dir.startsWith(`${CRAZOR_CONTACT_ATTACHMENTS_ROOT}/`) && dir !== CRAZOR_CONTACT_ATTACHMENTS_ROOT) {
-    throw new Error('invalid contact attachment path')
-  }
-  return dir
 }
 
 function sanitizePathSegment(value: unknown): string {
@@ -1294,14 +1310,74 @@ function attachmentMimeType(filename: string): string {
   return mimeMap[ext] || 'application/octet-stream'
 }
 
-function contactAttachmentResponse(contactId: string, name: string, stat: any) {
-  const encodedContactId = encodeURIComponent(contactId)
+type AttachmentEntityType = 'contacts' | 'projects' | 'deliveries'
+
+function attachmentEntityRoot(entityType: AttachmentEntityType): string {
+  if (entityType === 'contacts') return CRAZOR_CONTACT_ATTACHMENTS_ROOT
+  if (entityType === 'projects') return CRAZOR_PROJECT_ATTACHMENTS_ROOT
+  return CRAZOR_DELIVERY_ATTACHMENTS_ROOT
+}
+
+function attachmentEntityExists(entityType: AttachmentEntityType, entityId: string): boolean {
+  if (entityType === 'contacts') return Boolean(getContact(entityId))
+  if (entityType === 'deliveries') return Boolean(getDelivery(entityId))
+  return listProjects().some((project: any) => project.id === entityId)
+}
+
+function attachmentDefaultCategory(entityType: AttachmentEntityType): string {
+  if (entityType === 'contacts') return '需求材料'
+  if (entityType === 'projects') return '项目材料'
+  return '交付材料'
+}
+
+function entityAttachmentsDir(entityType: AttachmentEntityType, entityId: string): string {
+  const root = attachmentEntityRoot(entityType)
+  const safeEntityId = sanitizePathSegment(entityId)
+  const dir = resolve(root, safeEntityId)
+  if (!dir.startsWith(`${root}/`) && dir !== root) {
+    throw new Error('invalid attachment path')
+  }
+  return dir
+}
+
+function attachmentMetaPath(dir: string): string {
+  return resolve(dir, CRAZOR_ATTACHMENT_META_FILE)
+}
+
+function readAttachmentMeta(dir: string): Record<string, any> {
+  const filePath = attachmentMetaPath(dir)
+  if (!existsSync(filePath)) return {}
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf-8'))
+  } catch {
+    return {}
+  }
+}
+
+function writeAttachmentMeta(dir: string, meta: Record<string, any>): void {
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(attachmentMetaPath(dir), JSON.stringify(meta, null, 2), 'utf-8')
+}
+
+function normalizeAttachmentCategory(value: unknown, fallback: string): string {
+  const category = String(value || '').trim()
+  return category || fallback
+}
+
+function attachmentResponse(entityType: AttachmentEntityType, entityId: string, name: string, stat: any, meta?: Record<string, any>) {
+  const encodedEntityId = encodeURIComponent(entityId)
   const encodedName = encodeURIComponent(name)
   const kind = attachmentKind(name)
+  const itemMeta = meta || {}
   return {
     id: name,
     name,
-    path: `attachments/contacts/${sanitizePathSegment(contactId)}/${name}`,
+    entity_type: entityType,
+    entity_id: entityId,
+    path: `attachments/${entityType}/${sanitizePathSegment(entityId)}/${name}`,
+    category: itemMeta.category || attachmentDefaultCategory(entityType),
+    note: itemMeta.note || '',
+    original_name: itemMeta.original_name || name,
     size: stat.size,
     extension: attachmentExtension(name),
     kind,
@@ -1309,27 +1385,149 @@ function contactAttachmentResponse(contactId: string, name: string, stat: any) {
     can_preview: kind !== 'file' && stat.size <= CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES,
     created_at: stat.birthtime.toISOString(),
     updated_at: stat.mtime.toISOString(),
-    download_url: `/api/crazor/contacts/${encodedContactId}/attachments/${encodedName}`,
-    preview_url: `/api/crazor/contacts/${encodedContactId}/attachments/${encodedName}/preview`,
+    uploaded_at: itemMeta.uploaded_at || stat.birthtime.toISOString(),
+    download_url: `/api/crazor/${entityType}/${encodedEntityId}/attachments/${encodedName}`,
+    preview_url: `/api/crazor/${entityType}/${encodedEntityId}/attachments/${encodedName}/preview`,
   }
 }
 
-function listContactAttachments(contactId: string) {
-  const dir = contactAttachmentsDir(contactId)
+function listEntityAttachments(entityType: AttachmentEntityType, entityId: string) {
+  const dir = entityAttachmentsDir(entityType, entityId)
   if (!existsSync(dir)) return []
+  const meta = readAttachmentMeta(dir)
   return readdirSync(dir)
-    .filter((name) => name !== '.DS_Store')
+    .filter((name) => name !== '.DS_Store' && name !== CRAZOR_ATTACHMENT_META_FILE)
     .flatMap((name) => {
       const filePath = resolve(dir, name)
       try {
         const stat = statSync(filePath)
         if (!stat.isFile()) return []
-        return [contactAttachmentResponse(contactId, name, stat)]
+        return [attachmentResponse(entityType, entityId, name, stat, meta[name])]
       } catch {
         return []
       }
     })
     .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))
+}
+
+function listContactAttachments(contactId: string) {
+  return listEntityAttachments('contacts', contactId)
+}
+
+async function uploadEntityAttachment(c: any, entityType: AttachmentEntityType, entityId: string) {
+  if (!attachmentEntityExists(entityType, entityId)) return c.json({ error: 'not found' }, 404)
+
+  const body = await c.req.parseBody() as Record<string, any>
+  const rawFile = Array.isArray(body.file) ? body.file[0] : body.file
+  if (!rawFile || typeof rawFile.arrayBuffer !== 'function') {
+    return c.json({ error: 'file is required' }, 400)
+  }
+
+  const dir = entityAttachmentsDir(entityType, entityId)
+  mkdirSync(dir, { recursive: true })
+
+  const originalName = sanitizeAttachmentFilename(rawFile.name || body.filename || 'attachment')
+  if (!isAttachmentExtensionAllowed(originalName)) {
+    return c.json({
+      error: 'attachment type is not allowed',
+      allowed_extensions: CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS,
+    }, 415)
+  }
+
+  if (Number(rawFile.size || 0) > CRAZOR_ATTACHMENT_MAX_BYTES) {
+    return c.json({
+      error: 'attachment is too large',
+      max_bytes: CRAZOR_ATTACHMENT_MAX_BYTES,
+    }, 413)
+  }
+
+  const filename = uniqueAttachmentName(dir, originalName)
+  const filePath = resolve(dir, filename)
+  const arrayBuffer = await rawFile.arrayBuffer()
+  const fileBuffer = Buffer.from(arrayBuffer)
+  if (fileBuffer.byteLength > CRAZOR_ATTACHMENT_MAX_BYTES) {
+    return c.json({
+      error: 'attachment is too large',
+      max_bytes: CRAZOR_ATTACHMENT_MAX_BYTES,
+    }, 413)
+  }
+  writeFileSync(filePath, fileBuffer)
+
+  const meta = readAttachmentMeta(dir)
+  meta[filename] = {
+    category: normalizeAttachmentCategory(body.category, attachmentDefaultCategory(entityType)),
+    note: stringOrEmpty(body.note).trim(),
+    original_name: originalName,
+    uploaded_at: new Date().toISOString(),
+  }
+  writeAttachmentMeta(dir, meta)
+
+  const stat = statSync(filePath)
+  return c.json(attachmentResponse(entityType, entityId, filename, stat, meta[filename]), 201)
+}
+
+function previewEntityAttachment(c: any, entityType: AttachmentEntityType, entityId: string, filename: string) {
+  if (!attachmentEntityExists(entityType, entityId)) return c.json({ error: 'not found' }, 404)
+  const safeFilename = sanitizeAttachmentFilename(filename)
+  const filePath = resolve(entityAttachmentsDir(entityType, entityId), safeFilename)
+  if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
+
+  const stat = statSync(filePath)
+  const kind = attachmentKind(safeFilename)
+  const base = {
+    name: safeFilename,
+    kind,
+    size: stat.size,
+    mime_type: attachmentMimeType(safeFilename),
+    max_preview_bytes: CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES,
+  }
+
+  if (kind === 'file') {
+    return c.json({ ...base, previewable: false, reason: '该附件类型暂不支持预览，请下载查看' })
+  }
+  if (stat.size > CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES) {
+    return c.json({ ...base, previewable: false, reason: '附件超过预览大小限制，请下载查看' })
+  }
+  if (kind === 'text') {
+    return c.json({
+      ...base,
+      previewable: true,
+      content: readFileSync(filePath, 'utf-8'),
+    })
+  }
+  return c.json({
+    ...base,
+    previewable: true,
+    content_base64: Buffer.from(readFileSync(filePath)).toString('base64'),
+  })
+}
+
+function downloadEntityAttachment(c: any, entityType: AttachmentEntityType, entityId: string, filename: string) {
+  if (!attachmentEntityExists(entityType, entityId)) return c.json({ error: 'not found' }, 404)
+  const safeFilename = sanitizeAttachmentFilename(filename)
+  const filePath = resolve(entityAttachmentsDir(entityType, entityId), safeFilename)
+  if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
+  return new Response(readFileSync(filePath), {
+    headers: {
+      'Content-Type': attachmentMimeType(safeFilename),
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(safeFilename)}`,
+    },
+  })
+}
+
+function deleteEntityAttachment(c: any, entityType: AttachmentEntityType, entityId: string, filename: string) {
+  if (!attachmentEntityExists(entityType, entityId)) return c.json({ error: 'not found' }, 404)
+  const safeFilename = sanitizeAttachmentFilename(filename)
+  const dir = entityAttachmentsDir(entityType, entityId)
+  const filePath = resolve(dir, safeFilename)
+  if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
+  rmSync(filePath)
+  const meta = readAttachmentMeta(dir)
+  if (meta[safeFilename]) {
+    delete meta[safeFilename]
+    writeAttachmentMeta(dir, meta)
+  }
+  return c.json({ ok: true, id: safeFilename, entity_type: entityType, entity_id: entityId })
 }
 
 function buildDocSearchSnippet(content: string, query: string): string {
@@ -2995,108 +3193,19 @@ app.get('/api/crazor/contacts/:id/attachments', (c) => {
 })
 
 app.post('/api/crazor/contacts/:id/attachments', async (c) => {
-  const contactId = c.req.param('id')
-  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
-
-  const body = await c.req.parseBody() as Record<string, any>
-  const rawFile = Array.isArray(body.file) ? body.file[0] : body.file
-  if (!rawFile || typeof rawFile.arrayBuffer !== 'function') {
-    return c.json({ error: 'file is required' }, 400)
-  }
-
-  const dir = contactAttachmentsDir(contactId)
-  mkdirSync(dir, { recursive: true })
-
-  const originalName = sanitizeAttachmentFilename(rawFile.name || body.filename || 'attachment')
-  if (!isAttachmentExtensionAllowed(originalName)) {
-    return c.json({
-      error: 'attachment type is not allowed',
-      allowed_extensions: CRAZOR_ATTACHMENT_ALLOWED_EXTENSIONS,
-    }, 415)
-  }
-
-  if (Number(rawFile.size || 0) > CRAZOR_ATTACHMENT_MAX_BYTES) {
-    return c.json({
-      error: 'attachment is too large',
-      max_bytes: CRAZOR_ATTACHMENT_MAX_BYTES,
-    }, 413)
-  }
-
-  const filename = uniqueAttachmentName(dir, originalName)
-  const filePath = resolve(dir, filename)
-  const arrayBuffer = await rawFile.arrayBuffer()
-  const fileBuffer = Buffer.from(arrayBuffer)
-  if (fileBuffer.byteLength > CRAZOR_ATTACHMENT_MAX_BYTES) {
-    return c.json({
-      error: 'attachment is too large',
-      max_bytes: CRAZOR_ATTACHMENT_MAX_BYTES,
-    }, 413)
-  }
-  writeFileSync(filePath, fileBuffer)
-
-  const stat = statSync(filePath)
-  return c.json(contactAttachmentResponse(contactId, filename, stat), 201)
+  return uploadEntityAttachment(c, 'contacts', c.req.param('id'))
 })
 
 app.get('/api/crazor/contacts/:id/attachments/:filename/preview', (c) => {
-  const contactId = c.req.param('id')
-  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
-  const filename = sanitizeAttachmentFilename(c.req.param('filename'))
-  const filePath = resolve(contactAttachmentsDir(contactId), filename)
-  if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
-
-  const stat = statSync(filePath)
-  const kind = attachmentKind(filename)
-  const base = {
-    name: filename,
-    kind,
-    size: stat.size,
-    mime_type: attachmentMimeType(filename),
-    max_preview_bytes: CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES,
-  }
-
-  if (kind === 'file') {
-    return c.json({ ...base, previewable: false, reason: '该附件类型暂不支持预览，请下载查看' })
-  }
-  if (stat.size > CRAZOR_ATTACHMENT_PREVIEW_MAX_BYTES) {
-    return c.json({ ...base, previewable: false, reason: '附件超过预览大小限制，请下载查看' })
-  }
-  if (kind === 'text') {
-    return c.json({
-      ...base,
-      previewable: true,
-      content: readFileSync(filePath, 'utf-8'),
-    })
-  }
-  return c.json({
-    ...base,
-    previewable: true,
-    content_base64: Buffer.from(readFileSync(filePath)).toString('base64'),
-  })
+  return previewEntityAttachment(c, 'contacts', c.req.param('id'), c.req.param('filename'))
 })
 
 app.get('/api/crazor/contacts/:id/attachments/:filename', (c) => {
-  const contactId = c.req.param('id')
-  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
-  const filename = sanitizeAttachmentFilename(c.req.param('filename'))
-  const filePath = resolve(contactAttachmentsDir(contactId), filename)
-  if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
-  return new Response(readFileSync(filePath), {
-    headers: {
-      'Content-Type': attachmentMimeType(filename),
-      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
-    },
-  })
+  return downloadEntityAttachment(c, 'contacts', c.req.param('id'), c.req.param('filename'))
 })
 
 app.delete('/api/crazor/contacts/:id/attachments/:filename', (c) => {
-  const contactId = c.req.param('id')
-  if (!getContact(contactId)) return c.json({ error: 'not found' }, 404)
-  const filename = sanitizeAttachmentFilename(c.req.param('filename'))
-  const filePath = resolve(contactAttachmentsDir(contactId), filename)
-  if (!existsSync(filePath)) return c.json({ error: 'not found' }, 404)
-  rmSync(filePath)
-  return c.json({ ok: true, id: filename })
+  return deleteEntityAttachment(c, 'contacts', c.req.param('id'), c.req.param('filename'))
 })
 
 // --- Content Pieces ---
@@ -3298,6 +3407,28 @@ app.delete('/api/crazor/projects/:id', (c) => {
   return c.json({ ok: true })
 })
 
+app.get('/api/crazor/projects/:id/attachments', (c) => {
+  const projectId = c.req.param('id')
+  if (!attachmentEntityExists('projects', projectId)) return c.json({ error: 'not found' }, 404)
+  return c.json(listEntityAttachments('projects', projectId))
+})
+
+app.post('/api/crazor/projects/:id/attachments', async (c) => {
+  return uploadEntityAttachment(c, 'projects', c.req.param('id'))
+})
+
+app.get('/api/crazor/projects/:id/attachments/:filename/preview', (c) => {
+  return previewEntityAttachment(c, 'projects', c.req.param('id'), c.req.param('filename'))
+})
+
+app.get('/api/crazor/projects/:id/attachments/:filename', (c) => {
+  return downloadEntityAttachment(c, 'projects', c.req.param('id'), c.req.param('filename'))
+})
+
+app.delete('/api/crazor/projects/:id/attachments/:filename', (c) => {
+  return deleteEntityAttachment(c, 'projects', c.req.param('id'), c.req.param('filename'))
+})
+
 // --- Deliveries ---
 app.get('/api/crazor/deliveries', (c) => {
   return c.json(listDeliveries({
@@ -3331,6 +3462,28 @@ app.patch('/api/crazor/deliveries/:id', async (c) => {
 app.delete('/api/crazor/deliveries/:id', (c) => {
   deleteDelivery(c.req.param('id'))
   return c.json({ ok: true })
+})
+
+app.get('/api/crazor/deliveries/:id/attachments', (c) => {
+  const deliveryId = c.req.param('id')
+  if (!attachmentEntityExists('deliveries', deliveryId)) return c.json({ error: 'not found' }, 404)
+  return c.json(listEntityAttachments('deliveries', deliveryId))
+})
+
+app.post('/api/crazor/deliveries/:id/attachments', async (c) => {
+  return uploadEntityAttachment(c, 'deliveries', c.req.param('id'))
+})
+
+app.get('/api/crazor/deliveries/:id/attachments/:filename/preview', (c) => {
+  return previewEntityAttachment(c, 'deliveries', c.req.param('id'), c.req.param('filename'))
+})
+
+app.get('/api/crazor/deliveries/:id/attachments/:filename', (c) => {
+  return downloadEntityAttachment(c, 'deliveries', c.req.param('id'), c.req.param('filename'))
+})
+
+app.delete('/api/crazor/deliveries/:id/attachments/:filename', (c) => {
+  return deleteEntityAttachment(c, 'deliveries', c.req.param('id'), c.req.param('filename'))
 })
 
 // --- Tasks ---

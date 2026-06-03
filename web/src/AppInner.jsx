@@ -186,7 +186,7 @@ import { useFileManagerState } from "@/components/file-manager-state"
 import { InputArea } from "@/components/InputArea"
 import { ToolActivityPanel } from "@/components/ToolActivityPanel"
 import { useTaskSteps } from "@/components/TaskStepTracker"
-import { buildSelectableModelOptions } from "@/components/model-config-utils"
+import { buildSelectableModelOptions, getPrimaryModelValidationError } from "@/components/model-config-utils"
 
 const SessionsView = lazy(() => import("@/SessionsView"))
 const HomeView = lazy(() => import("@/HomeView"))
@@ -2273,6 +2273,14 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
 
     const nextProvider = sidebarModelDraft.provider
     const nextModel = sidebarModelDraft.model
+    const validationError = getPrimaryModelValidationError({ model: nextModel })
+
+    if (validationError) {
+      toast.error(t("app.sidebarModelSaveError"), {
+        description: validationError,
+      })
+      return
+    }
 
     setSidebarModelSaving(true)
     try {
