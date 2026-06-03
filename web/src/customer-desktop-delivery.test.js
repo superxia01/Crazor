@@ -29,7 +29,7 @@ const deliveryIdentitySource = readFileSync(resolve(repoRoot, "web/src/api/deliv
 const customerDeliveryGateSource = readFileSync(resolve(repoRoot, "web/src/CustomerDeliveryGate.jsx"), "utf8")
 const remoteApiSource = readFileSync(resolve(repoRoot, "web/src/api/remote-api-base.js"), "utf8")
 const settingsModalSource = readFileSync(resolve(repoRoot, "web/src/SettingsModal.jsx"), "utf8")
-const homeViewSource = readFileSync(resolve(repoRoot, "web/src/HomeView.jsx"), "utf8")
+const homeViewSource = readFileSync(resolve(repoRoot, "web/src/home/HomeView.jsx"), "utf8")
 const accessCodeLoginCardSource = readFileSync(resolve(repoRoot, "web/src/components/AccessCodeLoginCard.jsx"), "utf8")
 const loginDialogSource = readFileSync(resolve(repoRoot, "web/src/components/LoginDialog.jsx"), "utf8")
 const loginPageSource = readFileSync(resolve(repoRoot, "web/src/pages/LoginPage.jsx"), "utf8")
@@ -377,21 +377,9 @@ test("backend exposes a public delivery readiness self-check for installed clien
   )
 })
 
-test("desktop WeChat login uses backend callback plus client polling", () => {
+test("desktop access-code login stores customer credentials", () => {
   assert.ok(
-    serverIndex.includes("wechatLoginSessions") &&
-      serverIndex.includes("app.get('/api/auth/wechat/session/:state'") &&
-      serverIndex.includes("const redirectUri = `${backendOrigin(c)}/api/auth/wechat/callback`") &&
-      serverIndex.includes("WECHAT_APP_ID && WECHAT_APP_SECRET"),
-    "backend should keep a state-bound desktop login session"
-  )
-  assert.ok(
-    loginDialogSource.includes("/api/auth/wechat/session/") &&
-      loginDialogSource.includes("storeCustomerLoginCredentials(data)"),
-    "desktop client should poll the backend login session and store the returned customer login credentials"
-  )
-  assert.ok(
-      loginDialogSource.includes("/api/auth/access-code") &&
+    loginDialogSource.includes("/api/auth/access-code") &&
       loginDialogSource.includes("/api/auth/internal-access-code") &&
       loginDialogSource.includes("buildWorkspaceEntryHref") &&
       loginDialogSource.includes("AccessCodeLoginCard") &&
@@ -408,6 +396,7 @@ test("desktop WeChat login uses backend callback plus client polling", () => {
       loginPageSource.includes("/api/auth/internal-access-code") &&
       loginPageSource.includes("团队内部入口") &&
       loginPageSource.includes("返回客户入口") &&
+      !loginDialogSource.includes("/api/auth/wechat/session/") &&
       authFetchSource.includes("storeCustomerLoginCredentials") &&
       authFetchSource.includes("window.localStorage.setItem(LOGIN_TOKEN_STORAGE_KEY, token)") &&
       authFetchSource.includes("setCrazorAuthToken(data?.actor_token || data?.actorToken || \"\")") &&

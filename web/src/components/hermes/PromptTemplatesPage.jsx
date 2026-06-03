@@ -6,7 +6,7 @@ import {
   DatabaseIcon,
   FilterIcon,
   GlobeIcon,
-  PlugIcon,
+  MessageSquareIcon,
   SearchIcon,
   ServerIcon,
   TagIcon,
@@ -15,18 +15,12 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
-import { Badge } from "@/components/ui/badge"
+import { Avatar, Card, Chip } from "@heroui/react"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { ViewFrame } from "@/components/view-frame"
 import { cn } from "@/lib/utils"
+import { getEmployeeIcon } from "@/components/employeeIconMap"
 
 // --- Categories ---
 
@@ -63,28 +57,39 @@ const META_SECTION = [
   { key: "externalApis", label: "外部 API", icon: GlobeIcon, color: "bg-orange-100 text-orange-700 border-orange-200" },
 ]
 
-function SkillMetaPanel({ meta, trigger, onClose }) {
+function SkillMetaPanel({ meta, trigger, employeeId, onClose }) {
   if (!meta) return null
+  const { icon: EmpIcon, color: iconColor } = getEmployeeIcon(employeeId)
   return (
     <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-background border-l shadow-xl flex flex-col animate-in slide-in-from-right duration-200">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b">
-        <div>
-          <h2 className="text-lg font-semibold">{meta.name}</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">{meta.description}</p>
+        <div className="flex items-center gap-3 min-w-0">
+          <Avatar
+            size="lg"
+            variant="soft"
+            className={cn("shrink-0", iconColor)}>
+            <Avatar.Fallback>
+              <EmpIcon className="size-5" />
+            </Avatar.Fallback>
+          </Avatar>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold">{meta.name}</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">{meta.description}</p>
+          </div>
         </div>
-        <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted transition-colors">
+        <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted transition-colors shrink-0">
           <XIcon className="size-4" />
         </button>
       </div>
 
-      {/* Trigger */}
+      {/* Usage scenarios */}
       {trigger && (
         <div className="px-5 py-3 border-b bg-muted/30">
-          <div className="flex items-center gap-2 text-sm font-medium mb-1">
-            <PlugIcon className="size-3.5 text-muted-foreground" />触发方式
+          <div className="flex items-center gap-2 text-sm font-medium mb-1.5">
+            <MessageSquareIcon className="size-3.5 text-primary" />调用场景举例
           </div>
-          <p className="text-sm text-muted-foreground">{trigger}</p>
+          <p className="text-sm text-muted-foreground leading-relaxed">{trigger.replace(/[\\"""'']/g, "")}</p>
         </div>
       )}
 
@@ -96,14 +101,14 @@ function SkillMetaPanel({ meta, trigger, onClose }) {
           return (
             <div key={key}>
               <div className="flex items-center gap-2 text-sm font-medium mb-2">
-                <Icon className="size-3.5 text-muted-foreground" />{label}
-                <span className="text-xs text-muted-foreground ml-auto">{items.length}</span>
+                <Icon className={cn("size-3.5", color.split(" ").find(c => c.startsWith("text-")))} />{label}
+                <span className={cn("text-xs ml-auto", color.split(" ").find(c => c.startsWith("text-")))}>{items.length}</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {items.map((item) => (
-                  <Badge key={item} variant="outline" className={cn("text-xs font-mono", color)}>
-                    {item}
-                  </Badge>
+                  <Chip key={item} variant="soft" size="sm" className={color}>
+                    <Chip.Label className="font-mono">{item}</Chip.Label>
+                  </Chip>
                 ))}
               </div>
             </div>
@@ -122,52 +127,77 @@ function SkillMetaPanel({ meta, trigger, onClose }) {
   )
 }
 
-function TemplateCard({ template, installed, onInstall, busy, onSelect, selected }) {
+function TemplateCard({ template, installed, onInstall, busy, onSelect, selected, onStartChat }) {
   const isInstalled = installed
+  const { icon: EmpIcon, color: iconColor } = getEmployeeIcon(template.id)
 
   return (
-    <Card className={cn(
-      "group relative overflow-hidden transition-all duration-200 hover:shadow-md hover:border-primary/30 cursor-pointer",
-      isInstalled && "border-emerald-200/60",
-      selected && "ring-2 ring-primary",
-    )} onClick={() => onSelect?.(template)}>
-      {isInstalled && (
-        <div className="absolute top-3 right-3">
-          <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 border-emerald-200">
-            <CheckCircleIcon className="size-3 mr-1" />已安装
-          </Badge>
-        </div>
+    <Card
+      variant="default"
+      className={cn(
+        "group relative h-full transition-all duration-200 hover:shadow-md cursor-pointer",
+        isInstalled && "border-emerald-200/60",
+        selected && "ring-2 ring-primary",
       )}
-
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">{template.name}</CardTitle>
-        <CardDescription className="line-clamp-2">{template.description}</CardDescription>
-        <div className="flex flex-wrap gap-1.5 mt-1.5">
+      onClick={() => onSelect?.(template)}>
+      <Card.Header className="flex-1">
+        <div className="flex items-center gap-3 w-full">
+          <Avatar
+            size="lg"
+            variant="soft"
+            className={cn("shrink-0", iconColor)}>
+            <Avatar.Fallback>
+              <EmpIcon className="size-5" />
+            </Avatar.Fallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <Card.Title className="text-base">{template.name}</Card.Title>
+            <Card.Description className="line-clamp-2">{template.description}</Card.Description>
+          </div>
+        </div>
+        {isInstalled && (
+          <Chip color="success" variant="soft" size="sm" className="absolute top-3 right-3">
+            <Chip.Label className="flex items-center gap-1">
+              <CheckCircleIcon className="size-3" />已安装
+            </Chip.Label>
+          </Chip>
+        )}
+        <div className="flex flex-wrap gap-1.5 mt-2">
           {template.tags?.map((tag) => (
-            <Badge key={tag} variant="outline" className="text-xs">
-              <TagIcon className="size-3 mr-1" />{tag}
-            </Badge>
+            <Chip key={tag} variant="soft" size="sm">
+              <Chip.Label className="flex items-center gap-1">
+                <TagIcon className="size-3" />{tag}
+              </Chip.Label>
+            </Chip>
           ))}
         </div>
-      </CardHeader>
-
-      <CardContent className="pt-0">
-        {template.trigger && (
-          <p className="text-xs text-muted-foreground mb-3 line-clamp-1">
-            触发：{template.trigger}
-          </p>
-        )}
-        <Button size="sm" className="w-full" onClick={(e) => { e.stopPropagation(); onInstall?.(template) }}
-          disabled={isInstalled || busy}
-          variant={isInstalled ? "outline" : "default"}>
-          {busy ? "安装中..." : isInstalled ? "已安装" : "安装使用"}
-        </Button>
-      </CardContent>
+      </Card.Header>
+      <Card.Content className="pt-0 flex-none">
+        <div className="flex gap-2">
+          {isInstalled ? (
+            <>
+              <Button size="sm" className="flex-1" variant="outline" disabled>
+                已安装
+              </Button>
+              <Button size="sm" className="flex-1" variant="default" onClick={(e) => {
+                e.stopPropagation(); onStartChat?.(template.id)
+              }}>
+                对话
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" className="w-full" onClick={(e) => { e.stopPropagation(); onInstall?.(template) }}
+              disabled={busy}>
+              {busy ? "安装中..." : "安装使用"}
+            </Button>
+          )}
+        </div>
+      </Card.Content>
     </Card>
   )
 }
 
-export default function PromptTemplatesPage() {
+export default function PromptTemplatesPage({ onStartChat }) {
   const [activeCategory, setActiveCategory] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [catalog, setCatalog] = useState([])
@@ -280,7 +310,8 @@ export default function PromptTemplatesPage() {
               busy={busyId === template.id}
               selected={selectedId === template.id}
               onInstall={handleInstall}
-              onSelect={handleSelect} />
+              onSelect={handleSelect}
+              onStartChat={onStartChat} />
           ))}
         </div>
 
@@ -298,6 +329,7 @@ export default function PromptTemplatesPage() {
         <SkillMetaPanel
           meta={selectedMeta}
           trigger={selectedTrigger}
+          employeeId={selectedId}
           onClose={() => { setSelectedId(null); setSelectedMeta(null) }}
         />
       )}

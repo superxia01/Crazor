@@ -1,5 +1,5 @@
-import { useRef } from "react"
-import { ZoomInIcon, ZoomOutIcon, RotateCcwIcon, UsersIcon } from "lucide-react"
+import { useRef, useState } from "react"
+import { ZoomInIcon, ZoomOutIcon, RotateCcwIcon, UsersIcon, ChevronDownIcon, SparklesIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useOfficeStore } from "../store"
 
@@ -10,6 +10,7 @@ export default function OfficeToolbar({ sceneRef, onMeeting }) {
   const meetingState = useOfficeStore((s) => s.meetingState)
   const setMeetingState = useOfficeStore((s) => s.setMeetingState)
   const meetingTimer = useRef(null)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const handleZoomIn = () => {
     setZoom(zoom + 0.2)
@@ -26,6 +27,15 @@ export default function OfficeToolbar({ sceneRef, onMeeting }) {
     setTimeout(() => sceneRef.current?.scene.resize(), 0)
   }
 
+  const dismissMeeting = () => {
+    const { charManager, pathfinder } = sceneRef.current || {}
+    if (!charManager || !pathfinder) return
+    setMeetingState("returning")
+    charManager.moveAllToDesks(pathfinder)
+    meetingTimer.current = setTimeout(() => setMeetingState("idle"), 4000)
+    setMenuOpen(false)
+  }
+
   const handleMeeting = () => {
     const { charManager, pathfinder } = sceneRef.current || {}
     if (!charManager || !pathfinder) return
@@ -33,34 +43,62 @@ export default function OfficeToolbar({ sceneRef, onMeeting }) {
     clearTimeout(meetingTimer.current)
 
     if (meetingState === "idle") {
-      // 开会：全员走向会议室
       setMeetingState("going")
       charManager.moveAllToMeeting(pathfinder)
       meetingTimer.current = setTimeout(() => setMeetingState("meeting"), 4000)
-      onMeeting?.()
-    } else if (meetingState === "meeting") {
-      // 散会：全员回工位
-      setMeetingState("returning")
-      charManager.moveAllToDesks(pathfinder)
-      meetingTimer.current = setTimeout(() => setMeetingState("idle"), 4000)
     }
+  }
+
+  const handleSummary = () => {
+    dismissMeeting()
+    onMeeting?.()
   }
 
   return (
     <div className="flex items-center gap-1">
-      <Button
-        variant={meetingState === "meeting" ? "default" : "outline"}
-        size="sm"
-        className="h-7 gap-1.5 text-xs"
-        onClick={handleMeeting}
-        disabled={meetingState === "going" || meetingState === "returning"}
-      >
-        <UsersIcon className="size-3.5" />
-        {meetingState === "idle" && "开会"}
-        {meetingState === "going" && "前往会议室..."}
-        {meetingState === "meeting" && "散会"}
-        {meetingState === "returning" && "回工位..."}
-      </Button>
+      {meetingState === "meeting" ? (
+        <div className="relative flex">
+          <Button
+            size="sm"
+            className="h-7 gap-1.5 text-xs rounded-r-none"
+            onClick={handleSummary}
+          >
+            <SparklesIcon className="size-3.5" />
+            总结
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 w-6 p-0 rounded-l-none border-l-0"
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <ChevronDownIcon className="size-3" />
+          </Button>
+          {menuOpen && (
+            <div className="absolute top-full left-0 mt-1 bg-popover border rounded-md shadow-md z-10 py-0.5 min-w-[80px]">
+              <button
+                className="w-full px-3 py-1.5 text-xs text-left hover:bg-muted transition-colors"
+                onClick={dismissMeeting}
+              >
+                散会
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <Button
+          variant={meetingState === "returning" ? "outline" : "default"}
+          size="sm"
+          className="h-7 gap-1.5 text-xs"
+          onClick={handleMeeting}
+          disabled={meetingState === "going" || meetingState === "returning"}
+        >
+          <UsersIcon className="size-3.5" />
+          {meetingState === "idle" && "开会"}
+          {meetingState === "going" && "前往会议室..."}
+          {meetingState === "returning" && "回工位..."}
+        </Button>
+      )}
       <div className="mx-1 h-4 w-px bg-border" />
       <Button variant="ghost" size="icon" className="size-7" onClick={handleZoomOut} title="缩小">
         <ZoomOutIcon className="size-3.5" />

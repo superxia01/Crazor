@@ -31,14 +31,10 @@ const PLATFORM_COLORS = {
   "小红书": "bg-rose-100 text-rose-700",
   "抖音": "bg-zinc-100 text-zinc-700",
   "视频号": "bg-orange-100 text-orange-700",
-  "知识星球": "bg-blue-100 text-blue-700",
-  "朋友圈": "bg-violet-100 text-violet-700",
   "YouTube": "bg-red-100 text-red-700",
   "Twitter": "bg-sky-100 text-sky-700",
   "Instagram": "bg-pink-100 text-pink-700",
-  "Amazon": "bg-amber-100 text-amber-700",
   "TikTok": "bg-zinc-200 text-zinc-800",
-  "Shopify": "bg-lime-100 text-lime-700",
 }
 const FORM_COLORS = {
   "文章": "bg-sky-100 text-sky-700",
@@ -107,14 +103,10 @@ export default {
     { id: "小红书", label: "小红书" },
     { id: "抖音", label: "抖音" },
     { id: "视频号", label: "视频号" },
-    { id: "知识星球", label: "知识星球" },
-    { id: "朋友圈", label: "朋友圈" },
     { id: "YouTube", label: "YouTube" },
     { id: "Twitter", label: "Twitter" },
     { id: "Instagram", label: "Instagram" },
-    { id: "Amazon", label: "Amazon" },
     { id: "TikTok", label: "TikTok" },
-    { id: "Shopify", label: "Shopify" },
   ],
 
   stats: (items) => {

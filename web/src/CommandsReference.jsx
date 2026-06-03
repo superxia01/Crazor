@@ -16,9 +16,8 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
-import { Badge } from "@/components/ui/badge"
+import { Card, Chip } from "@heroui/react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { ViewFrame } from "@/components/view-frame"
 import { cn } from "@/lib/utils"
@@ -142,10 +141,15 @@ const LEVEL_META = {
   },
 }
 
-const PLATFORM_BADGE = {
-  通用: "border-border/76 bg-background/72 text-foreground",
-  "CLI 专用": "border-sky-500/18 bg-sky-500/8 text-sky-700 dark:text-sky-300",
-  "Gateway 专用": "border-rose-500/18 bg-rose-500/8 text-rose-700 dark:text-rose-300",
+const PLATFORM_BADGE_WRAPPER = {
+  通用: "border-border/76 bg-background/72",
+  "CLI 专用": "border-sky-500/18 bg-sky-500/8",
+  "Gateway 专用": "border-rose-500/18 bg-rose-500/8",
+}
+const PLATFORM_BADGE_LABEL = {
+  通用: "text-foreground",
+  "CLI 专用": "text-sky-700 dark:text-sky-300",
+  "Gateway 专用": "text-rose-700 dark:text-rose-300",
 }
 
 function OverviewCard({ title, value, hint, accentClass = "" }) {
@@ -173,10 +177,12 @@ function CommandRow({ item, copiedCmd, onCopy }) {
             {item.cmd}
           </code>
           {item.level === "common" && (
-            <Badge variant="outline" className="rounded-full border-amber-500/18 bg-amber-500/8 px-2 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
-              <StarIcon className="size-3 fill-current" />
-              常用
-            </Badge>
+            <Chip variant="tertiary" className="rounded-full border-amber-500/18 bg-amber-500/8 px-2 py-0.5">
+              <Chip.Label className="text-[10px] text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                <StarIcon className="size-3 fill-current" />
+                常用
+              </Chip.Label>
+            </Chip>
           )}
           {item.aliases ? (
             <span className="text-[11px] text-muted-foreground">别名：{item.aliases}</span>
@@ -186,11 +192,16 @@ function CommandRow({ item, copiedCmd, onCopy }) {
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        <Badge
-          variant="outline"
-          className={cn("rounded-full px-2.5 py-0.5 text-[11px]", PLATFORM_BADGE[item.platform])}>
-          {item.platform}
-        </Badge>
+        <Chip
+          variant="tertiary"
+          className={cn(
+            "rounded-full px-2.5 py-0.5",
+            PLATFORM_BADGE_WRAPPER[item.platform]
+          )}>
+          <Chip.Label className={cn("text-[11px]", PLATFORM_BADGE_LABEL[item.platform])}>
+            {item.platform}
+          </Chip.Label>
+        </Chip>
         <Button
           variant="outline"
           size="icon-sm"
@@ -319,14 +330,14 @@ export default function CommandsReference() {
           <OverviewCard title="Gateway 专用" value={platformStats.gatewayOnly} hint="只在 Gateway 环境可用" accentClass="border-rose-500/16 bg-rose-500/5" />
         </div>
 
-        <Card className="app-panel rounded-[12px] border-border/74 py-0">
-          <CardHeader className="px-4 py-4">
-            <CardTitle className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
+        <Card variant="outlined" className="app-panel rounded-[12px] border-border/74 py-0">
+          <Card.Header className="px-4 py-4">
+            <Card.Title className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
               <SparklesIcon className="size-4 text-primary" />
               常用速查
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-2 px-4 pb-4 md:grid-cols-2 xl:grid-cols-4">
+            </Card.Title>
+          </Card.Header>
+          <Card.Content className="grid gap-2 px-4 pb-4 md:grid-cols-2 xl:grid-cols-4">
             {commonHighlights.map((item) => (
               <button
                 key={item.cmd}
@@ -340,7 +351,7 @@ export default function CommandsReference() {
                 <p className="mt-2 text-[12px] leading-5 text-muted-foreground">{item.desc}</p>
               </button>
             ))}
-          </CardContent>
+          </Card.Content>
         </Card>
 
         <div className="flex flex-wrap gap-2">
@@ -384,29 +395,32 @@ export default function CommandsReference() {
               return (
                 <Card
                   key={section.key}
+                  variant="outlined"
                   className={cn("app-panel rounded-[12px] border-border/74 py-0", section.meta.accent)}>
-                  <CardHeader className="px-4 py-4">
+                  <Card.Header className="px-4 py-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div className="flex items-start gap-3">
                         <div className="flex size-9 items-center justify-center rounded-[10px] bg-background/82">
                           <Icon className={cn("size-4", section.meta.text)} />
                         </div>
                         <div>
-                          <CardTitle className="text-[15px] font-semibold text-foreground">
+                          <Card.Title className="text-[15px] font-semibold text-foreground">
                             {section.meta.label}
-                          </CardTitle>
+                          </Card.Title>
                           <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
                             {section.meta.summary}
                           </p>
                         </div>
                       </div>
-                      <Badge variant="outline" className="rounded px-1.5 py-0.5 text-[11px]">
-                        {categoryCounts[section.key]} 条
-                      </Badge>
+                      <Chip variant="tertiary" className="rounded px-1.5 py-0.5">
+                        <Chip.Label className="text-[11px]">
+                          {categoryCounts[section.key]} 条
+                        </Chip.Label>
+                      </Chip>
                     </div>
-                  </CardHeader>
+                  </Card.Header>
 
-                  <CardContent className="space-y-4 px-4 pb-4">
+                  <Card.Content className="space-y-4 px-4 pb-4">
                     {section.levels.map((group) => (
                       <div key={group.key} className="space-y-2.5">
                         <div className="flex items-center justify-between gap-3">
@@ -418,9 +432,11 @@ export default function CommandsReference() {
                               {group.meta.description}
                             </div>
                           </div>
-                          <Badge variant="outline" className="rounded px-1.5 py-0.5 text-[10px]">
-                            {group.items.length}
-                          </Badge>
+                          <Chip variant="tertiary" className="rounded px-1.5 py-0.5">
+                            <Chip.Label className="text-[10px]">
+                              {group.items.length}
+                            </Chip.Label>
+                          </Chip>
                         </div>
 
                         <div className="space-y-2">
@@ -435,7 +451,7 @@ export default function CommandsReference() {
                         </div>
                       </div>
                     ))}
-                  </CardContent>
+                  </Card.Content>
                 </Card>
               )
             })

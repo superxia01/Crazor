@@ -21,13 +21,16 @@ import { getAgents, testGatewayConnection, checkDashboardRunning, checkGatewayRu
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+  Modal,
+  ModalBackdrop,
+  ModalBody,
+  ModalCloseTrigger,
+  ModalContainer,
+  ModalDialog,
+  ModalFooter,
+  ModalHeader,
+  ModalHeading,
+} from "@heroui/react"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -523,20 +526,23 @@ export default function SettingsModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-hidden rounded-[12px] border-border/70 bg-background/95 p-0 sm:max-w-4xl">
-        <DialogHeader className="border-b border-border/70 px-5 py-5">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-[10px] bg-primary/10 text-primary">
-              <SparklesIcon className="size-4.5" />
+    <Modal isOpen={open} onOpenChange={onOpenChange}>
+      <ModalBackdrop>
+        <ModalContainer>
+          <ModalDialog className="max-h-[88vh] w-full max-w-4xl overflow-hidden rounded-[12px] border-border/70 bg-background/95 p-0">
+          <ModalHeader className="border-b border-border/70 px-5 py-5">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-[10px] bg-primary/10 text-primary">
+                <SparklesIcon className="size-4.5" />
+              </div>
+              <div>
+                <ModalHeading className="text-lg">{t("settings.title")}</ModalHeading>
+                <p className="mt-1 text-sm text-muted-foreground">{t("settings.description")}</p>
+              </div>
             </div>
-            <div>
-              <DialogTitle className="text-lg">{t("settings.title")}</DialogTitle>
-              <DialogDescription className="mt-1 text-sm">{t("settings.description")}</DialogDescription>
-            </div>
-          </div>
-        </DialogHeader>
+          </ModalHeader>
 
+        <ModalBody className="p-0 min-h-0 flex-1">
         <div className="grid min-h-0 flex-1 gap-0 sm:grid-cols-[272px_minmax(0,1fr)]">
           <aside className="border-r border-border/60 bg-gradient-to-b from-background/72 to-background/42 px-4 py-5 backdrop-blur-xl">
             <div className="mb-4 rounded-[12px] border border-border/60 bg-background/55 px-3 py-3">
@@ -1188,13 +1194,16 @@ export default function SettingsModal({
             </div>
           </ScrollArea>
         </div>
+        </ModalBody>
 
-        <DialogFooter className="border-t border-border/70 px-5 py-4">
+        <ModalFooter className="border-t border-border/70 px-5 py-4">
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} className="rounded-md">
             {t("common.close")}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ModalFooter>
+        </ModalDialog>
+      </ModalContainer>
+      </ModalBackdrop>
+    </Modal>
   )
 }

@@ -177,7 +177,8 @@
       "group": {
         "ai": "AI",
         "business": "企业数据",
-        "customer": "客户交付"
+        "customer": "客户交付",
+        "knowledge": "知识库"
       }
     }
   },

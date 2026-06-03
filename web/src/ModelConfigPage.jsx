@@ -21,31 +21,21 @@ import {
 import { toast } from "sonner"
 
 import {
-  deleteEnvVar,
   getEnvVars,
-  getModelOptions,
   getPrimaryModelConfig,
   savePrimaryModelConfig,
   testGatewayConnection,
   setEnvVar,
 } from "@/api"
- import { Badge } from "@/components/ui/badge"
+ import { Card, Chip, Modal, ModalBackdrop, ModalBody, ModalCloseTrigger, ModalContainer, ModalDialog, ModalFooter, ModalHeader, ModalHeading } from "@heroui/react"
  import { Button } from "@/components/ui/button"
- import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
- import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
  import { Input } from "@/components/ui/input"
  import { ScrollArea } from "@/components/ui/scroll-area"
  import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
  import { ViewFrame } from "@/components/view-frame"
  import { useI18n } from "@/i18n"
  import { cn } from "@/lib/utils"
- import {
-   buildProviderSavePlan,
-   LOCAL_MODEL_PRESETS,
-   buildModelConfigState,
-   getPrimaryModelValidationError,
-   getProviderModelSuggestions,
- } from "@/components/model-config-utils"
+ import { LOCAL_MODEL_PRESETS, buildModelConfigState } from "@/components/model-config-utils"
 
 function StatCard({ label, value, hint, accentClass = "" }) {
   return (
@@ -93,24 +83,28 @@ function ProviderCard({ provider, configured, onSelect, isDefault, isSelected })
           </div>
         </div>
         {isDefault && (
-          <Badge variant="secondary" className="rounded px-1.5 py-0.5 text-[10px]">
-            {provider.defaultModelValue || "—"}
-          </Badge>
+          <Chip variant="soft" className="rounded px-1.5 py-0.5">
+            <Chip.Label className="text-[10px]">
+              {provider.defaultModelValue || "—"}
+            </Chip.Label>
+          </Chip>
         )}
       </div>
 
       <div className="flex items-center gap-2">
         {configured ? (
-          <Badge
-            variant="outline"
-            className="rounded px-1.5 py-0.5 text-[10px] border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
-            <CheckCircle2Icon className="mr-1 size-3" />
-            已接入
-          </Badge>
+          <Chip
+            variant="tertiary"
+            className="rounded px-1.5 py-0.5 border-emerald-500/30 bg-emerald-500/10">
+            <Chip.Label className="text-[10px] text-emerald-700 dark:text-emerald-300 flex items-center">
+              <CheckCircle2Icon className="mr-1 size-3" />
+              已接入
+            </Chip.Label>
+          </Chip>
         ) : (
-          <Badge variant="outline" className="rounded px-1.5 py-0.5 text-[10px]">
-            未接入
-          </Badge>
+          <Chip variant="tertiary" className="rounded px-1.5 py-0.5">
+            <Chip.Label className="text-[10px]">未接入</Chip.Label>
+          </Chip>
         )}
         {provider.docsUrl ? (
           <a
@@ -146,16 +140,7 @@ function ConfigField({
   testing,
   t,
   hideActions = false,
-  suggestions = [],
-  suggestionPlaceholder = "请选择",
-  suggestionEmptyHint = "",
 }) {
-  const safeSuggestions = Array.isArray(suggestions) ? suggestions : []
-  const hasSuggestionOptions = safeSuggestions.length > 0
-  const hasCustomValue =
-    fieldValue &&
-    !safeSuggestions.some((option) => String(option?.id || "").trim() === String(fieldValue).trim())
-
   return (
     <div className="rounded-[12px] border border-border/72 bg-background/60 px-4 py-4">
       <div className="flex items-start justify-between gap-3">
@@ -163,14 +148,14 @@ function ConfigField({
           <div className="flex flex-wrap items-center gap-2">
             <div className="text-sm font-medium text-foreground">{label}</div>
             {envKey ? (
-              <Badge variant="outline" className="mono rounded px-1.5 py-0.5 text-[10px]">
-                {envKey}
-              </Badge>
+              <Chip variant="tertiary" className="mono rounded px-1.5 py-0.5">
+                <Chip.Label className="text-[10px]">{envKey}</Chip.Label>
+              </Chip>
             ) : null}
             {secret ? (
-              <Badge variant="outline" className="rounded px-1.5 py-0.5 text-[10px]">
-                Secret
-              </Badge>
+              <Chip variant="tertiary" className="rounded px-1.5 py-0.5">
+                <Chip.Label className="text-[10px]">Secret</Chip.Label>
+              </Chip>
             ) : null}
           </div>
           {description ? (
@@ -187,27 +172,6 @@ function ConfigField({
       </div>
 
       <div className="mt-3 space-y-3">
-        {hasSuggestionOptions ? (
-          <div className="space-y-2">
-            <div className="text-[11px] font-medium text-muted-foreground">可选模型</div>
-            <select
-              value={fieldValue}
-              onChange={(event) => onChange(event.target.value)}
-              className="h-9 w-full rounded-md border border-border/78 bg-background/80 px-3 text-[12px] text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40">
-              <option value="">{suggestionPlaceholder}</option>
-              {hasCustomValue ? <option value={fieldValue}>当前自定义值: {fieldValue}</option> : null}
-              {safeSuggestions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : suggestionEmptyHint ? (
-          <div className="rounded-[10px] border border-dashed border-border/72 bg-background/50 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
-            {suggestionEmptyHint}
-          </div>
-        ) : null}
         <Input
           value={secret ? revealedValue ?? fieldValue : fieldValue}
           onChange={(event) => onChange(event.target.value)}
@@ -295,7 +259,6 @@ export default function ModelConfigPage() {
   const [selectedProviderId, setSelectedProviderId] = useState(null)
   const [error, setError] = useState(null)
   const [dashboardRunning, setDashboardRunning] = useState(null) // null=未检测, true=运行, false=未运行
-  const [providerModelOptions, setProviderModelOptions] = useState({ providers: [] })
 
   // 检测 Dashboard 是否在运行
   const checkDashboardRunning = useCallback(async () => {
@@ -319,10 +282,9 @@ export default function ModelConfigPage() {
     try {
       setLoading(true)
       setError(null)
-      const [envResult, primaryModelResult, modelOptionsResult] = await Promise.allSettled([
+      const [envResult, primaryModelResult] = await Promise.allSettled([
         getEnvVars(),
         getPrimaryModelConfig(),
-        getModelOptions(),
       ])
 
       let envError = null
@@ -338,12 +300,6 @@ export default function ModelConfigPage() {
         setPrimaryModelConfig(primaryModelResult.value || {})
       } else {
         primaryError = primaryModelResult.reason
-      }
-
-      if (modelOptionsResult.status === "fulfilled") {
-        setProviderModelOptions(modelOptionsResult.value || { providers: [] })
-      } else {
-        setProviderModelOptions({ providers: [] })
       }
 
       if (envError || primaryError) {
@@ -421,7 +377,7 @@ export default function ModelConfigPage() {
     return ""
   }
 
-  const commitPrimaryModelConfig = async (overrides, clearFields = []) => {
+  const commitPrimaryModelConfig = async (overrides) => {
     const nextConfig = {
       model: String(overrides?.model ?? (resolvePrimaryFieldValue("model") || "")).trim(),
       provider: String(
@@ -429,14 +385,7 @@ export default function ModelConfigPage() {
       ).trim(),
       baseUrl: String(overrides?.baseUrl ?? (resolvePrimaryFieldValue("baseUrl") || "")).trim(),
       apiKey: String(overrides?.apiKey ?? (resolvePrimaryFieldValue("apiKey") || "")).trim(),
-      apiMode: String(overrides?.apiMode ?? (primaryModelConfig.apiMode || "")).trim(),
       contextLength: primaryModelConfig.contextLength ?? null,
-      clearFields,
-    }
-
-    const validationError = getPrimaryModelValidationError(nextConfig)
-    if (validationError) {
-      throw new Error(validationError)
     }
 
     await savePrimaryModelConfig(nextConfig)
@@ -490,7 +439,7 @@ export default function ModelConfigPage() {
       }
       if (field === "apiKey") overrides.apiKey = ""
 
-      await commitPrimaryModelConfig(overrides, [field])
+      await commitPrimaryModelConfig(overrides)
       toast.success(t("modelsPage.deleteSuccess"), {
         description: `model.${field}`,
       })
@@ -550,20 +499,6 @@ export default function ModelConfigPage() {
     }
   }, [configState.providers, selectedProviderId])
 
-  const selectedProviderModelSuggestions = useMemo(() => {
-    if (!selectedProvider) return []
-    return getProviderModelSuggestions(selectedProvider, providerModelOptions)
-  }, [providerModelOptions, selectedProvider])
-
-  const selectedProviderSavePlan = useMemo(() => {
-    if (!selectedProvider) return null
-    return buildProviderSavePlan(selectedProvider, {
-      apiKey: resolvePrimaryFieldValue("apiKey"),
-      baseUrl: resolvePrimaryFieldValue("baseUrl"),
-      model: resolvePrimaryFieldValue("model"),
-    })
-  }, [primaryDrafts, primaryModelConfig, selectedProvider])
-
   const handleApplyLocalPreset = (preset) => {
     setPrimaryDrafts((current) => ({
       ...current,
@@ -589,29 +524,34 @@ export default function ModelConfigPage() {
     }
    }
 
-  const handleSaveProviderConfig = async (provider) => {
+   const handleSaveProviderConfig = async (provider) => {
     if (!provider) return
 
-    const savePlan = buildProviderSavePlan(provider, {
-      apiKey: resolvePrimaryFieldValue("apiKey"),
-      baseUrl: resolvePrimaryFieldValue("baseUrl"),
-      model: resolvePrimaryFieldValue("model"),
-    })
+    const apiKey = String(resolvePrimaryFieldValue("apiKey") || "").trim()
+    const baseUrl = String(resolvePrimaryFieldValue("baseUrl") || "").trim()
+    const model = String(resolvePrimaryFieldValue("model") || "").trim()
 
-    if (!savePlan.canSave) {
+    if (!apiKey) {
       toast.error(t("modelsPage.saveError"), { description: "API Key is required" })
       return
     }
 
-    setSavingKey("primary:apiKey")
-    try {
-      const promises = savePlan.envUpdates.map((update) => {
-        if (update.action === "delete") return deleteEnvVar(update.key)
-        return setEnvVar(update.key, update.value)
-      })
-      await Promise.all(promises)
+     setSavingKey("primary:apiKey")
+     try {
+       // 先并行设置环境变量（使用 provider 定义的精确 key）
+       const promises = []
+       if (provider.apiKeyKey) promises.push(setEnvVar(provider.apiKeyKey, apiKey))
+       if (baseUrl && provider.baseUrlKey) promises.push(setEnvVar(provider.baseUrlKey, baseUrl))
+       if (model && provider.defaultModelKey) promises.push(setEnvVar(provider.defaultModelKey, model))
+       await Promise.all(promises)
 
-      await commitPrimaryModelConfig(savePlan.primaryConfig, savePlan.clearFields)
+       // 保存主配置（内部会调用 load() 刷新状态）
+       const overrides = {
+         provider: provider.id,
+         baseUrl: baseUrl,
+         model: model || provider.defaultModelValue || "",
+       }
+       await commitPrimaryModelConfig(overrides)
 
       toast.success(t("modelsPage.saveSuccess"), {
         description: `${provider.label} configured`,
@@ -724,9 +664,9 @@ export default function ModelConfigPage() {
                       </div>
                     </div>
                     {provider.id === configState.defaultProviderId && (
-                      <Badge variant="secondary" className="rounded px-1.5 py-0.5 text-[10px]">
-                        当前使用
-                      </Badge>
+                      <Chip variant="soft" className="rounded px-1.5 py-0.5">
+                        <Chip.Label className="text-[10px]">当前使用</Chip.Label>
+                      </Chip>
                     )}
                   </div>
                 ))}
@@ -752,9 +692,9 @@ export default function ModelConfigPage() {
                       </div>
                     </div>
                     {entry.ownsCurrentConfig && (
-                      <Badge variant="secondary" className="rounded px-1.5 py-0.5 text-[10px]">
-                        当前使用
-                      </Badge>
+                      <Chip variant="soft" className="rounded px-1.5 py-0.5">
+                        <Chip.Label className="text-[10px]">当前使用</Chip.Label>
+                      </Chip>
                     )}
                   </div>
                 ))}
@@ -766,25 +706,26 @@ export default function ModelConfigPage() {
            {t("modelsPage.helper")}
          </div>
 
-{/* 选中供应商配置 Dialog */}
-          <Dialog open={!!selectedProviderId && activeTab === "cloud"} onOpenChange={(open) => {
+{/* 选中供应商配置 Modal */}
+          <Modal isOpen={!!selectedProviderId && activeTab === "cloud"} onOpenChange={(open) => {
             if (!open) {
               setSelectedProviderId(null)
               setPrimaryDrafts({})
             }
           }}>
-            <DialogContent className="app-panel rounded-[12px] border-border/74 sm:max-w-[600px]">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2 text-[14px]">
-                  <Settings2Icon className="size-4 text-primary" />
-                  配置 {selectedProvider?.label}
-                </DialogTitle>
-                <DialogDescription>
-                  填写 API 信息以启用此提供商
-                </DialogDescription>
-              </DialogHeader>
+            <ModalBackdrop>
+              <ModalContainer size="md">
+              <ModalDialog>
+                <ModalHeader>
+                  <ModalHeading className="flex items-center gap-2 text-[14px]">
+                    <Settings2Icon className="size-4 text-primary" />
+                    配置 {selectedProvider?.label}
+                  </ModalHeading>
+                </ModalHeader>
 
-              {selectedProvider && (
+                <ModalBody>
+                  <p className="text-muted-foreground">填写 API 信息以启用此提供商</p>
+                  {selectedProvider && (
                 <div className="space-y-3 py-2">
                   <ConfigField
                     label={t("modelsPage.apiKeyLabel")}
@@ -818,11 +759,7 @@ export default function ModelConfigPage() {
                     />
                     <ConfigField
                       label={t("modelsPage.defaultModelLabel")}
-                      description={
-                        selectedProviderModelSuggestions.length > 0
-                          ? "可从供应商返回的模型列表中选择，也可以继续手动输入自定义模型 ID"
-                          : "默认模型 ID（可选）"
-                      }
+                      description="默认模型 ID（可选）"
                       envKey={`${selectedProvider.envPrefix}_DEFAULT_MODEL`}
                       fieldValue={resolvePrimaryFieldValue("model")}
                       placeholder={selectedProvider.defaultModelValue || "gpt-4"}
@@ -833,36 +770,34 @@ export default function ModelConfigPage() {
                       docsUrl={selectedProvider.docsUrl}
                       t={t}
                       hideActions
-                      suggestions={selectedProviderModelSuggestions}
-                      suggestionPlaceholder={`选择 ${selectedProvider.label} 模型`}
-                      suggestionEmptyHint="当前未从服务端拿到该供应商的模型列表，你仍然可以直接手动输入模型 ID。"
                     />
                   </div>
+                </div>
+              )}
+                </ModalBody>
 
-                  <div className="flex justify-end gap-2 pt-2">
+                <ModalFooter>
+                  <ModalCloseTrigger>
                     <Button
                       variant="outline"
-                      onClick={() => {
-                        setSelectedProviderId(null)
-                        setPrimaryDrafts({})
-                      }}
                       size="sm"
                       className="rounded-md">
                       取消
                     </Button>
-                    <Button
-                      onClick={() => handleSaveProviderConfig(selectedProvider)}
-                      disabled={savingKey !== null || !selectedProviderSavePlan?.canSave}
-                      size="sm"
-                      className="rounded-md">
-                      <SaveIcon className="size-4" />
-                      {t("modelsPage.saveAction")}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </DialogContent>
-          </Dialog>
+                  </ModalCloseTrigger>
+                  <Button
+                    onClick={() => handleSaveProviderConfig(selectedProvider)}
+                    disabled={savingKey !== null || !resolvePrimaryFieldValue("apiKey").trim()}
+                    size="sm"
+                    className="rounded-md">
+                    <SaveIcon className="size-4" />
+                    {t("modelsPage.saveAction")}
+                  </Button>
+                </ModalFooter>
+              </ModalDialog>
+            </ModalContainer>
+            </ModalBackdrop>
+          </Modal>
 
          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
           <TabsList className="rounded-[12px] border border-border/74 bg-background/60 p-1">
@@ -884,9 +819,9 @@ export default function ModelConfigPage() {
           </TabsList>
 
           <TabsContent value="cloud" className="mt-4 flex-1">
-            <Card className="app-panel min-h-0 flex-1 overflow-hidden rounded-[12px] border-border/74 py-0">
+            <Card variant="outlined" className="app-panel min-h-0 flex-1 overflow-hidden rounded-[12px] border-border/74 py-0">
               <ScrollArea className="min-h-0 flex-1">
-                 <CardContent className="p-4">
+                 <Card.Content className="p-4">
                     {/* Dashboard 未启动 */}
                     {dashboardRunning === false && !error && (
                       <div className="mb-4 rounded-[12px] border border-yellow-500/30 bg-yellow-500/10 p-6 text-center">
@@ -960,22 +895,22 @@ export default function ModelConfigPage() {
                       ))}
                     </div>
                   )}
-                </CardContent>
+                </Card.Content>
               </ScrollArea>
             </Card>
           </TabsContent>
 
           <TabsContent value="custom" className="mt-4 flex-1">
             <div className="grid gap-4 lg:grid-cols-2">
-              <Card className="app-panel min-h-0 overflow-hidden rounded-[12px] border-border/74 py-0">
-                <CardHeader className="px-4 py-4">
-                  <CardTitle className="flex items-center gap-2 text-[14px]">
+              <Card variant="outlined" className="app-panel min-h-0 overflow-hidden rounded-[12px] border-border/74 py-0">
+                <Card.Header className="px-4 py-4">
+                  <Card.Title className="flex items-center gap-2 text-[14px]">
                     <LinkIcon className="size-4 text-primary" />
                     {t("modelsPage.connectionSection")}
-                  </CardTitle>
-                  <CardDescription>{t("modelsPage.customConnectionDescription")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3 px-4 pb-4">
+                  </Card.Title>
+                  <Card.Description>{t("modelsPage.customConnectionDescription")}</Card.Description>
+                </Card.Header>
+                <Card.Content className="space-y-3 px-4 pb-4">
                   <ConfigField
                     label={t("modelsPage.baseUrlLabel")}
                     description={t("modelsPage.customBaseUrlDescription")}
@@ -1010,18 +945,18 @@ export default function ModelConfigPage() {
                     onClear={() => handleClearPrimaryField("apiKey")}
                     t={t}
                   />
-                </CardContent>
+                </Card.Content>
               </Card>
 
-              <Card className="app-panel min-h-0 overflow-hidden rounded-[12px] border-border/74 py-0">
-                <CardHeader className="px-4 py-4">
-                  <CardTitle className="flex items-center gap-2 text-[14px]">
+              <Card variant="outlined" className="app-panel min-h-0 overflow-hidden rounded-[12px] border-border/74 py-0">
+                <Card.Header className="px-4 py-4">
+                  <Card.Title className="flex items-center gap-2 text-[14px]">
                     <WandSparklesIcon className="size-4 text-primary" />
                     {t("modelsPage.modelSection")}
-                  </CardTitle>
-                  <CardDescription>{t("modelsPage.customModelDescription")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3 px-4 pb-4">
+                  </Card.Title>
+                  <Card.Description>{t("modelsPage.customModelDescription")}</Card.Description>
+                </Card.Header>
+                <Card.Content className="space-y-3 px-4 pb-4">
                   <ConfigField
                     label={t("modelsPage.defaultModelLabel")}
                     description={t("modelsPage.customDefaultModelDescription")}
@@ -1036,22 +971,22 @@ export default function ModelConfigPage() {
                     onClear={() => handleClearPrimaryField("model")}
                     t={t}
                   />
-                </CardContent>
+                </Card.Content>
               </Card>
             </div>
           </TabsContent>
 
           <TabsContent value="local" className="mt-4 flex-1">
             <div className="grid gap-4">
-              <Card className="app-panel overflow-hidden rounded-[12px] border-border/74 py-0">
-                <CardHeader className="px-4 py-4">
+              <Card variant="outlined" className="app-panel overflow-hidden rounded-[12px] border-border/74 py-0">
+                <Card.Header className="px-4 py-4">
                   <div className="flex items-center gap-2">
                     <CpuIcon className="size-4 text-primary" />
-                    <CardTitle className="text-[14px]">{t("modelsPage.localPresets")}</CardTitle>
+                    <Card.Title className="text-[14px]">{t("modelsPage.localPresets")}</Card.Title>
                   </div>
-                  <CardDescription>{t("modelsPage.localPresetsHint")}</CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-2 px-4 pb-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <Card.Description>{t("modelsPage.localPresetsHint")}</Card.Description>
+                </Card.Header>
+                <Card.Content className="grid gap-2 px-4 pb-4 sm:grid-cols-2 lg:grid-cols-3">
                   {LOCAL_MODEL_PRESETS.map((preset) => (
                     <PresetButton
                       key={preset.id}
@@ -1060,19 +995,19 @@ export default function ModelConfigPage() {
                       onClick={() => handleApplyLocalPreset(preset)}
                     />
                   ))}
-                </CardContent>
+                </Card.Content>
               </Card>
 
               <div className="grid gap-4 lg:grid-cols-2">
-                <Card className="app-panel min-h-0 overflow-hidden rounded-[12px] border-border/74 py-0">
-                  <CardHeader className="px-4 py-4">
-                    <CardTitle className="flex items-center gap-2 text-[14px]">
+                <Card variant="outlined" className="app-panel min-h-0 overflow-hidden rounded-[12px] border-border/74 py-0">
+                  <Card.Header className="px-4 py-4">
+                    <Card.Title className="flex items-center gap-2 text-[14px]">
                       <LinkIcon className="size-4 text-primary" />
                       {t("modelsPage.connectionSection")}
-                    </CardTitle>
-                    <CardDescription>{t("modelsPage.localConnectionDescription")}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3 px-4 pb-4">
+                    </Card.Title>
+                    <Card.Description>{t("modelsPage.localConnectionDescription")}</Card.Description>
+                  </Card.Header>
+                  <Card.Content className="space-y-3 px-4 pb-4">
                     <ConfigField
                       label={t("modelsPage.baseUrlLabel")}
                       description={t("modelsPage.localBaseUrlDescription")}
@@ -1105,18 +1040,18 @@ export default function ModelConfigPage() {
                       onClear={() => handleClearPrimaryField("apiKey")}
                       t={t}
                     />
-                  </CardContent>
+                  </Card.Content>
                 </Card>
 
-                <Card className="app-panel min-h-0 overflow-hidden rounded-[12px] border-border/74 py-0">
-                  <CardHeader className="px-4 py-4">
-                    <CardTitle className="flex items-center gap-2 text-[14px]">
+                <Card variant="outlined" className="app-panel min-h-0 overflow-hidden rounded-[12px] border-border/74 py-0">
+                  <Card.Header className="px-4 py-4">
+                    <Card.Title className="flex items-center gap-2 text-[14px]">
                       <WandSparklesIcon className="size-4 text-primary" />
                       {t("modelsPage.modelSection")}
-                    </CardTitle>
-                    <CardDescription>{t("modelsPage.localModelDescription")}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3 px-4 pb-4">
+                    </Card.Title>
+                    <Card.Description>{t("modelsPage.localModelDescription")}</Card.Description>
+                  </Card.Header>
+                  <Card.Content className="space-y-3 px-4 pb-4">
                     <ConfigField
                       label={t("modelsPage.defaultModelLabel")}
                       description={t("modelsPage.localDefaultModelDescription")}
@@ -1131,7 +1066,7 @@ export default function ModelConfigPage() {
                       onClear={() => handleClearPrimaryField("model")}
                       t={t}
                     />
-                  </CardContent>
+                  </Card.Content>
                 </Card>
               </div>
             </div>

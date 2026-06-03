@@ -20,7 +20,6 @@ import {
   PhoneIcon,
   PlusCircleIcon,
   PlugIcon,
-  RefreshCwIcon,
   SaveIcon,
   SendIcon,
   ShoppingCartIcon,
@@ -31,20 +30,13 @@ import {
   WebhookIcon,
   EyeIcon,
   EyeOffIcon,
+  RefreshCwIcon,
   CheckSquareIcon,
 } from "lucide-react"
+import { Card, Chip, Modal, ModalBackdrop, ModalBody, ModalCloseTrigger, ModalContainer, ModalDialog, ModalFooter, ModalHeader, ModalHeading } from "@heroui/react"
 import { toast } from "sonner"
 import { ViewFrame } from "@/components/view-frame"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { getEnvVars, setEnvVar, deleteEnvVar, revealEnvVar } from "@/api/dashboard"
 import { readChannelsConfig, writeChannelsConfig } from "@/api/channels"
@@ -265,17 +257,17 @@ const CONNECTOR_CATEGORIES = [
 ]
 
 const STATUS_CONFIG = {
-  connected: { label: "凭证完整", dot: "bg-emerald-500", badge: "bg-emerald-100 text-emerald-700" },
-  partial: { label: "部分填写", dot: "bg-amber-500", badge: "bg-amber-100 text-amber-700" },
-  disconnected: { label: "未配置", dot: "bg-zinc-300", badge: "bg-zinc-100 text-zinc-500" },
+  connected: { label: "凭证完整", dot: "bg-emerald-500", badgeWrapper: "bg-emerald-100", badgeLabel: "text-emerald-700" },
+  partial: { label: "部分填写", dot: "bg-amber-500", badgeWrapper: "bg-amber-100", badgeLabel: "text-amber-700" },
+  disconnected: { label: "未配置", dot: "bg-zinc-300", badgeWrapper: "bg-zinc-100", badgeLabel: "text-zinc-500" },
 }
 
 const CONNECTIVITY_STATUS_CONFIG = {
-  idle: { label: "未验证", dot: "bg-zinc-300", badge: "bg-zinc-100 text-zinc-500" },
-  missing_credentials: { label: "缺少凭证", dot: "bg-zinc-300", badge: "bg-zinc-100 text-zinc-500" },
-  ok: { label: "连通通过", dot: "bg-emerald-500", badge: "bg-emerald-100 text-emerald-700" },
-  warning: { label: "需要处理", dot: "bg-amber-500", badge: "bg-amber-100 text-amber-700" },
-  error: { label: "测试失败", dot: "bg-rose-500", badge: "bg-rose-100 text-rose-700" },
+  idle: { label: "未验证", dot: "bg-zinc-300", badgeWrapper: "bg-zinc-100", badgeLabel: "text-zinc-500" },
+  missing_credentials: { label: "缺少凭证", dot: "bg-zinc-300", badgeWrapper: "bg-zinc-100", badgeLabel: "text-zinc-500" },
+  ok: { label: "连通通过", dot: "bg-emerald-500", badgeWrapper: "bg-emerald-100", badgeLabel: "text-emerald-700" },
+  warning: { label: "需要处理", dot: "bg-amber-500", badgeWrapper: "bg-amber-100", badgeLabel: "text-amber-700" },
+  error: { label: "测试失败", dot: "bg-rose-500", badgeWrapper: "bg-rose-100", badgeLabel: "text-rose-700" },
 }
 
 const BRIDGE_STATUS_CONFIG = {
@@ -327,7 +319,7 @@ async function revealPresetConnectorEnvMap(baseEnvMap = {}, connectors = PRESET_
       const value = cleanString(revealed?.value || revealed)
       if (value) nextEnvMap[key] = value
     } catch {
-      // Missing connector env vars are expected for most presets.
+      // Most preset connector vars are intentionally absent until configured.
     }
   }))
 
@@ -350,7 +342,6 @@ function ConnectorDialog({
   const [revealed, setRevealed] = useState({})
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
-
   const bridge = getConnectorBridge(connector)
   const bridgeConfig = getConnectorBridgeConfig(connector, channelConfigs)
   const bridgeStatus = getConnectorBridgeStatus(connector, envMap, channelConfigs)
@@ -468,146 +459,154 @@ function ConnectorDialog({
   const Icon = connector.icon
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
-            <div className={cn("flex size-10 items-center justify-center rounded-lg", connector.color)}>
-              <Icon className="size-5" />
-            </div>
-            <div>
-              <div>{connector.name}</div>
-              <DialogDescription className="text-[12px]">{connector.description}</DialogDescription>
-            </div>
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3 py-2">
-          {bridge && (
-            <div className="rounded-xl border border-border/70 bg-muted/40 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <div className="text-[12px] font-medium">Hermes 接入</div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">{bridgeStatus.description}</div>
+    <Modal isOpen={open} onOpenChange={onClose}>
+      <ModalBackdrop>
+        <ModalContainer size="sm">
+          <ModalDialog>
+            <ModalHeader>
+              <ModalHeading className="flex items-center gap-3">
+                <div className={cn("flex size-10 items-center justify-center rounded-lg", connector.color)}>
+                  <Icon className="size-5" />
                 </div>
-                <div className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium", bridgeStatusConfig.text)}>
-                  <span className={cn("size-2 rounded-full", bridgeStatusConfig.dot)} />
-                  {bridgeStatus.label}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {connector.fields.map((key) => (
-            <div key={key} className="space-y-1">
-              <label className="text-[12px] font-medium text-muted-foreground">{key}</label>
-              <div className="flex gap-1.5">
-                <Input
-                  type={revealed[key] ? "text" : "password"}
-                  value={values[key] || ""}
-                  onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
-                  placeholder={envMap[key] ? "留空则保留当前配置" : `输入 ${key}...`}
-                  className="text-[12px] h-8"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 shrink-0"
-                  onClick={() => setRevealed((r) => ({ ...r, [key]: !r[key] }))}
-                >
-                  {revealed[key] ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
-                </Button>
-              </div>
-            </div>
-          ))}
-
-          {connector.id === "feishu" && (
-            <div className="rounded-xl border border-border/70 bg-muted/40 p-3">
-              <div className="flex items-center justify-between gap-2">
                 <div>
-                  <div className="text-[12px] font-medium">连通性验证</div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">
-                    会用当前凭证请求飞书官方 OpenAPI，并核对 Hermes 配置与运行时监听状态。
+                  <div>{connector.name}</div>
+                </div>
+              </ModalHeading>
+            </ModalHeader>
+
+          <ModalBody>
+            <p className="text-[12px] text-muted-foreground">{connector.description}</p>
+            <div className="flex flex-col gap-3 py-2">
+              {bridge && (
+                <div className="rounded-xl border border-border/70 bg-muted/40 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[12px] font-medium">Hermes 接入</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">{bridgeStatus.description}</div>
+                    </div>
+                    <div className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium", bridgeStatusConfig.text)}>
+                      <span className={cn("size-2 rounded-full", bridgeStatusConfig.dot)} />
+                      {bridgeStatus.label}
+                    </div>
                   </div>
                 </div>
-                <Badge variant="outline" className={cn("text-[10px] h-5", checkConfig.badge)}>
-                  {checkConfig.label}
-                </Badge>
-              </div>
-              <div className="mt-3 rounded-lg border border-border/70 bg-background/70 px-3 py-2">
-                <div className="text-[12px] font-medium">{check.summary || "还没有做过飞书连通测试"}</div>
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  最近一次：{formatCheckedAt(check.checked_at)}
-                </div>
-              </div>
-              <div className="mt-3 space-y-2">
-                <div className="text-[11px] font-medium text-muted-foreground">真实链路</div>
-                {feishuLinkSteps.map((step) => {
-                  const stepConfig = LINK_STEP_STATUS_CONFIG[step.state] || LINK_STEP_STATUS_CONFIG.pending
-                  return (
-                    <div
-                      key={step.id}
-                      className={cn("rounded-lg border px-3 py-2", stepConfig.border)}
+              )}
+
+              {connector.fields.map((key) => (
+                <div key={key} className="space-y-1">
+                  <label className="text-[12px] font-medium text-muted-foreground">{key}</label>
+                  <div className="flex gap-1.5">
+                    <Input
+                      type={revealed[key] ? "text" : "password"}
+                      value={values[key] || ""}
+                      onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
+                      placeholder={envMap[key] ? "留空则保留当前配置" : `输入 ${key}...`}
+                      className="text-[12px] h-8"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0"
+                      onClick={() => setRevealed((r) => ({ ...r, [key]: !r[key] }))}
                     >
-                      <div className="flex items-start gap-2">
-                        <span className={cn("mt-1 size-2 rounded-full shrink-0", stepConfig.dot)} />
-                        <div className="min-w-0">
-                          <div className={cn("text-[11px] font-medium", stepConfig.text)}>{step.label}</div>
-                          <div className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{step.detail}</div>
-                        </div>
+                      {revealed[key] ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+
+              {connector.id === "feishu" && (
+                <div className="rounded-xl border border-border/70 bg-muted/40 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[12px] font-medium">连通性验证</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        会用当前凭证请求飞书官方 OpenAPI，并核对 Hermes 配置与运行时监听状态。
                       </div>
                     </div>
-                  )
-                })}
-              </div>
-              <div className="mt-3 flex justify-end">
-                <Button size="sm" variant="outline" onClick={handleTest} disabled={testing || saving}>
-                  <RefreshCwIcon className={cn("mr-1 size-3.5", testing && "animate-spin")} />
-                  {testing ? "测试中..." : "测试连接"}
-                </Button>
-              </div>
+                    <Chip variant="tertiary" className={cn("h-5", checkConfig.badgeWrapper)}>
+                      <Chip.Label className={cn("text-[10px]", checkConfig.badgeLabel)}>
+                        {checkConfig.label}
+                      </Chip.Label>
+                    </Chip>
+                  </div>
+                  <div className="mt-3 rounded-lg border border-border/70 bg-background/70 px-3 py-2">
+                    <div className="text-[12px] font-medium">{check.summary || "还没有做过飞书连通测试"}</div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      最近一次：{formatCheckedAt(check.checked_at)}
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    <div className="text-[11px] font-medium text-muted-foreground">真实链路</div>
+                    {feishuLinkSteps.map((step) => {
+                      const stepConfig = LINK_STEP_STATUS_CONFIG[step.state] || LINK_STEP_STATUS_CONFIG.pending
+                      return (
+                        <div
+                          key={step.id}
+                          className={cn("rounded-lg border px-3 py-2", stepConfig.border)}
+                        >
+                          <div className="flex items-start gap-2">
+                            <span className={cn("mt-1 size-2 shrink-0 rounded-full", stepConfig.dot)} />
+                            <div className="min-w-0">
+                              <div className={cn("text-[11px] font-medium", stepConfig.text)}>{step.label}</div>
+                              <div className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{step.detail}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-3 flex justify-end">
+                    <Button size="sm" variant="outline" onClick={handleTest} disabled={testing || saving}>
+                      <RefreshCwIcon className={cn("mr-1 size-3.5", testing && "animate-spin")} />
+                      {testing ? "测试中..." : "测试连接"}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </ModalBody>
 
-        <div className="flex justify-end gap-2 pt-2 border-t">
-          {(envMap && connector.fields.some((k) => envMap[k])) ||
-          (bridge && Object.values(bridge.fieldMap).some((fieldKey) => cleanString(bridgeConfig?.[fieldKey]))) ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={async () => {
-                for (const key of connector.fields) {
-                  if (envMap[key]) await deleteEnvVar(key).catch(() => {})
-                }
-                if (bridge) {
-                  const nextChannelConfigs = { ...(channelConfigs || {}) }
-                  nextChannelConfigs[bridge.channelId] = {
-                    ...(bridgeConfig || {}),
-                    ...Object.fromEntries(Object.values(bridge.fieldMap).map((fieldKey) => [fieldKey, ""])),
+          <ModalFooter>
+            {(envMap && connector.fields.some((k) => envMap[k])) ||
+            (bridge && Object.values(bridge.fieldMap).some((fieldKey) => cleanString(bridgeConfig?.[fieldKey]))) ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={async () => {
+                  for (const key of connector.fields) {
+                    if (envMap[key]) await deleteEnvVar(key).catch(() => {})
                   }
-                  await writeChannelsConfig(nextChannelConfigs)
-                }
-                await onRefresh()
-                toast.success(`${connector.name} 配置已清除`)
-                onClose()
-              }}
-            >
-              <TrashIcon className="size-3.5 mr-1" />
-              清除配置
+                  if (bridge) {
+                    const nextChannelConfigs = { ...(channelConfigs || {}) }
+                    nextChannelConfigs[bridge.channelId] = {
+                      ...(bridgeConfig || {}),
+                      ...Object.fromEntries(Object.values(bridge.fieldMap).map((fieldKey) => [fieldKey, ""])),
+                    }
+                    await writeChannelsConfig(nextChannelConfigs)
+                  }
+                  await onRefresh()
+                  toast.success(`${connector.name} 配置已清除`)
+                  onClose()
+                }}
+              >
+                <TrashIcon className="size-3.5 mr-1" />
+                清除配置
+              </Button>
+            ) : null}
+            <ModalCloseTrigger>
+              <Button variant="outline" size="sm">取消</Button>
+            </ModalCloseTrigger>
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              <SaveIcon className="size-3.5 mr-1" />
+              {saving ? "保存中..." : "保存"}
             </Button>
-          ) : null}
-          <Button variant="outline" size="sm" onClick={onClose}>
-            取消
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={saving}>
-            <SaveIcon className="size-3.5 mr-1" />
-            {saving ? "保存中..." : "保存"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+          </ModalFooter>
+        </ModalDialog>
+      </ModalContainer>
+      </ModalBackdrop>
+    </Modal>
   )
 }
 
@@ -645,90 +644,96 @@ function CustomConnectorDialog({ open, onClose, onRefresh }) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <PlusCircleIcon className="size-5" />
-            </div>
-            <div>
-              <div>自定义连接器</div>
-              <DialogDescription className="text-[12px]">添加一个新的外部服务连接</DialogDescription>
-            </div>
-          </DialogTitle>
-        </DialogHeader>
+    <Modal isOpen={open} onOpenChange={onClose}>
+      <ModalBackdrop>
+        <ModalContainer size="sm">
+          <ModalDialog>
+            <ModalHeader>
+              <ModalHeading className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <PlusCircleIcon className="size-5" />
+                </div>
+                <div>
+                  <div>自定义连接器</div>
+                </div>
+              </ModalHeading>
+            </ModalHeader>
 
-        <div className="flex flex-col gap-3 py-2">
-          <div className="space-y-1">
-            <label className="text-[12px] font-medium text-muted-foreground">连接器名称</label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="例如：Shopify"
-              className="text-[12px] h-8"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[12px] font-medium text-muted-foreground">配置字段</label>
-            {fields.map((f, i) => (
-              <div key={i} className="flex gap-1.5">
+          <ModalBody>
+            <p className="text-[12px] text-muted-foreground">添加一个新的外部服务连接</p>
+            <div className="flex flex-col gap-3 py-2">
+              <div className="space-y-1">
+                <label className="text-[12px] font-medium text-muted-foreground">连接器名称</label>
                 <Input
-                  value={f.key}
-                  onChange={(e) => {
-                    const next = [...fields]
-                    next[i] = { ...next[i], key: e.target.value }
-                    setFields(next)
-                  }}
-                  placeholder="ENV_KEY"
-                  className="text-[12px] h-8 font-mono"
-                />
-                <Input
-                  value={f.value}
-                  onChange={(e) => {
-                    const next = [...fields]
-                    next[i] = { ...next[i], value: e.target.value }
-                    setFields(next)
-                  }}
-                  placeholder="Value"
-                  type="password"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="例如：Shopify"
                   className="text-[12px] h-8"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[12px] font-medium text-muted-foreground">配置字段</label>
+                {fields.map((f, i) => (
+                  <div key={i} className="flex gap-1.5">
+                    <Input
+                      value={f.key}
+                      onChange={(e) => {
+                        const next = [...fields]
+                        next[i] = { ...next[i], key: e.target.value }
+                        setFields(next)
+                      }}
+                      placeholder="ENV_KEY"
+                      className="text-[12px] h-8 font-mono"
+                    />
+                    <Input
+                      value={f.value}
+                      onChange={(e) => {
+                        const next = [...fields]
+                        next[i] = { ...next[i], value: e.target.value }
+                        setFields(next)
+                      }}
+                      placeholder="Value"
+                      type="password"
+                      className="text-[12px] h-8"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0 text-muted-foreground"
+                      onClick={() => setFields((f) => f.filter((_, j) => j !== i))}
+                      disabled={fields.length <= 1}
+                    >
+                      <TrashIcon className="size-3.5" />
+                    </Button>
+                  </div>
+                ))}
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="size-8 shrink-0 text-muted-foreground"
-                  onClick={() => setFields((f) => f.filter((_, j) => j !== i))}
-                  disabled={fields.length <= 1}
+                  size="sm"
+                  className="text-[12px] w-full"
+                  onClick={() => setFields((f) => [...f, { key: "", value: "" }])}
                 >
-                  <TrashIcon className="size-3.5" />
+                  <PlusCircleIcon className="size-3.5 mr-1" />
+                  添加字段
                 </Button>
               </div>
-            ))}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-[12px] w-full"
-              onClick={() => setFields((f) => [...f, { key: "", value: "" }])}
-            >
-              <PlusCircleIcon className="size-3.5 mr-1" />
-              添加字段
-            </Button>
-          </div>
-        </div>
+            </div>
+          </ModalBody>
 
-        <div className="flex justify-end gap-2 pt-2 border-t">
-          <Button variant="outline" size="sm" onClick={onClose}>
-            取消
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={saving || !name.trim()}>
-            <SaveIcon className="size-3.5 mr-1" />
-            {saving ? "保存中..." : "保存"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+          <ModalFooter>
+            <ModalCloseTrigger>
+              <Button variant="outline" size="sm">取消</Button>
+            </ModalCloseTrigger>
+            <Button size="sm" onClick={handleSave} disabled={saving || !name.trim()}>
+              <SaveIcon className="size-3.5 mr-1" />
+              {saving ? "保存中..." : "保存"}
+            </Button>
+          </ModalFooter>
+        </ModalDialog>
+      </ModalContainer>
+      </ModalBackdrop>
+    </Modal>
   )
 }
 
@@ -749,8 +754,6 @@ export default function IntegrationsView() {
       const match = key.match(/^CONNECTOR_(.+)_FIELDS$/)
       if (!match) continue
       const id = match[1].toLowerCase()
-      const fields = parseConnectorFields(value)
-      if (fields.length === 0) continue
       const name = id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
       result.push({
         id: `custom-${id}`,
@@ -758,7 +761,7 @@ export default function IntegrationsView() {
         description: "自定义连接器",
         icon: PlugIcon,
         color: "bg-primary/10 text-primary",
-        fields,
+        fields: parseConnectorFields(value),
       })
     }
     return result
@@ -771,8 +774,9 @@ export default function IntegrationsView() {
         readChannelsConfig().catch(() => ({})),
         getIntegrationChecks().catch(() => ({})),
       ])
-      const connectorEnvMap = await revealPresetConnectorEnvMap(buildConnectorEnvMap(vars))
-      setEnvMap(connectorEnvMap)
+      const baseMap = buildConnectorEnvMap(vars)
+      const nextMap = await revealPresetConnectorEnvMap(baseMap, PRESET_CONNECTORS)
+      setEnvMap(nextMap)
       setChannelConfigs(channels && typeof channels === "object" ? channels : {})
       setIntegrationChecks(checks && typeof checks === "object" ? checks : {})
     } catch {
@@ -788,15 +792,15 @@ export default function IntegrationsView() {
     refresh()
   }, [refresh])
 
+  const allConnectors = [...PRESET_CONNECTORS, ...customConnectors()]
   const handleCheckUpdated = useCallback((connectorId, check) => {
-    if (!connectorId) return
-    setIntegrationChecks((current) => ({
-      ...current,
-      [connectorId]: normalizeIntegrationCheck(check),
+    const normalizedId = cleanString(connectorId)
+    if (!normalizedId) return
+    setIntegrationChecks((prev) => ({
+      ...(prev || {}),
+      [normalizedId]: check,
     }))
   }, [])
-
-  const allConnectors = [...PRESET_CONNECTORS, ...customConnectors()]
 
   return (
     <ViewFrame
@@ -826,10 +830,11 @@ export default function IntegrationsView() {
                   return (
                     <Card
                       key={conn.id}
-                      className="cursor-pointer py-3 gap-3 hover:border-primary/40 transition-colors"
+                      variant="default"
+                      className="cursor-pointer py-3 gap-3 transition-all duration-200 hover:shadow-md"
                       onClick={() => setSelected(conn)}
                     >
-                      <CardContent className="px-4 py-0 min-h-[156px]">
+                      <Card.Content className="px-4 py-0">
                         <div className="flex items-start justify-between">
                           <div className={cn("flex size-9 items-center justify-center rounded-lg", conn.color)}>
                             <Icon className="size-4.5" />
@@ -840,9 +845,11 @@ export default function IntegrationsView() {
                           <div className="text-[13px] font-medium leading-tight">{conn.name}</div>
                           <div className="text-[11px] text-muted-foreground mt-0.5">{conn.description}</div>
                         </div>
-                        <Badge variant="outline" className={cn("text-[10px] h-5 mt-2", cfg.badge)}>
-                          {cfg.label}
-                        </Badge>
+                        <Chip variant="tertiary" className={cn("h-5 mt-2", cfg.badgeWrapper)}>
+                          <Chip.Label className={cn("text-[10px]", cfg.badgeLabel)}>
+                            {cfg.label}
+                          </Chip.Label>
+                        </Chip>
                         {bridgeStatus.label && (
                           <div className={cn("mt-2 flex items-center gap-1.5 text-[10px] font-medium", bridgeCfg.text)}>
                             <span className={cn("size-1.5 rounded-full", bridgeCfg.dot)} />
@@ -855,7 +862,7 @@ export default function IntegrationsView() {
                             <span>{connectivityCfg.label}</span>
                           </div>
                         )}
-                      </CardContent>
+                      </Card.Content>
                     </Card>
                   )
                 })}
@@ -878,10 +885,11 @@ export default function IntegrationsView() {
                 return (
                   <Card
                     key={conn.id}
-                    className="cursor-pointer py-3 gap-3 hover:border-primary/40 transition-colors"
+                    variant="default"
+                    className="cursor-pointer py-3 gap-3 transition-all duration-200 hover:shadow-md"
                     onClick={() => setSelected(conn)}
                   >
-                    <CardContent className="px-4 py-0 min-h-[156px]">
+                    <Card.Content className="px-4 py-0">
                       <div className="flex items-start justify-between">
                         <div className={cn("flex size-9 items-center justify-center rounded-lg", conn.color)}>
                           <Icon className="size-4.5" />
@@ -892,14 +900,16 @@ export default function IntegrationsView() {
                         <div className="text-[13px] font-medium leading-tight">{conn.name}</div>
                         <div className="text-[11px] text-muted-foreground mt-0.5">{conn.description}</div>
                       </div>
-                      <Badge variant="outline" className={cn("text-[10px] h-5 mt-2", cfg.badge)}>
-                        {cfg.label}
-                      </Badge>
+                      <Chip variant="tertiary" className={cn("h-5 mt-2", cfg.badgeWrapper)}>
+                        <Chip.Label className={cn("text-[10px]", cfg.badgeLabel)}>
+                          {cfg.label}
+                        </Chip.Label>
+                      </Chip>
                       <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
                         <span className={cn("size-1.5 rounded-full", connectivityCfg.dot)} />
                         <span>{connectivityCfg.label}</span>
                       </div>
-                    </CardContent>
+                    </Card.Content>
                   </Card>
                 )
               })}
@@ -911,13 +921,14 @@ export default function IntegrationsView() {
         <div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             <Card
+              variant="outlined"
               className="cursor-pointer py-3 gap-3 border-dashed hover:border-primary/40 transition-colors"
               onClick={() => setCustomOpen(true)}
             >
-              <CardContent className="px-4 py-0 flex flex-col items-center justify-center min-h-[120px]">
+              <Card.Content className="px-4 py-0 flex flex-col items-center justify-center min-h-[120px]">
                 <PlusCircleIcon className="size-8 text-muted-foreground/50" />
                 <div className="text-[12px] text-muted-foreground mt-2">自定义连接器</div>
-              </CardContent>
+              </Card.Content>
             </Card>
           </div>
         </div>

@@ -6,18 +6,19 @@ import { toast } from "sonner"
 import { openFileExternal } from "@/api"
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
+  AlertDialogBackdrop,
+  AlertDialogBody,
+  AlertDialogCloseTrigger,
+  AlertDialogContainer,
+  AlertDialogDialog,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogMedia,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
+  AlertDialogHeading,
+  AlertDialogIcon,
+  Card,
+  Chip,
+} from "@heroui/react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { ViewFrame } from "@/components/view-frame"
 import { useI18n } from "@/i18n"
@@ -149,9 +150,11 @@ export default function FileView({
 
                   <div className="rounded-[14px] border border-border/60 bg-background/92 p-4">
                     <div className="mb-3 flex flex-wrap items-center gap-2">
-                      <Badge variant="outline" className="rounded px-1.5 py-0.5 text-[10px]">
-                        {t("files.itemPath")}
-                      </Badge>
+                      <Chip variant="tertiary" className="rounded px-1.5 py-0.5">
+                        <Chip.Label className="text-[10px]">
+                          {t("files.itemPath")}
+                        </Chip.Label>
+                      </Chip>
                       <span className="mono break-all text-[11px] text-muted-foreground">
                         {selectedFile.path}
                       </span>
@@ -183,28 +186,31 @@ export default function FileView({
         </div>
       </ViewFrame>
 
-      <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && onPendingDeleteChange(null)}>
-        <AlertDialogContent size="sm" className="rounded-[12px] border-border/70 bg-background/95">
-          <AlertDialogHeader>
-            <AlertDialogMedia className="bg-destructive/10 text-destructive">
-              <Trash2Icon />
-            </AlertDialogMedia>
-            <AlertDialogTitle>{t("files.deleteTitle")}</AlertDialogTitle>
-            <AlertDialogDescription className="leading-7">
-              {t("files.deleteDescription", { name: pendingDelete?.name || "" })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-md">{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              className="rounded-md"
-              onClick={onDeleteSelected}
-            >
-              {t("files.deleteAction")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+      <AlertDialog isOpen={Boolean(pendingDelete)} onOpenChange={(open) => !open && onPendingDeleteChange(null)}>
+        <AlertDialogBackdrop />
+        <AlertDialogContainer>
+          <AlertDialogDialog size="sm" className="rounded-[12px] border-border/70 bg-background/95">
+            <AlertDialogHeader>
+              <AlertDialogIcon status="danger"><Trash2Icon className="size-5" /></AlertDialogIcon>
+              <AlertDialogHeading>{t("files.deleteTitle")}</AlertDialogHeading>
+            </AlertDialogHeader>
+            <AlertDialogBody>
+              <p className="leading-7">
+                {t("files.deleteDescription", { name: pendingDelete?.name || "" })}
+              </p>
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <AlertDialogCloseTrigger className="rounded-md">{t("common.cancel")}</AlertDialogCloseTrigger>
+              <Button
+                color="danger"
+                className="rounded-md"
+                onClick={onDeleteSelected}
+              >
+                {t("files.deleteAction")}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogDialog>
+        </AlertDialogContainer>
       </AlertDialog>
     </div>
   )
@@ -212,13 +218,13 @@ export default function FileView({
 
 function EmptyBlock({ title, description }) {
   return (
-    <Card className="rounded-[10px] border-border/55 border-dashed bg-background/55 py-0 shadow-none">
-      <CardContent className="px-4 py-6 text-center">
+    <Card variant="outlined" className="rounded-[10px] border-border/55 border-dashed bg-background/55 py-0 shadow-none">
+      <Card.Content className="px-4 py-6 text-center">
         <div className="space-y-1.5">
           <div className="text-[13px] font-medium text-foreground">{title}</div>
           <p className="text-[12px] leading-5 text-muted-foreground">{description}</p>
         </div>
-      </CardContent>
+      </Card.Content>
     </Card>
   )
 }

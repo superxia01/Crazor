@@ -177,7 +177,8 @@
       "group": {
         "ai": "AI",
         "business": "Enterprise Data",
-        "customer": "Customer Delivery"
+        "customer": "Customer Delivery",
+        "knowledge": "Knowledge"
       }
     }
   },

@@ -124,6 +124,7 @@ function MainViewHeader({
         IS_MAC_WINDOW_CHROME && "pt-0.5"
       )}>
       <div className="flex min-w-0 items-center gap-2" data-no-window-drag>
+        {isChatView && (
         <Button
           type="button"
           variant="ghost"
@@ -142,7 +143,8 @@ function MainViewHeader({
             <PanelLeftOpenIcon className="size-4" />
           )}
         </Button>
-        {onToggleMiddleColumn ? (
+        )}
+        {isChatView && onToggleMiddleColumn ? (
           <Button
             type="button"
             variant="ghost"
@@ -301,9 +303,6 @@ function MainViewHeader({
           </>
         ) : (
           <div className="flex min-w-0 items-center gap-3">
-            <div className="truncate text-[13px] font-semibold text-foreground">
-              {titleText}
-            </div>
             {isNotebookView && notebookHasSelection && onNotebookEditorModeChange ? (
               <div className="flex shrink-0 items-center gap-[5px]">
                 <div className="flex shrink-0 items-center gap-0.5 rounded-[12px] bg-slate-100/86 p-[3px] dark:bg-white/10">
@@ -383,6 +382,7 @@ function MainViewHeader({
             <CircleDotIcon className="size-4" />
           </Button>
         ) : null}
+        {isChatView && (
         <Button
           variant="ghost"
           size="icon-sm"
@@ -391,6 +391,7 @@ function MainViewHeader({
           title={rightDrawerOpen ? t("toolSteps.collapse") : t("toolSteps.expand")}>
           <Settings2Icon className="size-4" />
         </Button>
+        )}
       </div>
       {menuTabId && menuPosition
         ? createPortal(

@@ -16,12 +16,14 @@ import {
 
 import { Popup } from "@/Popup"
 import { importAttachmentFromPath, savePastedAttachment } from "@/api"
+import { Avatar, Popover, Chip } from "@heroui/react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { COMMANDS, SKILLS } from "@/data"
 import { useI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
+import { getEmployeeIcon } from "@/components/employeeIconMap"
 
 function getActiveToken(value) {
   const match = value.match(/(?:^|\s)([/$][^\s]*)$/)
@@ -463,48 +465,71 @@ export function InputArea({
               <PaperclipIcon className="size-4" />
             </Button>
 
-            <Badge
-              variant="outline"
-              className="cursor-pointer rounded border-border bg-sidebar px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            <Chip
+              variant="tertiary"
+              size="sm"
+              className="cursor-pointer"
               onClick={() => { onChange(value + "/"); textareaRef.current?.focus() }}>
-              <SlashIcon className="size-3.5" />
-              {t("input.commandChip")}
-            </Badge>
-            <Badge
-              variant="outline"
-              className="cursor-pointer rounded border-border bg-sidebar px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              <Chip.Label className="flex items-center gap-1 text-[10px]">
+                <SlashIcon className="size-3.5" />
+                {t("input.commandChip")}
+              </Chip.Label>
+            </Chip>
+            <Chip
+              variant="tertiary"
+              size="sm"
+              className="cursor-pointer"
               onClick={() => { onChange(value + "$"); textareaRef.current?.focus() }}>
-              <SparklesIcon className="size-3.5" />
-              {t("input.skillChip")}
-            </Badge>
+              <Chip.Label className="flex items-center gap-1 text-[10px]">
+                <SparklesIcon className="size-3.5" />
+                {t("input.skillChip")}
+              </Chip.Label>
+            </Chip>
             {employees.length > 0 && onSelectEmployee && (
-              <div className="relative">
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer rounded border-border bg-sidebar px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                  onClick={() => setEmpOpen((v) => !v)}>
-                  <UsersIcon className="size-3.5" />
-                  数字员工
-                </Badge>
-                {empOpen && (
-                  <div className="absolute bottom-full left-0 z-50 mb-2 w-56 rounded-lg border border-border bg-popover p-1 shadow-lg">
+              <Popover isOpen={empOpen} onOpenChange={setEmpOpen}>
+                <Popover.Trigger>
+                  <Chip
+                    variant="tertiary"
+                    size="sm"
+                    className="cursor-pointer">
+                    <Chip.Label className="flex items-center gap-1 text-[10px]">
+                      <UsersIcon className="size-3.5" />
+                      数字员工
+                    </Chip.Label>
+                  </Chip>
+                </Popover.Trigger>
+                <Popover.Content placement="top-start" offset={8}>
+                  <Popover.Dialog className="w-56 p-1">
                     <div className="max-h-64 overflow-auto">
-                      {employees.map((emp) => (
-                        <button
-                          key={emp.id}
-                          className="w-full rounded-md px-2.5 py-1.5 text-left text-[12px] hover:bg-accent transition-colors"
-                          onClick={() => {
-                            setEmpOpen(false)
-                            onSelectEmployee(emp.id)
-                          }}>
-                          <div className="font-medium">{emp.name}</div>
-                          <div className="text-[10px] text-muted-foreground">{emp.description}</div>
-                        </button>
-                      ))}
+                      {employees.map((emp) => {
+                        const { icon: EmpIcon, color: iconColor } = getEmployeeIcon(emp.id)
+                        return (
+                          <button
+                            key={emp.id}
+                            className="w-full flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] hover:bg-accent transition-colors"
+                            onClick={() => {
+                              setEmpOpen(false)
+                              onSelectEmployee(emp.id)
+                            }}>
+                            <Avatar
+                              size="sm"
+                              variant="soft"
+                              className={cn("shrink-0", iconColor)}>
+                              <Avatar.Fallback>
+                                <EmpIcon className="size-3.5" />
+                              </Avatar.Fallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                              <div className="font-medium">{emp.name}</div>
+                              <div className="text-[10px] text-muted-foreground">{emp.description}</div>
+                            </div>
+                          </button>
+                        )
+                      })}
                     </div>
-                  </div>
-                )}
-              </div>
+                  </Popover.Dialog>
+                </Popover.Content>
+              </Popover>
             )}
             <span className="mono hidden text-[11px] text-muted-foreground md:inline">
               {t("input.sendHint")}
