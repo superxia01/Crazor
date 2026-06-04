@@ -237,39 +237,40 @@ export function NotebookTreeItemActions({
         ) : null}
       </DropdownMenuContent>
       <AlertDialog isOpen={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogBackdrop />
-        <AlertDialogContainer>
-          <AlertDialogDialog size="sm" className="rounded-[12px] border-border/70 bg-background/95">
-            <AlertDialogHeader>
-              <AlertDialogIcon status="danger"><Trash2Icon className="size-5" /></AlertDialogIcon>
-              <AlertDialogHeading>
-                {String(renameTitle || "").includes(t("notebook.renameFolderPrompt"))
-                  ? t("notebook.deleteFolderTitle")
-                  : t("notebook.deleteNoteTitle")}
-              </AlertDialogHeading>
-            </AlertDialogHeader>
-            <AlertDialogBody>
-              <p className="leading-7">
-                {String(renameTitle || "").includes(t("notebook.renameFolderPrompt"))
-                  ? t("notebook.deleteFolderDescription", { name: label })
-                  : t("notebook.deleteNoteDescription", { name: label })}
-              </p>
-            </AlertDialogBody>
-            <AlertDialogFooter>
-              <AlertDialogCloseTrigger className="rounded-md">{t("common.cancel")}</AlertDialogCloseTrigger>
-              <Button
-                color="danger"
-                className="rounded-md"
-                onClick={() => {
-                  onDelete?.()
-                  setConfirmDeleteOpen(false)
-                }}
-              >
-                {t("common.confirm")}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogDialog>
-        </AlertDialogContainer>
+        <AlertDialogBackdrop>
+          <AlertDialogContainer>
+            <AlertDialogDialog size="sm" className="rounded-[12px] border-border/70 bg-background/95">
+              <AlertDialogHeader>
+                <AlertDialogIcon status="danger"><Trash2Icon className="size-5" /></AlertDialogIcon>
+                <AlertDialogHeading>
+                  {String(renameTitle || "").includes(t("notebook.renameFolderPrompt"))
+                    ? t("notebook.deleteFolderTitle")
+                    : t("notebook.deleteNoteTitle")}
+                </AlertDialogHeading>
+              </AlertDialogHeader>
+              <AlertDialogBody>
+                <p className="leading-7">
+                  {String(renameTitle || "").includes(t("notebook.renameFolderPrompt"))
+                    ? t("notebook.deleteFolderDescription", { name: label })
+                    : t("notebook.deleteNoteDescription", { name: label })}
+                </p>
+              </AlertDialogBody>
+              <AlertDialogFooter>
+                <AlertDialogCloseTrigger className="rounded-md">{t("common.cancel")}</AlertDialogCloseTrigger>
+                <Button
+                  color="danger"
+                  className="rounded-md"
+                  onClick={() => {
+                    onDelete?.()
+                    setConfirmDeleteOpen(false)
+                  }}
+                >
+                  {t("common.confirm")}
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogDialog>
+          </AlertDialogContainer>
+        </AlertDialogBackdrop>
       </AlertDialog>
     </DropdownMenu>
   )

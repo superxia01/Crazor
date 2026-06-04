@@ -3543,64 +3543,66 @@ export function AppInner({ userInfo, onLogin, onLogout }) {
       <AlertDialog
         isOpen={Boolean(sessionPendingDelete)}
         onOpenChange={(open) => !open && setSessionPendingDelete(null)}>
-        <AlertDialogBackdrop />
-        <AlertDialogContainer>
-          <AlertDialogDialog size="sm" className="rounded-[12px] border-border/70 bg-background/95">
-            <AlertDialogHeader>
-              <AlertDialogIcon status="danger"><Trash2Icon className="size-5" /></AlertDialogIcon>
-              <AlertDialogHeading>{t("app.deleteSessionTitle")}</AlertDialogHeading>
-            </AlertDialogHeader>
-            <AlertDialogBody>
-              <p className="leading-7">
-                {t("app.deleteSessionDescription")}
-              </p>
-            </AlertDialogBody>
-            <AlertDialogFooter>
-              <AlertDialogCloseTrigger className="rounded-md">{t("common.cancel")}</AlertDialogCloseTrigger>
-              <Button
-                color="danger"
-                className="rounded-md"
-                onClick={handleDeleteConversation}>
-                {t("app.deleteSessionAction")}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogDialog>
-        </AlertDialogContainer>
+        <AlertDialogBackdrop>
+          <AlertDialogContainer>
+            <AlertDialogDialog size="sm" className="rounded-[12px] border-border/70 bg-background/95">
+              <AlertDialogHeader>
+                <AlertDialogIcon status="danger"><Trash2Icon className="size-5" /></AlertDialogIcon>
+                <AlertDialogHeading>{t("app.deleteSessionTitle")}</AlertDialogHeading>
+              </AlertDialogHeader>
+              <AlertDialogBody>
+                <p className="leading-7">
+                  {t("app.deleteSessionDescription")}
+                </p>
+              </AlertDialogBody>
+              <AlertDialogFooter>
+                <AlertDialogCloseTrigger className="rounded-md">{t("common.cancel")}</AlertDialogCloseTrigger>
+                <Button
+                  color="danger"
+                  className="rounded-md"
+                  onClick={handleDeleteConversation}>
+                  {t("app.deleteSessionAction")}
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogDialog>
+          </AlertDialogContainer>
+        </AlertDialogBackdrop>
       </AlertDialog>
 
       <AlertDialog
         isOpen={Boolean(connectionPrompt)}
         onOpenChange={(open) => !open && setConnectionPrompt(null)}>
-        <AlertDialogBackdrop />
-        <AlertDialogContainer>
-          <AlertDialogDialog size="sm" className="rounded-[12px] border-border/70 bg-background/95">
-            <AlertDialogHeader>
-              <AlertDialogIcon status="accent"><WrenchIcon className="size-5" /></AlertDialogIcon>
-              <AlertDialogHeading>{connectionPrompt?.title}</AlertDialogHeading>
-            </AlertDialogHeader>
-            <AlertDialogBody>
-              <p className="leading-7">
-                {connectionPrompt?.description}
-              </p>
-              {connectionPrompt?.details && (
-                <div className="mono mt-3 rounded-md border border-border/70 bg-background/70 px-3 py-2 text-[11px] text-muted-foreground">
-                  {connectionPrompt.details}
-                </div>
-              )}
-            </AlertDialogBody>
-            <AlertDialogFooter>
-              <AlertDialogCloseTrigger className="rounded-md">{t("common.cancel")}</AlertDialogCloseTrigger>
-              <Button
-                className="rounded-md"
-                onClick={() => {
-                  setConnectionPrompt(null)
-                  openConnectionSettings()
-                }}>
-                {t("app.openConnectionSettings")}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogDialog>
-        </AlertDialogContainer>
+        <AlertDialogBackdrop>
+          <AlertDialogContainer>
+            <AlertDialogDialog size="sm" className="rounded-[12px] border-border/70 bg-background/95">
+              <AlertDialogHeader>
+                <AlertDialogIcon status="accent"><WrenchIcon className="size-5" /></AlertDialogIcon>
+                <AlertDialogHeading>{connectionPrompt?.title}</AlertDialogHeading>
+              </AlertDialogHeader>
+              <AlertDialogBody>
+                <p className="leading-7">
+                  {connectionPrompt?.description}
+                </p>
+                {connectionPrompt?.details && (
+                  <div className="mono mt-3 rounded-md border border-border/70 bg-background/70 px-3 py-2 text-[11px] text-muted-foreground">
+                    {connectionPrompt.details}
+                  </div>
+                )}
+              </AlertDialogBody>
+              <AlertDialogFooter>
+                <AlertDialogCloseTrigger className="rounded-md">{t("common.cancel")}</AlertDialogCloseTrigger>
+                <Button
+                  className="rounded-md"
+                  onClick={() => {
+                    setConnectionPrompt(null)
+                    openConnectionSettings()
+                  }}>
+                  {t("app.openConnectionSettings")}
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogDialog>
+          </AlertDialogContainer>
+        </AlertDialogBackdrop>
       </AlertDialog>
     </div>
   )
