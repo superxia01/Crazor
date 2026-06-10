@@ -130,6 +130,11 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-20m}
+        max-file: ${LOG_MAX_FILE:-5}
 
   crazor-web:
     build:
@@ -156,3 +161,8 @@ services:
       timeout: 3s
       retries: 12
       start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-20m}
+        max-file: ${LOG_MAX_FILE:-5}
