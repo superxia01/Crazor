@@ -22,6 +22,10 @@ interface JWTPayload {
   portal_mode?: boolean
   login_channel?: string
   customer_name?: string
+  // M0 team collaboration: member identity claims
+  member_id?: string
+  role?: string
+  department?: string
   iat: number
   exp: number
 }
@@ -32,6 +36,9 @@ export function signJWT(payload: {
   portal_mode?: boolean
   login_channel?: string
   customer_name?: string
+  member_id?: string
+  role?: string
+  department?: string
 }, expiresInDays = 7): string {
   const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
   const now = Math.floor(Date.now() / 1000)
