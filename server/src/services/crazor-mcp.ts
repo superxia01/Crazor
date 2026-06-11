@@ -20,6 +20,7 @@ import {
 import { listFieldDefinitions, createFieldDefinition, discoverCustomFields } from "./field-definitions"
 import * as docTree from "./crazor-doc-tree"
 import { evaluateWritePermission } from "./crazor-permissions"
+import { emitEvent } from "./event-bus"
 
 // ── SSE session management ───────────────────────────────────
 
@@ -935,6 +936,18 @@ function recordMcpAudit(name: string, args: any, result: any, actor?: ToolActor)
   } catch (err) {
     console.error("[audit] failed to record MCP write:", err)
   }
+
+  // M1 event bus: mirror MCP tool writes onto the realtime event stream
+  emitEvent({
+    type: "mcp.tool_called",
+    actor_id: String(actor?.actor_id || args?.actor_id || args?.agent_id || "mcp-client"),
+    actor_name: "",
+    actor_type: actor?.actor_type || "agent",
+    entity: audit.entity,
+    entity_id: audit.entity_id,
+    summary: `MCP ${name}`,
+    data: { tool: name, action: audit.action, source: actor?.source || "mcp-tool" },
+  })
 }
 
 function deriveMcpAudit(name: string, args: any, result: any): null | { action: string; entity: string; entity_id: string } {

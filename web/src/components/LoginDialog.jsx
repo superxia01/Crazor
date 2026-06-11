@@ -13,6 +13,7 @@ import {
 import { storeCustomerLoginCredentials } from "@/api/crazor-auth"
 import { buildWorkspaceEntryHref, resolveRequestedWorkspace } from "@/api/login-entry"
 import { AccessCodeLoginCard } from "@/components/AccessCodeLoginCard"
+import { InviteJoinCard } from "@/components/InviteJoinCard"
 
 export function LoginDialog({ open, onOpenChange, onLogin }) {
   const requestedWorkspace = resolveRequestedWorkspace()
@@ -20,10 +21,13 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
   const [loading, setLoading] = useState(true)
   const [accessLoading, setAccessLoading] = useState(false)
   const [internalAccessLoading, setInternalAccessLoading] = useState(false)
+  const [inviteLoading, setInviteLoading] = useState(false)
   const [error, setError] = useState(null)
   const [authStatus, setAuthStatus] = useState(null)
   const [accessCode, setAccessCode] = useState("")
   const [internalAccessCode, setInternalAccessCode] = useState("")
+  const [inviteName, setInviteName] = useState("")
+  const [inviteCode, setInviteCode] = useState("")
 
   const fetchLoginStatus = useCallback(async () => {
     try {
@@ -53,8 +57,11 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
       setAuthStatus(null)
       setAccessCode("")
       setInternalAccessCode("")
+      setInviteName("")
+      setInviteCode("")
       setAccessLoading(false)
       setInternalAccessLoading(false)
+      setInviteLoading(false)
     }
   }, [open, fetchLoginStatus])
 
@@ -115,6 +122,37 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
       setError("网络错误，请重试")
     } finally {
       setInternalAccessLoading(false)
+    }
+  }
+
+  const handleInviteRedeem = async (event) => {
+    event.preventDefault()
+    const name = inviteName.trim()
+    const code = inviteCode.trim()
+    if (!name || !code) {
+      setError("请输入姓名和团队邀请码")
+      return
+    }
+    try {
+      setInviteLoading(true)
+      setError(null)
+      const resp = await fetch("/api/auth/invite/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ code, name }),
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok || !data.token) {
+        setError(data.error || "邀请码验证失败")
+        return
+      }
+      storeCustomerLoginCredentials(data)
+      onLogin()
+      onOpenChange(false)
+    } catch {
+      setError("网络错误，请重试")
+    } finally {
+      setInviteLoading(false)
     }
   }
 
@@ -194,6 +232,18 @@ export function LoginDialog({ open, onOpenChange, onLogin }) {
                 onChange={setInternalAccessCode}
                 onSubmit={handleInternalAccessLogin}
                 loading={internalAccessLoading}
+              />
+            )}
+
+            {!loading && internalEntryRequested && (
+              <InviteJoinCard
+                context="dialog"
+                name={inviteName}
+                code={inviteCode}
+                onNameChange={setInviteName}
+                onCodeChange={setInviteCode}
+                onSubmit={handleInviteRedeem}
+                loading={inviteLoading}
               />
             )}
           </ModalBody>

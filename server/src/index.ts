@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { stream } from 'hono/streaming'
 import { HTTPException } from 'hono/http-exception'
+import { createBunWebSocket } from 'hono/bun'
+import type { ServerWebSocket } from 'bun'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -16,7 +18,7 @@ import {
   listFollowUps, createFollowUp, updateFollowUp, deleteFollowUp, getFollowUpReminders,
   listChannels, getChannel, createChannel, updateChannel, deleteChannel, getChannelStats,
   listChannelReferrals, createChannelReferral, listContactChannels,
-  listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats, seedContentPieces,
+  listContentPieces, getContentPiece, createContentPiece, updateContentPiece, deleteContentPiece, getContentPieceStats, seedContentPieces, cleanupDeprecatedPlatforms,
   contentPublish, contentUpdateMetrics,
   createAuditLog, listAuditLogs,
   getIntegrationCheck, listIntegrationChecks, upsertIntegrationCheck,
@@ -62,11 +64,15 @@ import {
   unsupportedAgentProviderCapability,
 } from './services/agent-gateway'
 import { evaluateReadPermission, evaluateWritePermission } from './services/crazor-permissions'
+import { emitEvent, subscribeEvents, getRecentEvents, latestEventId, entityEventTypeFromAuditAction, type CrazorEvent } from './services/event-bus'
 import { authMiddleware } from './middleware/auth'
 import { generateState, getWechatLoginUrl, exchangeCodeForToken, upsertUser, isUserBound, signJWT, verifyJWT, customerAccessCodeConfigured, verifyCustomerAccessCode, internalAccessCodeConfigured, verifyInternalAccessCode } from './services/crazor-auth'
 import { testFeishuConnector } from './services/feishu'
 
 const app = new Hono()
+
+// M1 event bus: Bun WebSocket adapter (websocket handler is exported with the server config below)
+const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket>()
 
 // --- Config ---
 const PORT = parseInt(process.env.PORT || '3001')
@@ -1415,6 +1421,21 @@ app.use('/api/crazor/*', async (c, next) => {
   if (audit.action === 'create' && audit.entity_id) {
     stampEntityOwner(audit.entity, audit.entity_id, actor?.actor_id || '')
   }
+
+  // M1 event bus: mirror successful REST writes onto the realtime event stream
+  const eventType = entityEventTypeFromAuditAction(audit.action)
+  if (eventType) {
+    emitEvent({
+      type: eventType,
+      actor_id: actor?.actor_id || 'anonymous',
+      actor_name: (actor as any)?.actor_name || '',
+      actor_type: actor?.actor_type || 'human',
+      entity: audit.entity,
+      entity_id: audit.entity_id,
+      summary: `${method} ${url.pathname}`,
+      data: { action: audit.action, source: actor?.source || 'rest-api' },
+    })
+  }
 })
 
 function truthyEnv(value: unknown): boolean {
@@ -2526,6 +2547,17 @@ app.post('/api/auth/invite/redeem', async (c) => {
       payload: { name: member.name },
       summary: `成员 ${member.name} 通过邀请码加入（${member.role}）`,
     })
+    // M1 event bus: announce the new member on the realtime stream
+    emitEvent({
+      type: 'member.joined',
+      actor_id: member.id,
+      actor_name: member.name,
+      actor_type: 'human',
+      entity: 'team_member',
+      entity_id: member.id,
+      summary: `成员 ${member.name} 通过邀请码加入（${member.role}）`,
+      data: { role: member.role, department: member.department || '' },
+    })
     return c.json({
       loggedIn: true,
       token,
@@ -2831,6 +2863,198 @@ app.use('*', async (c, next) => {
     portal_only: true,
     blocked_path: pathname,
   }, 403)
+})
+
+// ── M1 event bus: realtime WebSocket push + presence ─────────
+
+type EventsWsIdentity = { member_id: string; name: string; role: string }
+type EventsWsConn = { ws: any; identity: EventsWsIdentity; alive: boolean; closed: boolean }
+
+const EVENTS_WS_HEARTBEAT_MS = 30_000
+const EVENTS_HELLO_RECENT_LIMIT = 50
+const eventsWsConns = new Set<EventsWsConn>()
+const onlineMembers = new Map<string, { member_id: string; name: string; connected_at: string; connections: number }>()
+
+function listOnlineMembers() {
+  return Array.from(onlineMembers.values()).map((entry) => ({
+    member_id: entry.member_id,
+    name: entry.name,
+    connected_at: entry.connected_at,
+    connections: entry.connections,
+  }))
+}
+
+// WS 鉴权：复用登录 JWT 体系。cookie crazor_token / ?token= / Authorization Bearer 三选一；
+// dev 模式（未配置任何登录方式）放行为匿名身份。
+function resolveEventsWsIdentity(c: any): EventsWsIdentity | null {
+  if (!loginRequiredByEnv()) {
+    return { member_id: 'anonymous', name: '本地用户', role: '' }
+  }
+  const token = String(c.req.query('token') || '').trim() || extractLoginJwt(c)
+  if (!token) return null
+  try {
+    const payload = verifyJWT(token)
+    if (isCustomerPortalSessionPayload(payload)) return null
+    if (payload.member_id) {
+      const member = getTeamMember(String(payload.member_id))
+      if (!member || member.status !== 'active') return null
+      return { member_id: member.id, name: member.name, role: member.role || '' }
+    }
+    // 旧单人版会话（无成员绑定）
+    return {
+      member_id: String(payload.openid || payload.nickname || 'wechat-user'),
+      name: String(payload.nickname || 'wechat-user'),
+      role: '',
+    }
+  } catch {
+    return null
+  }
+}
+
+function presenceConnect(identity: EventsWsIdentity) {
+  const existing = onlineMembers.get(identity.member_id)
+  if (existing) {
+    existing.connections += 1
+    return
+  }
+  onlineMembers.set(identity.member_id, {
+    member_id: identity.member_id,
+    name: identity.name,
+    connected_at: new Date().toISOString(),
+    connections: 1,
+  })
+  emitEvent({
+    type: 'presence.online',
+    actor_id: identity.member_id,
+    actor_name: identity.name,
+    actor_type: 'human',
+    entity: 'presence',
+    entity_id: identity.member_id,
+    summary: `${identity.name} 上线`,
+    data: { online: listOnlineMembers() },
+  })
+}
+
+function presenceDisconnect(identity: EventsWsIdentity) {
+  const existing = onlineMembers.get(identity.member_id)
+  if (!existing) return
+  existing.connections -= 1
+  if (existing.connections > 0) return
+  onlineMembers.delete(identity.member_id)
+  emitEvent({
+    type: 'presence.offline',
+    actor_id: identity.member_id,
+    actor_name: identity.name,
+    actor_type: 'human',
+    entity: 'presence',
+    entity_id: identity.member_id,
+    summary: `${identity.name} 离线`,
+    data: { online: listOnlineMembers() },
+  })
+}
+
+function safeEventsWsSend(conn: EventsWsConn, text: string) {
+  try {
+    conn.ws.send(text)
+  } catch {
+    // 发送失败交给心跳/onClose 清理
+  }
+}
+
+function cleanupEventsWsConn(conn: EventsWsConn) {
+  if (conn.closed) return
+  conn.closed = true
+  eventsWsConns.delete(conn)
+  presenceDisconnect(conn.identity)
+}
+
+// 把事件总线上的每条事件实时推给所有 WS 连接
+subscribeEvents((event: CrazorEvent) => {
+  if (eventsWsConns.size === 0) return
+  const text = JSON.stringify({ type: 'event', event })
+  for (const conn of eventsWsConns) {
+    safeEventsWsSend(conn, text)
+  }
+})
+
+// 心跳：每 30s 发一次 ping，上一轮无任何消息（含 pong）的连接判定为僵尸并断开
+setInterval(() => {
+  if (eventsWsConns.size === 0) return
+  const text = JSON.stringify({ type: 'ping', ts: new Date().toISOString() })
+  for (const conn of eventsWsConns) {
+    if (!conn.alive) {
+      try { conn.ws.close(4000, 'heartbeat timeout') } catch { /* already gone */ }
+      cleanupEventsWsConn(conn)
+      continue
+    }
+    conn.alive = false
+    safeEventsWsSend(conn, text)
+  }
+}, EVENTS_WS_HEARTBEAT_MS)
+
+// /api/events/ws 在 authMiddleware 的 PUBLIC_PATHS 中跳过（WS 无法带 Authorization 头），
+// 由这里的 guard 在 upgrade 前完成同等鉴权。
+app.get(
+  '/api/events/ws',
+  async (c, next) => {
+    if (!resolveEventsWsIdentity(c)) {
+      return c.json({ error: 'Unauthorized', needLogin: true }, 401)
+    }
+    await next()
+  },
+  upgradeWebSocket((c) => {
+    const identity = resolveEventsWsIdentity(c)
+    const since = parseInt(String(c.req.query('since') || '0'), 10) || 0
+    let conn: EventsWsConn | null = null
+    return {
+      onOpen(_evt: any, ws: any) {
+        if (!identity) {
+          try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }
+          return
+        }
+        presenceConnect(identity)
+        conn = { ws, identity, alive: true, closed: false }
+        eventsWsConns.add(conn)
+        safeEventsWsSend(conn, JSON.stringify({
+          type: 'hello',
+          ts: new Date().toISOString(),
+          self: identity,
+          online: listOnlineMembers(),
+          recent: getRecentEvents(since, EVENTS_HELLO_RECENT_LIMIT),
+        }))
+      },
+      onMessage(evt: any, _ws: any) {
+        if (!conn) return
+        conn.alive = true
+        let msg: any = null
+        try {
+          msg = JSON.parse(String(evt?.data || ''))
+        } catch {
+          return
+        }
+        if (msg?.type === 'ping') {
+          safeEventsWsSend(conn, JSON.stringify({ type: 'pong', ts: new Date().toISOString() }))
+        }
+      },
+      onClose() {
+        if (conn) cleanupEventsWsConn(conn)
+      },
+      onError() {
+        if (conn) cleanupEventsWsConn(conn)
+      },
+    }
+  }),
+)
+
+// REST 回放：从环形缓冲按 since 游标读取，鉴权与业务读一致（走 authMiddleware）
+app.get('/api/events/recent', (c) => {
+  const since = parseInt(String(c.req.query('since') || '0'), 10) || 0
+  const limit = parseInt(String(c.req.query('limit') || '50'), 10) || 50
+  return c.json({
+    events: getRecentEvents(since, limit),
+    online: listOnlineMembers(),
+    latest_id: latestEventId(),
+  })
 })
 
 app.get('/api/customer/portal', (c) => {
@@ -5010,6 +5234,7 @@ const seedSkillsResult = seedSkills()
 // Seed field definitions from schema metadata
 seedFieldDefinitions()
 seedContentPieces()
+cleanupDeprecatedPlatforms()
 for (const entity of ['contacts', 'channels', 'transactions']) {
   discoverCustomFields(entity)
 }
@@ -5065,4 +5290,6 @@ app.get('*', async (c: any) => {
 export default {
   port: PORT,
   fetch: app.fetch,
+  // M1 event bus: Bun WebSocket handler (paired with createBunWebSocket above)
+  websocket,
 }

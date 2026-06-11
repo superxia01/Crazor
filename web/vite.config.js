@@ -28,6 +28,8 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: 'http://localhost:3001',
           changeOrigin: true,
+          // M1 event bus: proxy WebSocket upgrades for /api/events/ws
+          ws: true,
         },
         '/mcp': {
           target: 'http://localhost:3001',
