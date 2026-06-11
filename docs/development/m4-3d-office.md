@@ -41,6 +41,8 @@
 
 路由兜底：未命中映射表的事件挑一名空闲员工执行；未在 `employeeMap` 的新技能自动在开放办公区热座落位。
 
+> Codex 审计备注：hello 帧的 online 快照会补齐在线成员常驻状态，recent 事件会进入右侧日志；为避免一次性重放历史事件造成动画洪泛，recent 事件当前不重新触发整段员工动作动画。
+
 ## 与旧版的功能对照（不回归）
 
 | 旧版（three.js） | 新版（canvas 2D） |
@@ -62,10 +64,16 @@
 # 1. 源码不变量（已在本分支跑过，2 pass）
 node --test web/src/office-meeting-runtime.test.js
 
-# 2. 纯 JS 语法（已全部通过 node --check）
-#    engine2d/*.js data/eventRouting.js data/officeLayout.js store.js
+# 2. 事件路由不变量（Codex 审计补充，3 pass）
+node --test web/src/office-event-routing.test.js
 
-# 3. 联调（需 node_modules / registry 环境）
+# 3. 纯 JS 语法（已全部通过 node --check）
+#    engine2d/OfficeEngine.js engine2d/effects.js data/eventRouting.js
+
+# 4. 生产构建（Codex 审计补充，通过）
+cd web && npm run build
+
+# 5. 联调（需 node_modules / registry 环境）
 cd server && bun run dev          # 启动事件总线
 cd web && npm run dev             # 打开 3D 办公室视图并开启
 #   - 顶部绿点「事件流已连接」，ticker 显示最新事件
@@ -83,4 +91,14 @@ cd web && npm run dev             # 打开 3D 办公室视图并开启
 - `mcp.tool_called` 的 actor 是 agent token 对应成员，无法精确指认是哪位「数字员工」执行，按工具名路由（`TOOL_EMPLOYEE`）近似。
 - 真人热座按在线顺序循环分配，重复上线/下线极端情况下可能同座（名牌防重叠仍可读）。
 - 触屏仅支持单指拖拽/点击（pointer events），未做双指捏合缩放。
-- `node_modules` 不在环境内，本分支未跑 vite build；JSX 文件经人工审查 + 源码不变量测试。
+- hello 帧的 recent 历史事件只进入事件列表/日志，不重放员工动作动画；在线快照仍会驱动真人头像常驻。
+
+## Codex 审计结论
+
+审计分支：`codex/m4-3d-office-audited` · 2026-06-11
+
+- 代码一致性：`feature/m4-3d-office` 基于当前 `origin/master`，无反向 cherry-pick 或主线落后问题。
+- 功能完整性：M4 已替换旧 three.js 办公室渲染层，保留开关、员工详情、会议按钮、缩放/拖拽/跟拍等入口契约；事件流接入点为 `useCrazorEvents`。
+- 审计补强：新增 `web/src/office-event-routing.test.js`，覆盖核心 entity/tool 到数字员工的路由和 ticker 文案。
+- 验证结果：`node --test web/src/office-meeting-runtime.test.js web/src/office-event-routing.test.js` 通过；`node --check` 覆盖关键引擎/路由文件通过；`cd web && npm run build` 通过。
+- 合并建议：审计通过，可进入 PR 合并；上线前建议在测试环境打开办公室视图做一次人工视觉验收，确认 canvas 动效与交互手感符合演示预期。
