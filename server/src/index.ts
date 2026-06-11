@@ -57,12 +57,21 @@ import {
 import {
   AGENT_DASHBOARD_URL,
   AGENT_GATEWAY_URL,
+  AGENT_PROVIDER_DISPLAY_NAME,
   agentProviderSupports,
-  agentGatewayHeaders,
   type AgentProviderCapabilityId,
   getAgentProviderDescriptor,
   unsupportedAgentProviderCapability,
 } from './services/agent-gateway'
+import {
+  gatewayFetch,
+  extractRuntimeSessionId,
+  runtimeChatCompletions,
+  runtimeResponses,
+  runtimeListModels,
+  runtimeJobs,
+  runtimeSessions,
+} from './services/agent-runtime'
 import { evaluateReadPermission, evaluateWritePermission } from './services/crazor-permissions'
 import { emitEvent, subscribeEvents, getRecentEvents, latestEventId, entityEventTypeFromAuditAction, type CrazorEvent } from './services/event-bus'
 import { authMiddleware } from './middleware/auth'
@@ -205,12 +214,9 @@ function upstreamConnectionFailedResponse(c: any, upstream: string, error: unkno
   }, 502)
 }
 
-async function proxyGatewayJsonResponse(c: any, path: string, options: RequestInit = {}) {
-  try {
-    return proxyJsonResponse(c, await gatewayFetch(path, options))
-  } catch (error) {
-    return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)
-  }
+// 与原能力门禁中间件的 501 响应保持同一契约（含 status: 'unsupported'）
+function unsupportedCapabilityResponse(c: any, capability: AgentProviderCapabilityId) {
+  return c.json({ ...unsupportedAgentProviderCapability(capability), status: 'unsupported' }, 501)
 }
 
 async function proxyDashboardJsonResponse(c: any, path: string, options: RequestInit = {}) {
@@ -426,16 +432,6 @@ function responseFailedEvent(message: string, detail?: unknown): string {
     error: {
       message,
       detail,
-    },
-  })
-}
-
-async function gatewayFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  return fetch(`${AGENT_GATEWAY_URL}${path}`, {
-    ...options,
-    headers: {
-      ...agentGatewayHeaders(),
-      ...(options.headers as Record<string, string> || {}),
     },
   })
 }
@@ -1246,13 +1242,10 @@ const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
   : ['http://localhost:5173', 'http://localhost:5174', 'tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost']
 
+// M2：gateway.* 层路由不再走该前缀中间件——能力门禁由 agent-runtime 适配层在路由内处理，
+// 以支持细分语义（Responses 缺失降级为 chat、jobs/sessions 列表返回真实空状态而非 501）。
 const AGENT_PROVIDER_CAPABILITY_ROUTES: { prefix: string; capability: AgentProviderCapabilityId }[] = [
-  { prefix: '/api/chat/completions', capability: 'gateway.chat_completions' },
-  { prefix: '/api/responses', capability: 'gateway.responses' },
-  { prefix: '/api/models', capability: 'gateway.models' },
-  { prefix: '/api/sessions', capability: 'gateway.sessions' },
   { prefix: '/api/cron/dependency', capability: 'dashboard.tasks' },
-  { prefix: '/api/cron', capability: 'gateway.jobs' },
   { prefix: '/api/config', capability: 'dashboard.config' },
   { prefix: '/api/model', capability: 'dashboard.model_config' },
   { prefix: '/api/env', capability: 'dashboard.env' },
@@ -3175,16 +3168,16 @@ app.delete('/mcp', async (c) => {
   return c.json({ ok: true })
 })
 
-// --- Agent Gateway Proxy (Hermes-compatible OpenAI API) ---
+// --- Agent Gateway Proxy（M2：经 agent-runtime 适配层，provider 无关） ---
 // Chat completions with SSE streaming
 app.post('/api/chat/completions', async (c) => {
+  if (!agentProviderSupports('gateway.chat_completions')) {
+    return unsupportedCapabilityResponse(c, 'gateway.chat_completions')
+  }
   const body = await c.req.json()
   let resp: Response
   try {
-    resp = await gatewayFetch('/v1/chat/completions', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    })
+    resp = await runtimeChatCompletions(body)
   } catch (error) {
     return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)
   }
@@ -3215,14 +3208,20 @@ app.post('/api/chat/completions', async (c) => {
   }
 
   // Non-streaming: just forward JSON
-  const sessionId = resp.headers.get('x-hermes-session-id')
-  if (sessionId) c.header('X-Hermes-Session-Id', sessionId)
+  const sessionId = extractRuntimeSessionId(resp)
+  if (sessionId) {
+    c.header('X-Hermes-Session-Id', sessionId) // 兼容旧前端
+    c.header('X-Agent-Session-Id', sessionId)
+  }
   const data = await resp.json()
   return c.json(data)
 })
 
-// Responses API (alternative chat endpoint)
+// Responses API（provider 无 /v1/responses 时由 agent-runtime 降级为 chat completions）
 app.post('/api/responses', async (c) => {
+  if (!agentProviderSupports('gateway.responses') && !agentProviderSupports('gateway.chat_completions')) {
+    return unsupportedCapabilityResponse(c, 'gateway.responses')
+  }
   const body = await c.req.json()
 
   if (body.stream) {
@@ -3236,12 +3235,9 @@ app.post('/api/responses', async (c) => {
 
       let resp: Response
       try {
-        resp = await gatewayFetch('/v1/responses', {
-          method: 'POST',
-          body: JSON.stringify(body),
-        })
+        resp = await runtimeResponses(body)
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Hermes Responses API connection failed'
+        const message = error instanceof Error ? error.message : `${AGENT_PROVIDER_DISPLAY_NAME} Responses API connection failed`
         await stream.write(responseFailedEvent(message))
         return
       }
@@ -3255,7 +3251,7 @@ app.post('/api/responses', async (c) => {
 
       const reader = resp.body?.getReader()
       if (!reader) {
-        await stream.write(responseFailedEvent('Hermes Responses API returned an empty stream'))
+        await stream.write(responseFailedEvent(`${AGENT_PROVIDER_DISPLAY_NAME} Responses API returned an empty stream`))
         return
       }
 
@@ -3267,7 +3263,7 @@ app.post('/api/responses', async (c) => {
           await stream.write(decoder.decode(value, { stream: true }))
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Hermes Responses API stream interrupted'
+        const message = error instanceof Error ? error.message : `${AGENT_PROVIDER_DISPLAY_NAME} Responses API stream interrupted`
         await stream.write(responseFailedEvent(message))
       } finally {
         reader.releaseLock()
@@ -3277,10 +3273,7 @@ app.post('/api/responses', async (c) => {
 
   let resp: Response
   try {
-    resp = await gatewayFetch('/v1/responses', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    })
+    resp = await runtimeResponses(body)
   } catch (error) {
     return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)
   }
@@ -3291,21 +3284,29 @@ app.post('/api/responses', async (c) => {
     return c.json({ error: error.message, detail: error.detail }, resp.status as 500)
   }
 
-  const sessionId = resp.headers.get('x-hermes-session-id')
-  if (sessionId) c.header('X-Hermes-Session-Id', sessionId)
+  const sessionId = extractRuntimeSessionId(resp)
+  if (sessionId) {
+    c.header('X-Hermes-Session-Id', sessionId) // 兼容旧前端
+    c.header('X-Agent-Session-Id', sessionId)
+  }
   const data = await resp.json()
   return c.json(data)
 })
 
-// Models
+// Models（能力缺失时返回真实空列表，前端展示空状态）
 app.get('/api/models', async (c) => {
-  return proxyGatewayJsonResponse(c, '/v1/models')
+  try {
+    return proxyJsonResponse(c, await runtimeListModels())
+  } catch (error) {
+    return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)
+  }
 })
 
-// Cron jobs (Agent Gateway provider)
+// Cron jobs（gateway.jobs 可选能力：缺失时 GET 返回真实空列表，写操作返回 501）
 app.get('/api/cron', async (c) => {
+  if (!runtimeJobs.supported()) return c.json([])
   try {
-    const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs?include_disabled=true`, { headers: agentGatewayHeaders() })
+    const resp = await runtimeJobs.list()
     const data = await resp.json()
     return c.json(data)
   } catch {
@@ -3314,47 +3315,65 @@ app.get('/api/cron', async (c) => {
 })
 
 app.post('/api/cron', async (c) => {
+  if (!runtimeJobs.supported()) return unsupportedCapabilityResponse(c, 'gateway.jobs')
   const body = await c.req.json()
-  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs`, {
-    method: 'POST',
-    headers: agentGatewayHeaders(),
-    body: JSON.stringify(body),
-  })
-  const data = await resp.json()
-  return c.json(data, resp.status as 200)
+  try {
+    const resp = await runtimeJobs.create(body)
+    const data = await resp.json()
+    return c.json(data, resp.status as 200)
+  } catch (error) {
+    return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)
+  }
 })
 
 app.post('/api/cron/:id/pause', async (c) => {
-  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs/${c.req.param('id')}/pause`, { method: 'POST', headers: agentGatewayHeaders() })
-  return c.json(await resp.json())
+  if (!runtimeJobs.supported()) return unsupportedCapabilityResponse(c, 'gateway.jobs')
+  try {
+    return proxyJsonResponse(c, await runtimeJobs.pause(c.req.param('id')))
+  } catch (error) {
+    return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)
+  }
 })
 
 app.post('/api/cron/:id/resume', async (c) => {
-  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs/${c.req.param('id')}/resume`, { method: 'POST', headers: agentGatewayHeaders() })
-  return c.json(await resp.json())
+  if (!runtimeJobs.supported()) return unsupportedCapabilityResponse(c, 'gateway.jobs')
+  try {
+    return proxyJsonResponse(c, await runtimeJobs.resume(c.req.param('id')))
+  } catch (error) {
+    return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)
+  }
 })
 
 app.post('/api/cron/:id/run', async (c) => {
-  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs/${c.req.param('id')}/run`, { method: 'POST', headers: agentGatewayHeaders() })
-  return c.json(await resp.json())
+  if (!runtimeJobs.supported()) return unsupportedCapabilityResponse(c, 'gateway.jobs')
+  try {
+    return proxyJsonResponse(c, await runtimeJobs.run(c.req.param('id')))
+  } catch (error) {
+    return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)
+  }
 })
 
 app.delete('/api/cron/:id', async (c) => {
-  const resp = await fetch(`${AGENT_GATEWAY_URL}/api/jobs/${c.req.param('id')}`, { method: 'DELETE', headers: agentGatewayHeaders() })
-  return c.json(await resp.json())
+  if (!runtimeJobs.supported()) return unsupportedCapabilityResponse(c, 'gateway.jobs')
+  try {
+    return proxyJsonResponse(c, await runtimeJobs.remove(c.req.param('id')))
+  } catch (error) {
+    return upstreamConnectionFailedResponse(c, 'Agent Gateway', error)
+  }
 })
 
-// --- Hermes Dashboard Proxy (port 9119) ---
-// Sessions
+// Sessions（gateway.sessions 可选能力：缺失时列表返回真实空状态，写操作返回 501）
 app.get('/api/sessions', async (c) => {
-  const resp = await gatewayFetch(`/api/sessions?limit=100`)
+  if (!runtimeSessions.supported()) return c.json([])
+  const resp = await runtimeSessions.list()
   if (!resp.ok) return proxyJsonResponse(c, resp)
   return c.json(normalizeGatewaySessionList(await resp.json()))
 })
 
 app.get('/api/sessions/search', async (c) => {
+  if (!runtimeSessions.supported()) return c.json([])
   const q = c.req.query('q') || ''
-  const resp = await gatewayFetch(`/api/sessions?limit=100`)
+  const resp = await runtimeSessions.list()
   if (!resp.ok) return proxyJsonResponse(c, resp)
   const sessions = normalizeGatewaySessionList(await resp.json())
   const normalizedQuery = q.trim().toLowerCase()
@@ -3366,21 +3385,24 @@ app.get('/api/sessions/search', async (c) => {
 })
 
 app.get('/api/sessions/:id', async (c) => {
-  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(c.req.param('id'))}`)
+  if (!runtimeSessions.supported()) return unsupportedCapabilityResponse(c, 'gateway.sessions')
+  const resp = await runtimeSessions.get(c.req.param('id'))
   if (!resp.ok) return proxyJsonResponse(c, resp)
   return c.json(normalizeGatewaySession(await resp.json()))
 })
 
 app.get('/api/sessions/:id/messages', async (c) => {
-  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(c.req.param('id'))}/messages`)
+  if (!runtimeSessions.supported()) return c.json([])
+  const resp = await runtimeSessions.messages(c.req.param('id'))
   if (!resp.ok) return proxyJsonResponse(c, resp)
   const payload = asRecord(await resp.json())
   return c.json(Array.isArray(payload.data) ? payload.data : [])
 })
 
 app.delete('/api/sessions/:id', async (c) => {
+  if (!runtimeSessions.supported()) return unsupportedCapabilityResponse(c, 'gateway.sessions')
   const sessionId = c.req.param('id')
-  const resp = await gatewayFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+  const resp = await runtimeSessions.remove(sessionId)
   sessionResponseIds.delete(sessionId)
   sessionPinnedIds.delete(sessionId)
   sessionModelOverrides.delete(sessionId)
