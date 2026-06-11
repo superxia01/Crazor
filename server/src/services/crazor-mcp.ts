@@ -15,7 +15,7 @@ import {
   listContentPieces, getContentPiece, createContentPiece,
   updateContentPiece, deleteContentPiece, getContentPieceStats,
   contentPublish, contentUpdateMetrics, contentCheckDaily,
-  createAuditLog,
+  createAuditLog, stampEntityOwner,
 } from "./crazor-db"
 import { listFieldDefinitions, createFieldDefinition, discoverCustomFields } from "./field-definitions"
 import * as docTree from "./crazor-doc-tree"
@@ -767,6 +767,11 @@ async function executeTool(name: string, args: any, actor?: ToolActor): Promise<
   assertMcpWriteAllowed(name, args, actor)
   const result = await executeToolAction(name, args)
   recordMcpAudit(name, args, result, actor)
+  // M0 team collaboration: attribute MCP-created entities to the acting member/agent
+  const audit = deriveMcpAudit(name, args, result)
+  if (audit && audit.action === "create" && audit.entity_id) {
+    stampEntityOwner(audit.entity, audit.entity_id, String(actor?.actor_id || ""))
+  }
   return result
 }
 

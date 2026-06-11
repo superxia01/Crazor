@@ -15,6 +15,8 @@ export type PermissionDecision = {
 }
 
 const TOKEN_SOURCES = new Set(["api-token", "agent-token"])
+// M0 team collaboration: logged-in member sessions are role-governed (no scopes needed)
+const SESSION_SOURCES = new Set(["login-jwt"])
 const WRITE_ACTIONS = new Set(["create", "update", "delete", "move", "reorder", "publish", "update_metrics", "install", "discover", "run"])
 
 const ROLE_WRITE_SCOPE_POLICIES: Record<string, string[]> = {
@@ -41,7 +43,7 @@ const ENTITY_GROUPS: Record<string, string[]> = {
   context: ["context"],
   ai_employee: ["ai_employee"],
   ai_employees: ["ai_employee"],
-  identity: ["team_member", "actor_token", "field_definition", "skill"],
+  identity: ["team_member", "actor_token", "invite_code", "field_definition", "skill"],
   audit: ["audit_log"],
   channel: ["channel", "channel_referral"],
   channels: ["channel", "channel_referral"],
@@ -99,6 +101,13 @@ export function evaluateWritePermission(actor: ActorPermissionContext | null | u
   if (actor.source === "invalid-token") {
     return { allowed: false, status: 401, error: "invalid token", required_scope }
   }
+  if (SESSION_SOURCES.has(String(actor.source || ""))) {
+    // Legacy sessions without member role keep full access (single-user compat)
+    if (!actor.role) return { allowed: true, required_scope }
+    return roleAllowsWrite(actor.role, entity, action)
+      ? { allowed: true, required_scope }
+      : { allowed: false, status: 403, error: "role denied", required_scope }
+  }
   if (!TOKEN_SOURCES.has(String(actor.source || ""))) return { allowed: true, required_scope }
 
   const scopes = normalizeScopes(actor.scopes)
@@ -122,6 +131,12 @@ export function evaluateReadPermission(actor: ActorPermissionContext | null | un
   }
   if (actor.source === "invalid-token") {
     return { allowed: false, status: 401, error: "invalid token", required_scope }
+  }
+  if (SESSION_SOURCES.has(String(actor.source || ""))) {
+    if (!actor.role) return { allowed: true, required_scope }
+    return roleAllowsRead(actor.role, entity, action)
+      ? { allowed: true, required_scope }
+      : { allowed: false, status: 403, error: "role denied", required_scope }
   }
   if (!TOKEN_SOURCES.has(String(actor.source || ""))) return { allowed: true, required_scope }
 
