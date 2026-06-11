@@ -5,46 +5,41 @@ import { useOfficeStore } from "../store"
 
 export default function OfficeToolbar({ sceneRef, onMeeting }) {
   const zoom = useOfficeStore((s) => s.zoom)
-  const setZoom = useOfficeStore((s) => s.setZoom)
-  const resetZoom = useOfficeStore((s) => s.resetZoom)
   const meetingState = useOfficeStore((s) => s.meetingState)
   const setMeetingState = useOfficeStore((s) => s.setMeetingState)
   const meetingTimer = useRef(null)
   const [menuOpen, setMenuOpen] = useState(false)
 
   const handleZoomIn = () => {
-    setZoom(zoom + 0.2)
-    setTimeout(() => sceneRef.current?.scene.resize(), 0)
+    sceneRef.current?.engine?.zoomBy(1.2)
   }
 
   const handleZoomOut = () => {
-    setZoom(zoom - 0.2)
-    setTimeout(() => sceneRef.current?.scene.resize(), 0)
+    sceneRef.current?.engine?.zoomBy(1 / 1.2)
   }
 
   const handleReset = () => {
-    resetZoom()
-    setTimeout(() => sceneRef.current?.scene.resize(), 0)
+    sceneRef.current?.engine?.resetView()
   }
 
   const dismissMeeting = () => {
-    const { charManager, pathfinder } = sceneRef.current || {}
-    if (!charManager || !pathfinder) return
+    const engine = sceneRef.current?.engine
+    if (!engine) return
     setMeetingState("returning")
-    charManager.moveAllToDesks(pathfinder)
+    engine.endMeeting()
     meetingTimer.current = setTimeout(() => setMeetingState("idle"), 4000)
     setMenuOpen(false)
   }
 
   const handleMeeting = () => {
-    const { charManager, pathfinder } = sceneRef.current || {}
-    if (!charManager || !pathfinder) return
+    const engine = sceneRef.current?.engine
+    if (!engine) return
 
     clearTimeout(meetingTimer.current)
 
     if (meetingState === "idle") {
       setMeetingState("going")
-      charManager.moveAllToMeeting(pathfinder)
+      engine.startMeeting()
       meetingTimer.current = setTimeout(() => setMeetingState("meeting"), 4000)
     }
   }

@@ -76,6 +76,36 @@ for (let r = 0; r < GRID_H; r++) {
   }
 }
 
+// Department zones for the neon canvas renderer (M4) — grid-space rects + accent color.
+// x = col, y = row; x1/y1 are exclusive edges (room wall line).
+export const DEPT_ZONES = [
+  { x0: 1, y0: 1, x1: 4, y1: 5, c: "#ffd700", label: "老板办公室" },
+  { x0: 5, y0: 1, x1: 8, y1: 5, c: "#6bff7a", label: "财务部" },
+  { x0: 9, y0: 1, x1: 12, y1: 5, c: "#ff9a3d", label: "人事部" },
+  { x0: 13, y0: 1, x1: 16, y1: 5, c: "#4da3ff", label: "项目部" },
+  { x0: 17, y0: 1, x1: 21, y1: 5, c: "#ff4d88", label: "销售部" },
+  { x0: 22, y0: 1, x1: 31, y1: 5, c: "#7c5cff", label: "新媒体运营部" },
+  { x0: 1, y0: 6, x1: 5, y1: 12, c: "#a78bff", label: "秘书" },
+  { x0: 6, y0: 6, x1: 16, y1: 12, c: "#4da3ff", label: "全息会议室" },
+  { x0: 17, y0: 6, x1: 23, y1: 12, c: "#00d4c8", label: "开放办公区" },
+  { x0: 24, y0: 6, x1: 31, y1: 12, c: "#ff7a45", label: "跨境电商部" },
+  { x0: 1, y0: 13, x1: 6, y1: 17, c: "#2ecc71", label: "IT部" },
+  { x0: 7, y0: 13, x1: 14, y1: 17, c: "#ffb020", label: "前台" },
+  { x0: 15, y0: 13, x1: 23, y1: 17, c: "#b14dff", label: "海外社媒部" },
+  { x0: 24, y0: 13, x1: 31, y1: 17, c: "#ff6bcb", label: "茶水间" },
+]
+
+// Front-door cell for human members entering / leaving (open area at the bottom)
+export const ENTRANCE = { row: 19, col: 16 }
+
+// Hot-desk seats for human members (open office, walkable floor cells)
+export const HUMAN_SEATS = [
+  { row: 9, col: 18 }, { row: 9, col: 20 }, { row: 9, col: 22 },
+  { row: 10, col: 18 }, { row: 10, col: 20 }, { row: 10, col: 22 },
+  { row: 10, col: 19 }, { row: 10, col: 21 }, { row: 9, col: 17 },
+  { row: 10, col: 17 }, { row: 9, col: 21 }, { row: 10, col: 22 },
+]
+
 export const AREA_LABELS = [
   // Top row
   { text: "老板办公室", row: 1, col: 2 },

@@ -1,19 +1,23 @@
-import { useRef, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Gamepad2Icon, PowerIcon } from "lucide-react"
 import { ViewFrame } from "@/components/view-frame"
 import { Button } from "@/components/ui/button"
+import { useCrazorEvents } from "@/hooks/useCrazorEvents"
 import { useOfficeStore } from "./store"
-import { OfficeScene } from "./engine/Scene"
-import { OfficeBuilder } from "./engine/OfficeBuilder"
-import { CharacterManager } from "./engine/CharacterManager"
-import { Pathfinder } from "./engine/Pathfinding"
-import { InputHandler } from "./engine/InputHandler"
-import { GRID } from "./data/officeLayout"
-import EmployeeBubble from "./ui/EmployeeBubble"
+import { OfficeEngine } from "./engine2d/OfficeEngine"
+import { describeEvent } from "./data/eventRouting"
 import EmployeePanel from "./ui/EmployeePanel"
 import OfficeToolbar from "./ui/OfficeToolbar"
 
 const OFFICE_ENABLED_KEY = "crazor-office-3d-enabled"
+
+function formatTime(ts) {
+  try {
+    return new Date(ts).toTimeString().slice(0, 8)
+  } catch {
+    return ""
+  }
+}
 
 export default function OfficeView({ onSelectEmployee, onMeeting }) {
   const containerRef = useRef(null)
@@ -21,9 +25,19 @@ export default function OfficeView({ onSelectEmployee, onMeeting }) {
   const [enabled, setEnabled] = useState(() => {
     try { return localStorage.getItem(OFFICE_ENABLED_KEY) === "true" } catch { return false }
   })
+  const [ticker, setTicker] = useState("系统就绪 · 等待事件流接入")
 
   const employees = useOfficeStore((s) => s.employees)
   const selectedEmployeeId = useOfficeStore((s) => s.selectedEmployeeId)
+  const delivered = useOfficeStore((s) => s.delivered)
+
+  // M1 event bus: real events drive the office animations
+  const handleEvent = useCallback((event) => {
+    sceneRef.current?.engine?.handleEvent(event)
+    const text = describeEvent(event)
+    if (text) setTicker(text)
+  }, [])
+  const { events, online, connected } = useCrazorEvents({ enabled, onEvent: handleEvent })
 
   // Fetch employees on mount
   useEffect(() => {
@@ -41,46 +55,36 @@ export default function OfficeView({ onSelectEmployee, onMeeting }) {
     return () => { cancelled = true }
   }, [])
 
-  // Initialize 3D scene only when enabled
+  // Initialize canvas-2d scene only when enabled
   useEffect(() => {
     if (!enabled || !containerRef.current || sceneRef.current) return
 
-    const scene = new OfficeScene(containerRef.current, useOfficeStore)
-    OfficeBuilder.build(scene.getScene())
-
-    const pathfinder = new Pathfinder(GRID)
-
-    const charManager = new CharacterManager(scene.getScene(), useOfficeStore)
-    const inputHandler = new InputHandler(
-      scene.getCamera(),
-      scene.getRenderer().domElement,
-      charManager,
-      useOfficeStore,
-    )
-
-    // Register update loop
-    scene.addUpdatable((delta, elapsed) => {
-      charManager.update(delta, elapsed)
+    const engine = new OfficeEngine(containerRef.current, useOfficeStore, {
+      onTicker: setTicker,
     })
-
-    sceneRef.current = { scene, charManager, inputHandler, pathfinder }
-    scene.start()
+    sceneRef.current = { engine }
 
     return () => {
-      inputHandler.dispose()
-      charManager.dispose()
-      scene.dispose()
+      engine.dispose()
       sceneRef.current = null
     }
   }, [enabled])
 
-  // Sync employees → 3D characters
+  // Sync employees → canvas characters
   useEffect(() => {
     if (!sceneRef.current || employees.length === 0) return
-    const { charManager, inputHandler } = sceneRef.current
-    charManager.createAll(employees)
-    inputHandler.setCharacters(charManager.getAllGroups())
-  }, [employees])
+    sceneRef.current.engine.setEmployees(employees)
+  }, [employees, enabled])
+
+  // Presence: online human members walk in / out of the office
+  useEffect(() => {
+    sceneRef.current?.engine?.syncOnline(online)
+  }, [online, enabled])
+
+  // Connection state: dim the office while reconnecting
+  useEffect(() => {
+    sceneRef.current?.engine?.setConnected(connected)
+  }, [connected, enabled])
 
   const handleToggle = () => {
     const next = !enabled
@@ -113,7 +117,10 @@ export default function OfficeView({ onSelectEmployee, onMeeting }) {
     )
   }
 
-  // Office enabled — render 3D scene
+  const staffCount = employees.filter((e) => e.id !== "vault-rules").length
+  const recentEvents = events.slice(-6).reverse()
+
+  // Office enabled — render event-driven neon scene
   return (
     <ViewFrame
       title="AI 数字员工办公室"
@@ -128,13 +135,47 @@ export default function OfficeView({ onSelectEmployee, onMeeting }) {
         </div>
       }
     >
-      <div className="relative h-full w-full overflow-hidden">
-        <div ref={containerRef} className="h-full w-full" />
-        {employees
-          .filter((e) => e.id !== "vault-rules")
-          .map((emp) => (
-            <EmployeeBubble key={emp.id} employeeId={emp.id} sceneRef={sceneRef} />
-          ))}
+      <div className="relative h-full w-full overflow-hidden bg-[#07070f]">
+        <div ref={containerRef} className="absolute inset-0" />
+
+        {/* Top HUD: connection + event ticker + stats */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-[#08081299] to-transparent px-4 py-2 text-xs">
+          <span className="flex shrink-0 items-center gap-1.5 text-[#8b90b8]">
+            <span
+              className={`size-2 rounded-full ${connected ? "bg-emerald-400 shadow-[0_0_6px_#34d399]" : "bg-red-400 animate-pulse"}`}
+            />
+            {connected ? "事件流已连接" : "重连中"}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[#00d4c8] [text-shadow:0_0_8px_rgba(0,212,200,.6)]">
+            ◤ {ticker} ◢
+          </span>
+          <span className="hidden shrink-0 gap-3 text-[#8b90b8] sm:flex">
+            <span>在岗 <b className="text-[#dfe3ff]">{staffCount}</b></span>
+            <span>在线 <b className="text-[#dfe3ff]">{online.length}</b></span>
+            <span>事件 <b className="text-[#dfe3ff]">{events.length}</b></span>
+            <span>交付 <b className="text-[#dfe3ff]">{delivered}</b></span>
+          </span>
+        </div>
+
+        {/* Event log (latest first) */}
+        {recentEvents.length > 0 && (
+          <div className="pointer-events-none absolute right-3 top-10 z-10 flex w-64 flex-col gap-1.5">
+            {recentEvents.map((event) => (
+              <div
+                key={event.id}
+                className="animate-in slide-in-from-right rounded-md border border-white/5 border-l-2 border-l-[#7c5cff] bg-[#101222d0] px-2.5 py-1.5 text-[11px] leading-snug text-[#dfe3ff] backdrop-blur"
+              >
+                <span className="mr-1.5 text-[10px] text-[#8b90b8]">{formatTime(event.ts)}</span>
+                {describeEvent(event)}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="pointer-events-none absolute bottom-2 left-1/2 z-10 -translate-x-1/2 text-[11px] text-[#8b90b8]">
+          拖拽平移 · 滚轮缩放 · 点击员工跟拍
+        </div>
+
         {selectedEmployeeId && (
           <EmployeePanel sceneRef={sceneRef} onStartChat={onSelectEmployee} />
         )}
