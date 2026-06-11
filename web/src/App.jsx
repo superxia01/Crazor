@@ -11,6 +11,7 @@ import { LoginPage } from "./pages/LoginPage"
 import { clearCustomerLoginCredentials } from "./api/crazor-auth"
 import { consumeLoginTokenFromLocation } from "./api/login-token-redirect"
 import { isWorkspaceSessionCompatible, resolveRequestedWorkspace } from "./api/login-entry"
+import { reloadOnceForModuleLoadError } from "./module-load-recovery"
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -23,6 +24,7 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
+    if (reloadOnceForModuleLoadError(error)) return
     this.setState({ errorInfo })
     console.error("Render error:", error, errorInfo)
   }
