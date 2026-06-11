@@ -19,16 +19,31 @@ const META_SECTIONS = [
   { key: "externalApis", label: "外部 API", icon: GlobeIcon, color: "bg-orange-100 text-orange-700 border-orange-200" },
 ]
 
+const STATE_LABELS = {
+  idle: "💤 待命",
+  thinking: "🧠 思考中",
+  working: "⚙️ 执行中",
+  walking: "🚶 移动中",
+  meeting: "🪑 会议中",
+}
+
 export default function EmployeePanel({ sceneRef, onStartChat }) {
   const employees = useOfficeStore((s) => s.employees)
   const selectedId = useOfficeStore((s) => s.selectedEmployeeId)
   const metaCache = useOfficeStore((s) => s.metaCache)
   const selectEmployee = useOfficeStore((s) => s.selectEmployee)
   const setMeta = useOfficeStore((s) => s.setMeta)
-  const charManager = sceneRef.current?.charManager
+  const agentStatus = useOfficeStore((s) => s.agentStatus)
+  const engine = sceneRef.current?.engine
 
   const employee = employees.find((e) => e.id === selectedId)
   const meta = selectedId ? metaCache[selectedId] : null
+  const status = selectedId ? agentStatus[selectedId] : null
+
+  // camera follows the selected employee while the panel is open
+  useEffect(() => {
+    if (selectedId) engine?.focusEmployee(selectedId)
+  }, [selectedId, engine])
 
   // Fetch meta on selection
   useEffect(() => {
@@ -48,7 +63,7 @@ export default function EmployeePanel({ sceneRef, onStartChat }) {
 
   const handleClose = () => {
     selectEmployee(null)
-    charManager?.unhighlight()
+    engine?.unfollow()
   }
 
   const handleStartChat = () => {
@@ -78,6 +93,19 @@ export default function EmployeePanel({ sceneRef, onStartChat }) {
           {employee.tags.map((tag) => (
             <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
           ))}
+        </div>
+      )}
+
+      {/* Live status from the office engine */}
+      {status && (
+        <div className="px-4 py-2 border-b flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">实时状态</span>
+          <span>
+            {STATE_LABELS[status.state] || status.state}
+            {status.task && status.task !== "—" && (
+              <span className="ml-2 text-xs text-muted-foreground">{status.task}</span>
+            )}
+          </span>
         </div>
       )}
 
