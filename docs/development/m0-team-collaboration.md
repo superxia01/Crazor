@@ -47,6 +47,6 @@ cd server && bun install && bun run dev   # 或 docker compose up
 ## 已知边界与后续（M0.1+）
 
 - `visibility` 列已就位但**读侧行级过滤未启用**（本阶段只做归属与写权限）；启用时在 list* 查询按 actor 过滤 private/dept。
-- 前端 UI 未动：登录对话框加"邀请码加入"页签、协作审计页加邀请码管理、列表展示 created_by——下一个前端 commit。
+- 前端基础入口已接入：登录对话框/登录页支持邀请码加入，协作审计页支持邀请码管理；列表侧 created_by 展示与筛选仍在后续增强。
 - `users.member_id` 列已预留未使用（微信绑定走 `team_members.wechat_openid`）。
 - 会话（conversations）按成员隔离、记忆分层、PostgreSQL 切换在 M0 后续批次。

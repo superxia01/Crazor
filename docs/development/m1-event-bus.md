@@ -127,9 +127,12 @@ npx wscat -c 'ws://localhost:3001/api/events/ws'
 #   → 30s 后收到 {"type":"ping"}，手动发 {"type":"pong"} 保活；不回则约 60s 被断开(4000)
 
 # 3. 触发实体事件（另开终端）
+PROJECT_ID=$(curl -s -X POST http://localhost:3001/api/crazor/projects \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"事件总线联调项目"}' | jq -r .id)
 curl -s -X POST http://localhost:3001/api/crazor/tasks \
   -H 'Content-Type: application/json' \
-  -d '{"title":"事件总线联调"}' | jq .id
+  -d "{\"project_id\":\"$PROJECT_ID\",\"title\":\"事件总线联调\"}" | jq .id
 #   → wscat 收到 {"type":"event","event":{"type":"entity.created","entity":"task",...}}
 #   → curl /api/events/recent?since=<上次latest_id> 能取到同一条
 
