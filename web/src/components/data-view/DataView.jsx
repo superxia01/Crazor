@@ -1,6 +1,6 @@
 // Copyright (c) 2026 MeeJoy
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   useReactTable,
   getCoreRowModel,
@@ -14,6 +14,7 @@ import {
   SearchIcon,
 } from "lucide-react"
 import { toast } from "sonner"
+import { useCrazorEvents } from "@/hooks/useCrazorEvents"
 import { ViewFrame } from "@/components/view-frame"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,6 +36,25 @@ const VIEW_MODES = [
   { id: "grid", icon: Grid3x3Icon, label: "表格" },
   { id: "kanban", icon: KanbanIcon, label: "看板" },
 ]
+
+// M1 event bus: map the REST apiBase root to the audit/event entity name
+const EVENT_ENTITY_BY_API_ROOT = {
+  contacts: "contact",
+  transactions: "transaction",
+  projects: "project",
+  tasks: "task",
+  deliveries: "delivery",
+  channels: "channel",
+  "content-pieces": "content_piece",
+  "follow-ups": "follow_up",
+}
+
+const REFRESHABLE_EVENT_TYPES = new Set([
+  "entity.created",
+  "entity.updated",
+  "entity.deleted",
+  "mcp.tool_called",
+])
 
 export default function DataView({ config }) {
   const [items, setItems] = useState([])
@@ -99,6 +119,26 @@ export default function DataView({ config }) {
     window.addEventListener("dataview-reload", handler)
     return () => window.removeEventListener("dataview-reload", handler)
   }, [loadItems, loadExtra])
+
+  // M1 event bus: refresh (debounced 1s) when other members / agents touch this entity
+  const eventEntity = useMemo(() => {
+    const match = String(config.apiBase || "").match(/^\/api\/crazor\/([^/?]+)/)
+    return match ? EVENT_ENTITY_BY_API_ROOT[match[1]] || null : null
+  }, [config.apiBase])
+  const eventReloadTimerRef = useRef(null)
+  const handleRemoteEvent = useCallback((event) => {
+    if (!eventEntity) return
+    if (event?.entity !== eventEntity || !REFRESHABLE_EVENT_TYPES.has(event?.type)) return
+    if (eventReloadTimerRef.current) clearTimeout(eventReloadTimerRef.current)
+    eventReloadTimerRef.current = setTimeout(() => {
+      eventReloadTimerRef.current = null
+      void reloadAll()
+    }, 1000)
+  }, [eventEntity, reloadAll])
+  useCrazorEvents({ enabled: Boolean(eventEntity), onEvent: handleRemoteEvent })
+  useEffect(() => () => {
+    if (eventReloadTimerRef.current) clearTimeout(eventReloadTimerRef.current)
+  }, [])
 
   // Update (for kanban drag)
   const handleMove = useCallback(async (item, from, to) => {

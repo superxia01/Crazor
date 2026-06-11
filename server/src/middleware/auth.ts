@@ -5,7 +5,9 @@ import { verifyJWT } from '../services/crazor-auth'
 import { getCookie } from 'hono/cookie'
 import { DEPLOYMENT_TIER } from '../services/crazor-config'
 
-const PUBLIC_PATHS = ['/api/auth/', '/api/health', '/api/delivery/', '/mcp/sse', '/mcp']
+// /api/events/ws 跳过本中间件：浏览器 WebSocket 无法携带 Authorization 头，
+// 升级前由 index.ts 中的路由 guard 用同一套 JWT（cookie / ?token=）完成鉴权。
+const PUBLIC_PATHS = ['/api/auth/', '/api/health', '/api/delivery/', '/api/events/ws', '/mcp/sse', '/mcp']
 
 export const authMiddleware = async (c: Context, next: Next) => {
   // Skip auth for public paths
