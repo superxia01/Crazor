@@ -187,30 +187,31 @@ export default function FileView({
       </ViewFrame>
 
       <AlertDialog isOpen={Boolean(pendingDelete)} onOpenChange={(open) => !open && onPendingDeleteChange(null)}>
-        <AlertDialogBackdrop />
-        <AlertDialogContainer>
-          <AlertDialogDialog size="sm" className="rounded-[12px] border-border/70 bg-background/95">
-            <AlertDialogHeader>
-              <AlertDialogIcon status="danger"><Trash2Icon className="size-5" /></AlertDialogIcon>
-              <AlertDialogHeading>{t("files.deleteTitle")}</AlertDialogHeading>
-            </AlertDialogHeader>
-            <AlertDialogBody>
-              <p className="leading-7">
-                {t("files.deleteDescription", { name: pendingDelete?.name || "" })}
-              </p>
-            </AlertDialogBody>
-            <AlertDialogFooter>
-              <AlertDialogCloseTrigger className="rounded-md">{t("common.cancel")}</AlertDialogCloseTrigger>
-              <Button
-                color="danger"
-                className="rounded-md"
-                onClick={onDeleteSelected}
-              >
-                {t("files.deleteAction")}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogDialog>
-        </AlertDialogContainer>
+        <AlertDialogBackdrop>
+          <AlertDialogContainer>
+            <AlertDialogDialog size="sm" className="rounded-[12px] border-border/70 bg-background/95">
+              <AlertDialogHeader>
+                <AlertDialogIcon status="danger"><Trash2Icon className="size-5" /></AlertDialogIcon>
+                <AlertDialogHeading>{t("files.deleteTitle")}</AlertDialogHeading>
+              </AlertDialogHeader>
+              <AlertDialogBody>
+                <p className="leading-7">
+                  {t("files.deleteDescription", { name: pendingDelete?.name || "" })}
+                </p>
+              </AlertDialogBody>
+              <AlertDialogFooter>
+                <AlertDialogCloseTrigger className="rounded-md">{t("common.cancel")}</AlertDialogCloseTrigger>
+                <Button
+                  color="danger"
+                  className="rounded-md"
+                  onClick={onDeleteSelected}
+                >
+                  {t("files.deleteAction")}
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogDialog>
+          </AlertDialogContainer>
+        </AlertDialogBackdrop>
       </AlertDialog>
     </div>
   )

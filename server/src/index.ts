@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { stream } from 'hono/streaming'
 import { HTTPException } from 'hono/http-exception'
+import { createBunWebSocket } from 'hono/bun'
+import type { ServerWebSocket } from 'bun'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -20,8 +22,10 @@ import {
   contentPublish, contentUpdateMetrics,
   createAuditLog, listAuditLogs,
   getIntegrationCheck, listIntegrationChecks, upsertIntegrationCheck,
-  createTeamMember, listTeamMembers, updateTeamMember, deleteTeamMember,
+  createTeamMember, listTeamMembers, getTeamMember, updateTeamMember, deleteTeamMember,
   createActorToken, listActorTokens, revokeActorToken, resolveActorToken, hasActiveActorTokens,
+  createInviteCode, listInviteCodes, revokeInviteCode, redeemInviteCode,
+  findTeamMemberByOpenid, countActiveHumanMembers, stampEntityOwner,
 } from './services/crazor-db'
 import { seedFieldDefinitions, discoverCustomFields, listFieldDefinitions, getFieldDefinition, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, reorderFieldDefinitions } from './services/field-definitions'
 import * as docs from './services/crazor-docs'
@@ -60,11 +64,15 @@ import {
   unsupportedAgentProviderCapability,
 } from './services/agent-gateway'
 import { evaluateReadPermission, evaluateWritePermission } from './services/crazor-permissions'
+import { emitEvent, subscribeEvents, getRecentEvents, latestEventId, entityEventTypeFromAuditAction, type CrazorEvent } from './services/event-bus'
 import { authMiddleware } from './middleware/auth'
 import { generateState, getWechatLoginUrl, exchangeCodeForToken, upsertUser, isUserBound, signJWT, verifyJWT, customerAccessCodeConfigured, verifyCustomerAccessCode, internalAccessCodeConfigured, verifyInternalAccessCode } from './services/crazor-auth'
 import { testFeishuConnector } from './services/feishu'
 
 const app = new Hono()
+
+// M1 event bus: Bun WebSocket adapter (websocket handler is exported with the server config below)
+const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket>()
 
 // --- Config ---
 const PORT = parseInt(process.env.PORT || '3001')
@@ -1374,6 +1382,20 @@ app.use('/api/crazor/*', async (c, next) => {
     }
   }
 
+  // M0 team collaboration: role-governed writes for logged-in member sessions
+  if (shouldAudit && !extractActorToken(c) && actor?.source === 'login-jwt' && (actor as any)?.role) {
+    const audit = deriveRestAudit(method, url.pathname, null, url.searchParams)
+    const permission = evaluateWritePermission(actor, audit.action, audit.entity)
+    if (!permission.allowed) {
+      recordDeniedRestWrite(actor, audit, method, url.pathname, requestText, permission.required_scope)
+      return c.json({
+        error: permission.error,
+        required_scope: permission.required_scope,
+        actor_id: actor?.actor_id || '',
+      }, permission.status || 403)
+    }
+  }
+
   await next()
 
   if (!shouldAudit || c.res.status < 200 || c.res.status >= 400) return
@@ -1393,6 +1415,26 @@ app.use('/api/crazor/*', async (c, next) => {
     })
   } catch (err) {
     console.error('[audit] failed to record REST write:', err)
+  }
+
+  // M0 team collaboration: stamp ownership on newly created entities
+  if (audit.action === 'create' && audit.entity_id) {
+    stampEntityOwner(audit.entity, audit.entity_id, actor?.actor_id || '')
+  }
+
+  // M1 event bus: mirror successful REST writes onto the realtime event stream
+  const eventType = entityEventTypeFromAuditAction(audit.action)
+  if (eventType) {
+    emitEvent({
+      type: eventType,
+      actor_id: actor?.actor_id || 'anonymous',
+      actor_name: (actor as any)?.actor_name || '',
+      actor_type: actor?.actor_type || 'human',
+      entity: audit.entity,
+      entity_id: audit.entity_id,
+      summary: `${method} ${url.pathname}`,
+      data: { action: audit.action, source: actor?.source || 'rest-api' },
+    })
   }
 })
 
@@ -1427,6 +1469,7 @@ function deriveSensitiveReadAudit(method: string, pathname: string): { entity: s
   if (pathname === '/api/crazor/audit-logs') return { entity: 'audit_log', entity_id: '' }
   if (pathname === '/api/crazor/identity/members') return { entity: 'team_member', entity_id: '' }
   if (pathname === '/api/crazor/identity/tokens') return { entity: 'actor_token', entity_id: '' }
+  if (pathname === '/api/crazor/identity/invites') return { entity: 'invite_code', entity_id: '' }
   return null
 }
 
@@ -1490,6 +1533,9 @@ function resolveRequestActor(c: any, fallback = { actor_type: 'human', actor_id:
       source: 'invalid-token',
     }
   }
+  // M0 team collaboration: fall back to the logged-in member session before anonymous headers
+  const sessionActor = resolveLoginJwtActor(c)
+  if (sessionActor && sessionActor.source === 'login-jwt') return sessionActor
   return {
     actor_type: c.req.header('X-Crazor-Actor-Type') || fallback.actor_type,
     actor_id: c.req.header('X-Crazor-Actor-Id') || fallback.actor_id,
@@ -1524,6 +1570,23 @@ function resolveLoginJwtActor(c: any) {
   if (!token) return null
   try {
     const payload = verifyJWT(token)
+    // M0 team collaboration: member-bound sessions carry role-governed identity
+    if (payload.member_id) {
+      const member = getTeamMember(String(payload.member_id))
+      if (member && member.status === 'active') {
+        return {
+          actor_type: 'human',
+          actor_id: member.id,
+          actor_name: member.name,
+          role: member.role,
+          department: member.department || '',
+          source: 'login-jwt',
+        }
+      }
+      // Member removed/disabled → invalidate the session identity
+      return { actor_type: 'human', actor_id: 'invalid-token', source: 'invalid-token' }
+    }
+    // Legacy single-user session (no member binding): keep full access
     return {
       actor_type: 'human',
       actor_id: payload.openid || payload.nickname || 'wechat-user',
@@ -1694,6 +1757,7 @@ function deriveAuditEntity(segments: string[]) {
   if (segments[0] === 'ai-employees') return 'ai_employee'
   if (segments[0] === 'identity' && segments[1] === 'members') return 'team_member'
   if (segments[0] === 'identity' && segments[1] === 'tokens') return 'actor_token'
+  if (segments[0] === 'identity' && segments[1] === 'invites') return 'invite_code'
   if (segments[0] === 'skills') return 'skill'
 
   const entityMap: Record<string, string> = {
@@ -2277,12 +2341,27 @@ app.get('/api/auth/wechat/callback', async (c) => {
     const user = upsertUser(wechatInfo)
     const nickname = wechatInfo.nickname || user.nickname
     const portalMode = deliveryPortalEnabled()
+
+    // M0 team collaboration: bind WeChat login to a team member.
+    // First WeChat user becomes admin; later users join as member (or via invite beforehand).
+    let member = findTeamMemberByOpenid(wechatInfo.openid)
+    if (!member && !portalMode) {
+      member = createTeamMember({
+        name: nickname,
+        actor_type: 'human',
+        role: countActiveHumanMembers() === 0 ? 'admin' : 'member',
+        avatar_url: wechatInfo.avatar_url || '',
+        wechat_openid: wechatInfo.openid,
+      })
+    }
+
     const token = signJWT({
       openid: wechatInfo.openid,
       nickname,
       portal_mode: portalMode,
       login_channel: 'wechat',
       customer_name: deliveryCustomerName(),
+      ...(member ? { member_id: member.id, role: member.role, department: member.department || '' } : {}),
     })
     const actorToken = issueCustomerLoginActorToken(nickname, { portalMode })
     completeWechatLoginSession(String(state || ''), {
@@ -2431,6 +2510,70 @@ app.post('/api/auth/internal-access-code', async (c) => {
   })
 })
 
+// M0 team collaboration: redeem an invite code to join the team and sign in
+app.post('/api/auth/invite/redeem', async (c) => {
+  let body: any = {}
+  try {
+    body = await c.req.json()
+  } catch {
+    body = {}
+  }
+  const code = String(body?.code || '').trim()
+  const name = String(body?.name || '').trim()
+  if (!code || !name) {
+    return c.json({ error: '邀请码和姓名不能为空' }, 400)
+  }
+
+  try {
+    const { member } = redeemInviteCode(code, name)
+    const token = signJWT({
+      openid: `member:${member.id}`,
+      nickname: member.name,
+      portal_mode: false,
+      login_channel: 'invite',
+      customer_name: deliveryCustomerName(),
+      member_id: member.id,
+      role: member.role,
+      department: member.department || '',
+    })
+    c.header('Set-Cookie', `crazor_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 86400}`, { append: true })
+    createAuditLog({
+      actor_type: 'human',
+      actor_id: member.id,
+      source: 'login-jwt',
+      action: 'redeem',
+      entity: 'invite_code',
+      entity_id: '',
+      payload: { name: member.name },
+      summary: `成员 ${member.name} 通过邀请码加入（${member.role}）`,
+    })
+    // M1 event bus: announce the new member on the realtime stream
+    emitEvent({
+      type: 'member.joined',
+      actor_id: member.id,
+      actor_name: member.name,
+      actor_type: 'human',
+      entity: 'team_member',
+      entity_id: member.id,
+      summary: `成员 ${member.name} 通过邀请码加入（${member.role}）`,
+      data: { role: member.role, department: member.department || '' },
+    })
+    return c.json({
+      loggedIn: true,
+      token,
+      member: {
+        id: member.id,
+        name: member.name,
+        role: member.role,
+        department: member.department || '',
+      },
+      nickname: member.name,
+    })
+  } catch (e: any) {
+    return c.json({ error: e.message || '邀请码兑换失败' }, 400)
+  }
+})
+
 app.post('/api/auth/logout', (c) => {
   c.header('Set-Cookie', 'crazor_token=; Path=/; HttpOnly; Max-Age=0', { append: true })
   return c.json({ ok: true })
@@ -2449,6 +2592,8 @@ app.get('/api/auth/me', async (c) => {
   try {
     const payload = verifyJWT(token)
     const portalMode = payload.portal_mode === undefined ? deliveryPortalEnabled() : Boolean(payload.portal_mode)
+    // M0 team collaboration: expose member identity to the client
+    const member = payload.member_id ? getTeamMember(String(payload.member_id)) : null
     return c.json({
       loggedIn: true,
       nickname: payload.nickname,
@@ -2457,6 +2602,9 @@ app.get('/api/auth/me', async (c) => {
       deliveryCustomer: cleanString(payload.customer_name) || deliveryCustomerName(),
       deliveryChannel: deliveryChannel(),
       plan: DEPLOYMENT_TIER,
+      member: member && member.status === 'active'
+        ? { id: member.id, name: member.name, role: member.role, department: member.department || '' }
+        : null,
     })
   } catch {
     return c.json({ loggedIn: false })
@@ -2715,6 +2863,198 @@ app.use('*', async (c, next) => {
     portal_only: true,
     blocked_path: pathname,
   }, 403)
+})
+
+// ── M1 event bus: realtime WebSocket push + presence ─────────
+
+type EventsWsIdentity = { member_id: string; name: string; role: string }
+type EventsWsConn = { ws: any; identity: EventsWsIdentity; alive: boolean; closed: boolean }
+
+const EVENTS_WS_HEARTBEAT_MS = 30_000
+const EVENTS_HELLO_RECENT_LIMIT = 50
+const eventsWsConns = new Set<EventsWsConn>()
+const onlineMembers = new Map<string, { member_id: string; name: string; connected_at: string; connections: number }>()
+
+function listOnlineMembers() {
+  return Array.from(onlineMembers.values()).map((entry) => ({
+    member_id: entry.member_id,
+    name: entry.name,
+    connected_at: entry.connected_at,
+    connections: entry.connections,
+  }))
+}
+
+// WS 鉴权：复用登录 JWT 体系。cookie crazor_token / ?token= / Authorization Bearer 三选一；
+// dev 模式（未配置任何登录方式）放行为匿名身份。
+function resolveEventsWsIdentity(c: any): EventsWsIdentity | null {
+  if (!loginRequiredByEnv()) {
+    return { member_id: 'anonymous', name: '本地用户', role: '' }
+  }
+  const token = String(c.req.query('token') || '').trim() || extractLoginJwt(c)
+  if (!token) return null
+  try {
+    const payload = verifyJWT(token)
+    if (isCustomerPortalSessionPayload(payload)) return null
+    if (payload.member_id) {
+      const member = getTeamMember(String(payload.member_id))
+      if (!member || member.status !== 'active') return null
+      return { member_id: member.id, name: member.name, role: member.role || '' }
+    }
+    // 旧单人版会话（无成员绑定）
+    return {
+      member_id: String(payload.openid || payload.nickname || 'wechat-user'),
+      name: String(payload.nickname || 'wechat-user'),
+      role: '',
+    }
+  } catch {
+    return null
+  }
+}
+
+function presenceConnect(identity: EventsWsIdentity) {
+  const existing = onlineMembers.get(identity.member_id)
+  if (existing) {
+    existing.connections += 1
+    return
+  }
+  onlineMembers.set(identity.member_id, {
+    member_id: identity.member_id,
+    name: identity.name,
+    connected_at: new Date().toISOString(),
+    connections: 1,
+  })
+  emitEvent({
+    type: 'presence.online',
+    actor_id: identity.member_id,
+    actor_name: identity.name,
+    actor_type: 'human',
+    entity: 'presence',
+    entity_id: identity.member_id,
+    summary: `${identity.name} 上线`,
+    data: { online: listOnlineMembers() },
+  })
+}
+
+function presenceDisconnect(identity: EventsWsIdentity) {
+  const existing = onlineMembers.get(identity.member_id)
+  if (!existing) return
+  existing.connections -= 1
+  if (existing.connections > 0) return
+  onlineMembers.delete(identity.member_id)
+  emitEvent({
+    type: 'presence.offline',
+    actor_id: identity.member_id,
+    actor_name: identity.name,
+    actor_type: 'human',
+    entity: 'presence',
+    entity_id: identity.member_id,
+    summary: `${identity.name} 离线`,
+    data: { online: listOnlineMembers() },
+  })
+}
+
+function safeEventsWsSend(conn: EventsWsConn, text: string) {
+  try {
+    conn.ws.send(text)
+  } catch {
+    // 发送失败交给心跳/onClose 清理
+  }
+}
+
+function cleanupEventsWsConn(conn: EventsWsConn) {
+  if (conn.closed) return
+  conn.closed = true
+  eventsWsConns.delete(conn)
+  presenceDisconnect(conn.identity)
+}
+
+// 把事件总线上的每条事件实时推给所有 WS 连接
+subscribeEvents((event: CrazorEvent) => {
+  if (eventsWsConns.size === 0) return
+  const text = JSON.stringify({ type: 'event', event })
+  for (const conn of eventsWsConns) {
+    safeEventsWsSend(conn, text)
+  }
+})
+
+// 心跳：每 30s 发一次 ping，上一轮无任何消息（含 pong）的连接判定为僵尸并断开
+setInterval(() => {
+  if (eventsWsConns.size === 0) return
+  const text = JSON.stringify({ type: 'ping', ts: new Date().toISOString() })
+  for (const conn of eventsWsConns) {
+    if (!conn.alive) {
+      try { conn.ws.close(4000, 'heartbeat timeout') } catch { /* already gone */ }
+      cleanupEventsWsConn(conn)
+      continue
+    }
+    conn.alive = false
+    safeEventsWsSend(conn, text)
+  }
+}, EVENTS_WS_HEARTBEAT_MS)
+
+// /api/events/ws 在 authMiddleware 的 PUBLIC_PATHS 中跳过（WS 无法带 Authorization 头），
+// 由这里的 guard 在 upgrade 前完成同等鉴权。
+app.get(
+  '/api/events/ws',
+  async (c, next) => {
+    if (!resolveEventsWsIdentity(c)) {
+      return c.json({ error: 'Unauthorized', needLogin: true }, 401)
+    }
+    await next()
+  },
+  upgradeWebSocket((c) => {
+    const identity = resolveEventsWsIdentity(c)
+    const since = parseInt(String(c.req.query('since') || '0'), 10) || 0
+    let conn: EventsWsConn | null = null
+    return {
+      onOpen(_evt: any, ws: any) {
+        if (!identity) {
+          try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }
+          return
+        }
+        presenceConnect(identity)
+        conn = { ws, identity, alive: true, closed: false }
+        eventsWsConns.add(conn)
+        safeEventsWsSend(conn, JSON.stringify({
+          type: 'hello',
+          ts: new Date().toISOString(),
+          self: identity,
+          online: listOnlineMembers(),
+          recent: getRecentEvents(since, EVENTS_HELLO_RECENT_LIMIT),
+        }))
+      },
+      onMessage(evt: any, _ws: any) {
+        if (!conn) return
+        conn.alive = true
+        let msg: any = null
+        try {
+          msg = JSON.parse(String(evt?.data || ''))
+        } catch {
+          return
+        }
+        if (msg?.type === 'ping') {
+          safeEventsWsSend(conn, JSON.stringify({ type: 'pong', ts: new Date().toISOString() }))
+        }
+      },
+      onClose() {
+        if (conn) cleanupEventsWsConn(conn)
+      },
+      onError() {
+        if (conn) cleanupEventsWsConn(conn)
+      },
+    }
+  }),
+)
+
+// REST 回放：从环形缓冲按 since 游标读取，鉴权与业务读一致（走 authMiddleware）
+app.get('/api/events/recent', (c) => {
+  const since = parseInt(String(c.req.query('since') || '0'), 10) || 0
+  const limit = parseInt(String(c.req.query('limit') || '50'), 10) || 50
+  return c.json({
+    events: getRecentEvents(since, limit),
+    online: listOnlineMembers(),
+    latest_id: latestEventId(),
+  })
 })
 
 app.get('/api/customer/portal', (c) => {
@@ -4135,6 +4475,35 @@ app.delete('/api/crazor/identity/tokens/:id', (c) => {
   return c.json(revoked)
 })
 
+// --- M0 team collaboration: invite codes (admin-governed via identity scope) ---
+app.get('/api/crazor/identity/invites', (c) => {
+  return c.json(listInviteCodes())
+})
+
+app.post('/api/crazor/identity/invites', async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  const actor = resolveRequestActor(c)
+  try {
+    // Plaintext code is returned exactly once — store only its hash
+    return c.json(createInviteCode({
+      label: body.label || '',
+      role: body.role || 'member',
+      department: body.department || '',
+      max_uses: body.max_uses,
+      expires_in_days: body.expires_in_days,
+      created_by: actor?.actor_id || '',
+    }), 201)
+  } catch (err: any) {
+    return c.json({ error: err?.message || 'failed to create invite' }, 400)
+  }
+})
+
+app.delete('/api/crazor/identity/invites/:id', (c) => {
+  const revoked = revokeInviteCode(c.req.param('id'))
+  if (!revoked) return c.json({ error: 'not found' }, 404)
+  return c.json(revoked)
+})
+
 // --- Contacts ---
 app.get('/api/crazor/contacts', (c) => {
   const status = c.req.query('status')
@@ -4921,4 +5290,6 @@ app.get('*', async (c: any) => {
 export default {
   port: PORT,
   fetch: app.fetch,
+  // M1 event bus: Bun WebSocket handler (paired with createBunWebSocket above)
+  websocket,
 }

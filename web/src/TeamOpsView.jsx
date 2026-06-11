@@ -9,6 +9,7 @@ import {
   KeyRoundIcon,
   RefreshCwIcon,
   ShieldCheckIcon,
+  TicketIcon,
   Trash2Icon,
   UserPlusIcon,
   UsersIcon,
@@ -37,6 +38,12 @@ const STATUS_LABELS = {
   active: "启用",
   revoked: "已撤销",
   disabled: "停用",
+}
+
+const ROLE_LABELS = {
+  admin: "管理员",
+  member: "成员",
+  viewer: "只读",
 }
 
 const TOKEN_SCOPE_PRESETS = [
@@ -124,16 +131,32 @@ function defaultScopesForMember(member) {
   return "crm:* docs:* project:* content:* analytics:read"
 }
 
+function inviteDisplayStatus(invite) {
+  if (invite.status !== "active") {
+    return { label: STATUS_LABELS[invite.status] || invite.status, className: statusBadgeClass(invite.status) }
+  }
+  if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) {
+    return { label: "已过期", className: "border-amber-200 bg-amber-50 text-amber-700" }
+  }
+  if (Number(invite.used_count) >= Number(invite.max_uses)) {
+    return { label: "已用完", className: "border-amber-200 bg-amber-50 text-amber-700" }
+  }
+  return { label: "可用", className: statusBadgeClass("active") }
+}
+
 export default function TeamOpsView() {
   const [members, setMembers] = useState([])
   const [tokens, setTokens] = useState([])
+  const [invites, setInvites] = useState([])
   const [auditLogs, setAuditLogs] = useState([])
   const [currentActor, setCurrentActor] = useState(null)
   const [loading, setLoading] = useState(false)
   const [auditLoading, setAuditLoading] = useState(false)
   const [memberSaving, setMemberSaving] = useState(false)
   const [tokenSaving, setTokenSaving] = useState(false)
+  const [inviteSaving, setInviteSaving] = useState(false)
   const [tokenResult, setTokenResult] = useState(null)
+  const [inviteResult, setInviteResult] = useState(null)
   const [accessTokenInput, setAccessTokenInput] = useState("")
   const [savedAccessToken, setSavedAccessToken] = useState(() => getCrazorAuthToken())
   const [memberForm, setMemberForm] = useState({
@@ -147,6 +170,13 @@ export default function TeamOpsView() {
     token_type: "api",
     label: "",
     scopes: "*",
+  })
+  const [inviteForm, setInviteForm] = useState({
+    label: "",
+    role: "member",
+    department: "",
+    max_uses: "1",
+    expires_in_days: "7",
   })
   const [auditFilter, setAuditFilter] = useState({
     entity: "",
@@ -170,14 +200,16 @@ export default function TeamOpsView() {
   const loadIdentity = useCallback(async () => {
     setLoading(true)
     try {
-      const [me, memberList, tokenList] = await Promise.all([
+      const [me, memberList, tokenList, inviteList] = await Promise.all([
         fetchJson("/api/crazor/identity/me"),
         fetchJson("/api/crazor/identity/members"),
         fetchJson("/api/crazor/identity/tokens"),
+        fetchJson("/api/crazor/identity/invites").catch(() => []),
       ])
       setCurrentActor(me)
       setMembers(Array.isArray(memberList) ? memberList : [])
       setTokens(Array.isArray(tokenList) ? tokenList : [])
+      setInvites(Array.isArray(inviteList) ? inviteList : [])
     } catch (error) {
       toast.error("身份数据加载失败", { description: String(error?.message || error) })
     } finally {
@@ -293,6 +325,55 @@ export default function TeamOpsView() {
     if (!tokenResult?.token) return
     await navigator.clipboard.writeText(tokenResult.token)
     toast.success("Token 已复制")
+  }
+
+  async function createInvite(event) {
+    event.preventDefault()
+    setInviteSaving(true)
+    try {
+      const payload = {
+        label: inviteForm.label.trim(),
+        role: inviteForm.role,
+        department: inviteForm.department.trim(),
+        max_uses: Math.max(1, Math.floor(Number(inviteForm.max_uses) || 1)),
+      }
+      const expiresDays = Math.floor(Number(inviteForm.expires_in_days))
+      if (Number.isFinite(expiresDays) && expiresDays > 0) {
+        payload.expires_in_days = expiresDays
+      }
+      const created = await fetchJson("/api/crazor/identity/invites", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+      setInviteResult(created)
+      setInviteForm((current) => ({ ...current, label: "" }))
+      toast.success("邀请码已创建", { description: "明文仅显示一次，请立即复制" })
+      await loadIdentity()
+    } catch (error) {
+      toast.error("邀请码创建失败", { description: String(error?.message || error) })
+    } finally {
+      setInviteSaving(false)
+    }
+  }
+
+  async function revokeInvite(invite) {
+    if (!window.confirm(`撤销邀请码 ${invite.code_prefix}？`)) return
+    try {
+      await fetchJson(`/api/crazor/identity/invites/${encodeURIComponent(invite.id)}`, {
+        method: "DELETE",
+      })
+      toast.success("邀请码已撤销")
+      await loadIdentity()
+      await loadAuditLogs()
+    } catch (error) {
+      toast.error("邀请码撤销失败", { description: String(error?.message || error) })
+    }
+  }
+
+  async function copyInviteCode() {
+    if (!inviteResult?.code) return
+    await navigator.clipboard.writeText(inviteResult.code)
+    toast.success("邀请码已复制")
   }
 
   async function saveAccessToken(event) {
@@ -538,6 +619,95 @@ export default function TeamOpsView() {
                     )}
                   </CardContent>
                 </Card>
+
+                <Card className="shadow-none">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-2 text-[13px] font-medium">
+                      <TicketIcon className="size-4 text-violet-600" />
+                      创建邀请码
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <form className="flex flex-col gap-3" onSubmit={createInvite}>
+                      <Input
+                        value={inviteForm.label}
+                        onChange={(event) =>
+                          setInviteForm((current) => ({ ...current, label: event.target.value }))
+                        }
+                        placeholder="标签（如：销售组新成员）"
+                        className="h-9 rounded-[8px] text-[13px]"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <select
+                          value={inviteForm.role}
+                          onChange={(event) =>
+                            setInviteForm((current) => ({ ...current, role: event.target.value }))
+                          }
+                          className={fieldClassName}>
+                          <option value="member">成员</option>
+                          <option value="admin">管理员</option>
+                          <option value="viewer">只读</option>
+                        </select>
+                        <Input
+                          value={inviteForm.department}
+                          onChange={(event) =>
+                            setInviteForm((current) => ({ ...current, department: event.target.value }))
+                          }
+                          placeholder="部门（可选）"
+                          className="h-9 rounded-[8px] text-[13px]"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                          可用次数
+                          <Input
+                            type="number"
+                            min="1"
+                            value={inviteForm.max_uses}
+                            onChange={(event) =>
+                              setInviteForm((current) => ({ ...current, max_uses: event.target.value }))
+                            }
+                            className="h-9 rounded-[8px] text-[13px]"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                          有效天数
+                          <Input
+                            type="number"
+                            min="1"
+                            value={inviteForm.expires_in_days}
+                            onChange={(event) =>
+                              setInviteForm((current) => ({ ...current, expires_in_days: event.target.value }))
+                            }
+                            className="h-9 rounded-[8px] text-[13px]"
+                          />
+                        </label>
+                      </div>
+                      <Button type="submit" disabled={inviteSaving} className="h-9 rounded-[8px]">
+                        {inviteSaving ? "创建中" : "创建邀请码"}
+                      </Button>
+                    </form>
+
+                    {inviteResult?.code && (
+                      <div className="mt-3 rounded-[8px] border border-violet-200 bg-violet-50 p-3 text-violet-900">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span className="text-[12px] font-medium">新邀请码（仅显示一次）</span>
+                          <Button type="button" size="sm" variant="outline" onClick={copyInviteCode} className="h-7 gap-1 rounded-[7px] bg-white">
+                            <ClipboardCopyIcon className="size-3.5" />
+                            复制
+                          </Button>
+                        </div>
+                        <code className="block break-all rounded-[7px] bg-white px-2 py-1.5 text-[11px]">
+                          {inviteResult.code}
+                        </code>
+                        <div className="mt-2 text-[11px]">
+                          关闭或刷新后将无法再次查看明文，请立即复制并发给成员。角色：{ROLE_LABELS[inviteResult.role] || inviteResult.role}
+                          {inviteResult.department ? ` · 部门：${inviteResult.department}` : ""}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
 
               <div className="grid min-h-0 gap-3 2xl:grid-cols-2">
@@ -643,6 +813,74 @@ export default function TeamOpsView() {
                             <tr>
                               <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
                                 暂无接入凭证
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-none 2xl:col-span-2">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center justify-between gap-2 text-[13px] font-medium">
+                      <span className="flex items-center gap-2">
+                        <TicketIcon className="size-4 text-violet-600" />
+                        邀请码
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">{invites.length}</Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-hidden rounded-[8px] border">
+                      <table className="w-full table-fixed text-left text-[12px]">
+                        <thead className="bg-muted/55 text-muted-foreground">
+                          <tr>
+                            <th className="w-[16%] px-3 py-2 font-medium">前缀</th>
+                            <th className="w-[20%] px-3 py-2 font-medium">标签</th>
+                            <th className="w-[12%] px-3 py-2 font-medium">角色</th>
+                            <th className="w-[14%] px-3 py-2 font-medium">部门</th>
+                            <th className="w-[10%] px-3 py-2 font-medium">使用</th>
+                            <th className="w-[14%] px-3 py-2 font-medium">到期</th>
+                            <th className="w-[10%] px-3 py-2 font-medium">状态</th>
+                            <th className="w-[4%] px-2 py-2 font-medium" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {invites.map((invite) => {
+                            const display = inviteDisplayStatus(invite)
+                            return (
+                              <tr key={invite.id} className="border-t">
+                                <td className="truncate px-3 py-2 font-mono text-[11px]">{invite.code_prefix}</td>
+                                <td className="truncate px-3 py-2">{invite.label || "-"}</td>
+                                <td className="px-3 py-2">{ROLE_LABELS[invite.role] || invite.role}</td>
+                                <td className="truncate px-3 py-2">{invite.department || "-"}</td>
+                                <td className="px-3 py-2">{invite.used_count}/{invite.max_uses}</td>
+                                <td className="px-3 py-2 text-muted-foreground">{invite.expires_at ? formatTime(invite.expires_at) : "长期"}</td>
+                                <td className="px-3 py-2">
+                                  <Badge variant="outline" className={cn("text-[10px]", display.className)}>
+                                    {display.label}
+                                  </Badge>
+                                </td>
+                                <td className="px-2 py-2 text-right">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    disabled={invite.status !== "active"}
+                                    onClick={() => revokeInvite(invite)}
+                                    className="size-7 rounded-[7px]">
+                                    <Trash2Icon className="size-3.5" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                          {invites.length === 0 && (
+                            <tr>
+                              <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
+                                暂无邀请码，可在左侧创建后发给新成员
                               </td>
                             </tr>
                           )}

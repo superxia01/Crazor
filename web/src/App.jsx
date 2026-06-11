@@ -79,6 +79,7 @@ export default function App() {
             loginChannel: data.loginChannel || "",
             deliveryCustomer: data.deliveryCustomer || "",
             deliveryChannel: data.deliveryChannel || "",
+            member: data.member || null,
           })
         } else {
           setUserInfo(null)

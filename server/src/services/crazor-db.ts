@@ -291,6 +291,33 @@ const migrations = [
   "ALTER TABLE transactions ADD COLUMN custom_data TEXT DEFAULT '{}'",
   "ALTER TABLE channels ADD COLUMN custom_data TEXT DEFAULT '{}'",
   "ALTER TABLE actor_tokens ADD COLUMN scopes TEXT NOT NULL DEFAULT '*'",
+  // M0 team collaboration: member profile fields
+  "ALTER TABLE team_members ADD COLUMN department TEXT DEFAULT ''",
+  "ALTER TABLE team_members ADD COLUMN avatar_url TEXT DEFAULT ''",
+  "ALTER TABLE team_members ADD COLUMN wechat_openid TEXT",
+  // M0 team collaboration: ownership columns (idempotent, backward-compatible defaults)
+  "ALTER TABLE contacts ADD COLUMN created_by TEXT DEFAULT ''",
+  "ALTER TABLE contacts ADD COLUMN visibility TEXT DEFAULT 'org'",
+  "ALTER TABLE transactions ADD COLUMN created_by TEXT DEFAULT ''",
+  "ALTER TABLE transactions ADD COLUMN visibility TEXT DEFAULT 'org'",
+  "ALTER TABLE projects ADD COLUMN created_by TEXT DEFAULT ''",
+  "ALTER TABLE projects ADD COLUMN visibility TEXT DEFAULT 'org'",
+  "ALTER TABLE tasks ADD COLUMN created_by TEXT DEFAULT ''",
+  "ALTER TABLE tasks ADD COLUMN visibility TEXT DEFAULT 'org'",
+  "ALTER TABLE deliveries ADD COLUMN created_by TEXT DEFAULT ''",
+  "ALTER TABLE deliveries ADD COLUMN visibility TEXT DEFAULT 'org'",
+  "ALTER TABLE follow_ups ADD COLUMN created_by TEXT DEFAULT ''",
+  "ALTER TABLE follow_ups ADD COLUMN visibility TEXT DEFAULT 'org'",
+  "ALTER TABLE channels ADD COLUMN created_by TEXT DEFAULT ''",
+  "ALTER TABLE channels ADD COLUMN visibility TEXT DEFAULT 'org'",
+  "ALTER TABLE channel_referrals ADD COLUMN created_by TEXT DEFAULT ''",
+  "ALTER TABLE channel_referrals ADD COLUMN visibility TEXT DEFAULT 'org'",
+  "ALTER TABLE content_pieces ADD COLUMN created_by TEXT DEFAULT ''",
+  "ALTER TABLE content_pieces ADD COLUMN visibility TEXT DEFAULT 'org'",
+  "ALTER TABLE doc_folders ADD COLUMN created_by TEXT DEFAULT ''",
+  "ALTER TABLE doc_folders ADD COLUMN visibility TEXT DEFAULT 'org'",
+  "ALTER TABLE doc_notes ADD COLUMN created_by TEXT DEFAULT ''",
+  "ALTER TABLE doc_notes ADD COLUMN visibility TEXT DEFAULT 'org'",
 ]
 for (const sql of migrations) {
   try { db.exec(sql) } catch { /* column already exists */ }
@@ -308,6 +335,29 @@ db.exec(`
     created_at TEXT NOT NULL,
     last_login_at TEXT
   );
+`)
+
+// M0 team collaboration: link login users to team members
+try { db.exec("ALTER TABLE users ADD COLUMN member_id TEXT") } catch { /* column already exists */ }
+
+// M0 team collaboration: invite codes for member onboarding
+db.exec(`
+  CREATE TABLE IF NOT EXISTS invite_codes (
+    id TEXT PRIMARY KEY,
+    code_hash TEXT NOT NULL UNIQUE,
+    code_prefix TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'member',
+    department TEXT NOT NULL DEFAULT '',
+    max_uses INTEGER NOT NULL DEFAULT 1,
+    used_count INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_invite_codes_status ON invite_codes(status);
 `)
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -1402,18 +1452,21 @@ export function upsertIntegrationCheck(data: IntegrationCheckInput) {
 
 // ── Identity / actor tokens ─────────────────────────────────
 
-export function createTeamMember(data: { name: string; actor_type?: string; role?: string; status?: string }) {
+export function createTeamMember(data: { name: string; actor_type?: string; role?: string; status?: string; department?: string; avatar_url?: string; wechat_openid?: string }) {
   const row = {
     id: id(),
     name: data.name,
     actor_type: data.actor_type || "human",
     role: data.role || "member",
     status: data.status || "active",
+    department: data.department || "",
+    avatar_url: data.avatar_url || "",
+    wechat_openid: data.wechat_openid || null,
     created_at: now(),
     updated_at: now(),
   }
-  db.prepare("INSERT INTO team_members (id,name,actor_type,role,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)")
-    .run(row.id, row.name, row.actor_type, row.role, row.status, row.created_at, row.updated_at)
+  db.prepare("INSERT INTO team_members (id,name,actor_type,role,status,department,avatar_url,wechat_openid,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+    .run(row.id, row.name, row.actor_type, row.role, row.status, row.department, row.avatar_url, row.wechat_openid, row.created_at, row.updated_at)
   return row
 }
 
@@ -1425,10 +1478,10 @@ export function getTeamMember(id: string) {
   return db.prepare("SELECT * FROM team_members WHERE id = ?").get(id) as any
 }
 
-export function updateTeamMember(id: string, data: Partial<{ name: string; actor_type: string; role: string; status: string }>) {
+export function updateTeamMember(id: string, data: Partial<{ name: string; actor_type: string; role: string; status: string; department: string; avatar_url: string; wechat_openid: string }>) {
   const sets: string[] = []
   const params: any[] = []
-  for (const key of ["name", "actor_type", "role", "status"]) {
+  for (const key of ["name", "actor_type", "role", "status", "department", "avatar_url", "wechat_openid"]) {
     if ((data as any)[key] !== undefined) { sets.push(`${key} = ?`); params.push((data as any)[key]) }
   }
   if (sets.length === 0) return getTeamMember(id)
@@ -1514,6 +1567,110 @@ function sanitizeActorToken(row: any) {
   const safe = { ...row }
   delete safe.token_hash
   return safe
+}
+
+// ── M0 team collaboration: invite codes ──────────────────────
+
+export function createInviteCode(data: { label?: string; role?: string; department?: string; max_uses?: number; expires_in_days?: number; created_by?: string }) {
+  const code = `czr_invite_${randomBytes(18).toString("base64url")}`
+  const maxUses = Math.max(1, Math.floor(Number(data.max_uses) || 1))
+  const expiresDays = Number(data.expires_in_days)
+  const row = {
+    id: id(),
+    code_hash: hashToken(code),
+    code_prefix: tokenPrefix(code),
+    label: data.label || "",
+    role: ["admin", "member", "viewer"].includes(String(data.role)) ? String(data.role) : "member",
+    department: data.department || "",
+    max_uses: maxUses,
+    used_count: 0,
+    expires_at: Number.isFinite(expiresDays) && expiresDays > 0
+      ? new Date(Date.now() + expiresDays * 86400_000).toISOString()
+      : null,
+    status: "active",
+    created_by: data.created_by || "",
+    created_at: now(),
+    updated_at: now(),
+  }
+  db.prepare(`INSERT INTO invite_codes (id,code_hash,code_prefix,label,role,department,max_uses,used_count,expires_at,status,created_by,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(row.id, row.code_hash, row.code_prefix, row.label, row.role, row.department, row.max_uses, row.used_count, row.expires_at, row.status, row.created_by, row.created_at, row.updated_at)
+  const { code_hash: _hash, ...safe } = row
+  return { ...safe, code }
+}
+
+export function listInviteCodes() {
+  return db.prepare(`SELECT id,code_prefix,label,role,department,max_uses,used_count,expires_at,status,created_by,created_at,updated_at
+    FROM invite_codes ORDER BY created_at DESC`).all()
+}
+
+export function revokeInviteCode(id: string) {
+  db.prepare("UPDATE invite_codes SET status = 'revoked', updated_at = ? WHERE id = ?").run(now(), id)
+  return db.prepare(`SELECT id,code_prefix,label,role,department,max_uses,used_count,expires_at,status,created_by,created_at,updated_at
+    FROM invite_codes WHERE id = ?`).get(id)
+}
+
+export function redeemInviteCode(code: string, memberName: string): { member: any } {
+  const cleanName = String(memberName || "").trim()
+  if (!cleanName) throw new Error("成员姓名不能为空")
+  const invite = db.prepare("SELECT * FROM invite_codes WHERE code_hash = ?").get(hashToken(String(code || "").trim())) as any
+  if (!invite || invite.status !== "active") throw new Error("邀请码无效或已撤销")
+  if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) throw new Error("邀请码已过期")
+  if (Number(invite.used_count) >= Number(invite.max_uses)) throw new Error("邀请码使用次数已用完")
+
+  // Reuse an existing active member with the same name instead of duplicating
+  const existing = db.prepare("SELECT * FROM team_members WHERE name = ? AND actor_type = 'human' AND status = 'active'")
+    .get(cleanName) as any
+  const member = existing || createTeamMember({
+    name: cleanName,
+    actor_type: "human",
+    role: invite.role,
+    department: invite.department,
+  })
+
+  db.prepare("UPDATE invite_codes SET used_count = used_count + 1, updated_at = ? WHERE id = ?").run(now(), invite.id)
+  return { member }
+}
+
+export function findTeamMemberByOpenid(openid: string) {
+  if (!openid) return null
+  return db.prepare("SELECT * FROM team_members WHERE wechat_openid = ? AND status = 'active'").get(openid) as any
+}
+
+export function countActiveHumanMembers(): number {
+  const row = db.prepare("SELECT count(*) as count FROM team_members WHERE actor_type = 'human' AND status = 'active'").get() as any
+  return Number(row?.count || 0)
+}
+
+// ── M0 team collaboration: ownership stamping ────────────────
+
+const OWNED_ENTITY_TABLES: Record<string, string> = {
+  contact: "contacts",
+  transaction: "transactions",
+  project: "projects",
+  task: "tasks",
+  delivery: "deliveries",
+  follow_up: "follow_ups",
+  channel: "channels",
+  channel_referral: "channel_referrals",
+  content_piece: "content_pieces",
+  doc_folder: "doc_folders",
+  doc_note: "doc_notes",
+}
+
+const ANONYMOUS_ACTOR_IDS = new Set(["", "anonymous", "missing-token", "invalid-token", "mcp-client", "rest-api"])
+
+export function stampEntityOwner(entity: string, entityId: string, actorId: string) {
+  const table = OWNED_ENTITY_TABLES[String(entity || "").trim()]
+  const cleanId = String(entityId || "").trim()
+  const cleanActor = String(actorId || "").trim()
+  if (!table || !cleanId || ANONYMOUS_ACTOR_IDS.has(cleanActor)) return
+  try {
+    db.prepare(`UPDATE ${table} SET created_by = ? WHERE id = ? AND (created_by IS NULL OR created_by = '')`)
+      .run(cleanActor, cleanId)
+  } catch (err) {
+    console.error(`[ownership] failed to stamp ${entity}/${cleanId}:`, err)
+  }
 }
 
 // ── Agent sessions analytics (Hermes-compatible state.db) ────

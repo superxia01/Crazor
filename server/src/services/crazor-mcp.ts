@@ -15,11 +15,12 @@ import {
   listContentPieces, getContentPiece, createContentPiece,
   updateContentPiece, deleteContentPiece, getContentPieceStats,
   contentPublish, contentUpdateMetrics, contentCheckDaily,
-  createAuditLog,
+  createAuditLog, stampEntityOwner,
 } from "./crazor-db"
 import { listFieldDefinitions, createFieldDefinition, discoverCustomFields } from "./field-definitions"
 import * as docTree from "./crazor-doc-tree"
 import { evaluateWritePermission } from "./crazor-permissions"
+import { emitEvent } from "./event-bus"
 
 // ── SSE session management ───────────────────────────────────
 
@@ -767,6 +768,11 @@ async function executeTool(name: string, args: any, actor?: ToolActor): Promise<
   assertMcpWriteAllowed(name, args, actor)
   const result = await executeToolAction(name, args)
   recordMcpAudit(name, args, result, actor)
+  // M0 team collaboration: attribute MCP-created entities to the acting member/agent
+  const audit = deriveMcpAudit(name, args, result)
+  if (audit && audit.action === "create" && audit.entity_id) {
+    stampEntityOwner(audit.entity, audit.entity_id, String(actor?.actor_id || ""))
+  }
   return result
 }
 
@@ -930,6 +936,18 @@ function recordMcpAudit(name: string, args: any, result: any, actor?: ToolActor)
   } catch (err) {
     console.error("[audit] failed to record MCP write:", err)
   }
+
+  // M1 event bus: mirror MCP tool writes onto the realtime event stream
+  emitEvent({
+    type: "mcp.tool_called",
+    actor_id: String(actor?.actor_id || args?.actor_id || args?.agent_id || "mcp-client"),
+    actor_name: "",
+    actor_type: actor?.actor_type || "agent",
+    entity: audit.entity,
+    entity_id: audit.entity_id,
+    summary: `MCP ${name}`,
+    data: { tool: name, action: audit.action, source: actor?.source || "mcp-tool" },
+  })
 }
 
 function deriveMcpAudit(name: string, args: any, result: any): null | { action: string; entity: string; entity_id: string } {
