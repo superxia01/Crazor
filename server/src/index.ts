@@ -1326,7 +1326,7 @@ app.use('/api/crazor/*', async (c, next) => {
     : null
 
   if (sensitiveRead && shouldProtectSensitiveRead()) {
-    const readActor = extractActorToken(c)
+    const readActor = extractActorToken(c) || (actor?.source === 'login-jwt' && (actor as any)?.role)
       ? actor
       : { actor_type: 'human', actor_id: 'missing-token', source: 'missing-token' }
     const permission = evaluateReadPermission(readActor, sensitiveRead.entity)
@@ -1342,7 +1342,7 @@ app.use('/api/crazor/*', async (c, next) => {
   }
 
   if (businessRead && shouldProtectBusinessRead()) {
-    const readActor = extractActorToken(c)
+    const readActor = extractActorToken(c) || (actor?.source === 'login-jwt' && (actor as any)?.role)
       ? actor
       : { actor_type: 'human', actor_id: 'missing-token', source: 'missing-token' }
     const permission = evaluateReadPermission(readActor, businessRead.entity)
@@ -1357,7 +1357,13 @@ app.use('/api/crazor/*', async (c, next) => {
     }
   }
 
-  if (shouldAudit && CRAZOR_REQUIRE_WRITE_TOKEN && !extractActorToken(c) && !canBootstrapIdentityWrite(url.pathname)) {
+  if (
+    shouldAudit &&
+    CRAZOR_REQUIRE_WRITE_TOKEN &&
+    !extractActorToken(c) &&
+    !(actor?.source === 'login-jwt' && (actor as any)?.role) &&
+    !canBootstrapIdentityWrite(url.pathname)
+  ) {
     const audit = deriveRestAudit(method, url.pathname, null, url.searchParams)
     const missingActor = { actor_type: 'human', actor_id: 'missing-token', source: 'missing-token' }
     const permission = evaluateWritePermission(missingActor, audit.action, audit.entity)
